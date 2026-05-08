@@ -146,7 +146,10 @@ function UsersTab() {
   const [open, setOpen] = useState(null); // null | 'create' | userObj
   const [form, setForm] = useState({ email: "", name: "", role: "doctor", password: "" });
 
-  const load = () => api.get("/users").then(r => setUsers(r.data));
+  const load = async () => {
+    const r = await api.get("/users");
+    setUsers(r.data);
+  };
   useEffect(() => { load(); }, []);
 
   const startCreate = () => { setForm({ email: "", name: "", role: "doctor", password: "" }); setOpen("create"); };
@@ -162,7 +165,8 @@ function UsersTab() {
         await api.put(`/admin/users/${open.id}`, form);
         toast.success("User updated");
       }
-      setOpen(null); load();
+      setOpen(null);
+      await load();
     } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
   };
 

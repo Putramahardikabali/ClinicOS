@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration-3 regression validation PASSED. Both fixes from iter-2 are confirmed working. (1) Photos.jsx: uploadFile is now defined as helper in component scope (line 42-57). Photos tab renders without runtime error for super_admin, doctor, therapist, fo on visit page; both data-testid='photo-upload-button' (Choose file) and data-testid='camera-open-button' (Take photo) buttons are present and the photo-uploader card renders. No 'uploadFile is not defined' error in console or DOM. (2) AdminPage Users tab: After creating a user via the modal, the modal closes and the users table immediately shows the new row (6 -> 7 users); after deleting users via Delete button + confirm dialog, the table refreshes correctly (7 -> 6 -> 5). 'User created' and 'Deleted' toasts both display. Backend: 47/47 pytest tests still pass (32 in backend_test.py + 15 in test_admin_settings.py). No new issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_admin_settings.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "All iter-2 regressions confirmed fixed. Carry-over (low priority, not blocking): (a) LoginPage.jsx — main agent claims iter-1 already fixed redirect-during-render; verified Navigate replace is in place. (b) Carry-over code review items from iter-2: AdminPage.jsx ~461 lines could be split per tab; PUT /api/admin/settings accepts arbitrary nested dicts without strict Pydantic validation; DELETE /api/admin/users/{uid} doesn't cascade clean references in visits.created_by/assigned_to and clinical_records.doctor_id; CORS allow_origins=['*'] + allow_credentials=True still invalid."
+  ],
+  "critical_code_review_comments": [
+    "Photos.jsx fix is clean: uploadFile is a single source-of-truth helper used by both file-picker (onFile -> uploadFile) and camera (CameraButton onCapture={uploadFile}). Good DRY refactor.",
+    "AdminPage.jsx UsersTab.save: now correctly closes modal first, then awaits load(); however del() still calls load() without await (line 175) — works due to React re-render but inconsistent style; adding await for consistency is a minor improvement.",
+    "Carry-over: AdminPage.jsx still ~461 lines; consider splitting tab editors into pages/admin/* per file.",
+    "Carry-over: PUT /api/admin/settings accepts Dict[str, Any] for branding/form_config/mapping_templates with no schema validation.",
+    "Carry-over: DELETE /api/admin/users/{uid} leaves orphan visit/clinical references; consider soft-delete or cascade.",
+    "Carry-over: backend CORS config allow_origins=['*'] with allow_credentials=True is invalid per spec."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (47/47 pytest)",
+    "frontend": "100% on iter-2 regressions (Photos for 4 roles + Users CRUD refresh)"
+  },
+  "test_credentials": "/app/memory/test_credentials.md — admin@bodylab.id / doctor@bodylab.id / therapist@bodylab.id / fo@bodylab.id / manager@bodylab.id all use password123.",
+  "seed_data_creation": "Created TEST_iter3_<ts>@example.com via Add user modal during regression, then deleted it plus a leftover test_user_f61f38f1@bodylab.id from previous iterations. Final state: 5 base demo users only — no test residue.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Both iter-2 critical+medium frontend bugs are now fixed and verified. Backend remained at 47/47. If iter-3 introduces new features, re-run pytest backend/tests/ -v for full regression. For the visit Photos flow, valid demo visit IDs exist (e.g. /visits/45d45acf-0083-4145-95a3-0919d0e50672) accessible from /visits page. The CameraButton onCapture is wired to a real handler, so capture flow can be tested end-to-end if camera permissions can be mocked. Do NOT re-test the LoginPage redirect — main agent confirmed it was actually fixed in iter-1 and iter-2 report's claim that it was unfixed was incorrect.",
+  "rca_of_the_issue": "Both fixes verified by direct UI regression. (1) Photos.jsx line 42 now declares `const uploadFile = async (file) => { FormData + POST /api/visits/{id}/photos }` — used by both file picker (onFile loop) and CameraButton's onCapture prop. (2) AdminPage UsersTab save() now `setOpen(null); await load();` after successful POST/PUT — modal closes synchronously and table state refreshes from server in same tick before user's next interaction."
+}

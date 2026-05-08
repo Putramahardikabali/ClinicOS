@@ -39,26 +39,28 @@ export default function Photos({ visit, onSaved }) {
 
   const onPick = () => inputRef.current?.click();
 
-  const onFile = async (e) => {
-    const files = e.target.files;
-    if (!files || !files.length) return;
+  const uploadFile = async (file) => {
     setBusy(true);
     try {
-      for (const f of files) {
-        const fd = new FormData();
-        fd.append("file", f);
-        fd.append("photo_type", uploadType);
-        fd.append("angle", uploadAngle);
-        await api.post(`/visits/${visit.id}/photos`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("photo_type", uploadType);
+      fd.append("angle", uploadAngle);
+      await api.post(`/visits/${visit.id}/photos`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       toast.success("Photo uploaded");
       onSaved?.();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Upload failed");
     } finally {
       setBusy(false);
-      e.target.value = "";
     }
+  };
+
+  const onFile = async (e) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    for (const f of files) await uploadFile(f);
+    e.target.value = "";
   };
 
   const del = async (id) => {
