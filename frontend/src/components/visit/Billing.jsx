@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
+import { useSettings } from "@/lib/settings";
 import { Plus, Trash2 } from "lucide-react";
-
-const PAYMENT_METHODS = ["Cash", "Debit Card", "Credit Card", "QRIS", "Bank Transfer", "E-Wallet", "Other"];
 
 export default function Billing({ visit, onSaved }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const PAYMENT_METHODS = settings?.form_config?.payment_methods || ["Cash"];
   const editable = can(user, "process_billing");
   const [items, setItems] = useState([]);
   const [discount, setDiscount] = useState(0);

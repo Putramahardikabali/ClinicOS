@@ -5,6 +5,13 @@
 @tailwind utilities;
 
 :root {
+  --bl-primary: #8A9A86;
+  --bl-primary-hover: #748470;
+  --bl-accent: #D4A373;
+  --bl-background: #FDFBF7;
+  --bl-surface: #FFFFFF;
+  --bl-text: #2D3A33;
+
   --background: 42 50% 98%;
   --foreground: 145 12% 19%;
   --card: 0 0% 100%;
@@ -27,15 +34,13 @@
   --radius: 0.875rem;
 }
 
-html, body, #root {
-  height: 100%;
-}
+html, body, #root { height: 100%; }
 
 body {
   margin: 0;
   font-family: "DM Sans", system-ui, -apple-system, sans-serif;
-  background: #FDFBF7;
-  color: #2D3A33;
+  background: var(--bl-background);
+  color: var(--bl-text);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -53,36 +58,27 @@ h1, h2, h3, h4, h5, .font-display {
 }
 
 .bl-card {
-  background: #FFFFFF;
+  background: var(--bl-surface);
   border: 1px solid #EAE6D7;
   border-radius: 1rem;
   transition: all 0.2s ease;
 }
-
-.bl-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(45, 58, 51, 0.06);
-}
+.bl-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(45, 58, 51, 0.06); }
 
 .bl-input {
-  background: #FFFFFF;
+  background: var(--bl-surface);
   border: 1px solid #EAE6D7;
   border-radius: 0.75rem;
-  padding: 0.75rem 0.9rem;
+  padding: 0.7rem 0.9rem;
   width: 100%;
   font-size: 0.95rem;
-  color: #2D3A33;
+  color: var(--bl-text);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-
-.bl-input:focus {
-  outline: none;
-  border-color: #8A9A86;
-  box-shadow: 0 0 0 3px rgba(138, 154, 134, 0.18);
-}
+.bl-input:focus { outline: none; border-color: var(--bl-primary); box-shadow: 0 0 0 3px rgba(138, 154, 134, 0.18); }
 
 .bl-btn-primary {
-  background: #8A9A86;
+  background: var(--bl-primary);
   color: #FFFFFF;
   padding: 0.7rem 1.2rem;
   border-radius: 0.75rem;
@@ -91,28 +87,20 @@ h1, h2, h3, h4, h5, .font-display {
   border: 1px solid transparent;
   transition: background-color 0.15s, transform 0.1s;
 }
-
-.bl-btn-primary:hover {
-  background: #748470;
-}
-
-.bl-btn-primary:active {
-  transform: translateY(1px);
-}
+.bl-btn-primary:hover { background: var(--bl-primary-hover); }
+.bl-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+.bl-btn-primary:active { transform: translateY(1px); }
 
 .bl-btn-ghost {
   background: transparent;
-  color: #2D3A33;
+  color: var(--bl-text);
   padding: 0.6rem 1rem;
   border-radius: 0.75rem;
   font-weight: 500;
   border: 1px solid #EAE6D7;
   transition: background 0.15s;
 }
-
-.bl-btn-ghost:hover {
-  background: #F3F1EB;
-}
+.bl-btn-ghost:hover { background: #F3F1EB; }
 
 .bl-chip {
   display: inline-flex;
@@ -127,15 +115,10 @@ h1, h2, h3, h4, h5, .font-display {
   color: #5C6C62;
   border: 1px solid #EAE6D7;
 }
-
 .bl-chip.success { background: #EDF3EF; color: #52796F; border-color: #CFE0D5; }
 .bl-chip.warning { background: #FBF3DB; color: #8A6D1F; border-color: #EFE2B0; }
 .bl-chip.danger  { background: #FBE7DF; color: #B14A2C; border-color: #F1C9B7; }
 .bl-chip.info    { background: #E5EEF5; color: #2C5A77; border-color: #C2D5E2; }
-
-.bl-divider {
-  border-color: #EAE6D7;
-}
 
 .bl-sidebar-link {
   display: flex;
@@ -148,29 +131,24 @@ h1, h2, h3, h4, h5, .font-display {
   font-weight: 500;
   transition: background 0.15s, color 0.15s;
 }
-
-.bl-sidebar-link:hover {
-  background: #ECE7D7;
-  color: #2D3A33;
-}
-
-.bl-sidebar-link.active {
-  background: #FFFFFF;
-  color: #2D3A33;
-  box-shadow: 0 1px 3px rgba(45, 58, 51, 0.06);
-}
+.bl-sidebar-link:hover { background: #ECE7D7; color: var(--bl-text); }
+.bl-sidebar-link.active { background: var(--bl-surface); color: var(--bl-text); box-shadow: 0 1px 3px rgba(45, 58, 51, 0.06); }
 
 /* Print styles */
 @media print {
   .no-print { display: none !important; }
   body { background: #fff !important; }
-  .print-page {
-    page-break-after: always;
-  }
+  .print-page { page-break-after: always; }
 }
 
-/* Subtle scrollbar */
+/* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #DCD5C2; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: #C7BFA7; }
+
+/* Mobile drawer */
+.bl-mobile-overlay {
+  position: fixed; inset: 0; background: rgba(45, 58, 51, 0.45);
+  z-index: 40; backdrop-filter: blur(2px);
+}

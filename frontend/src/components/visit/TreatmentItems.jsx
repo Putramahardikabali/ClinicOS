@@ -2,20 +2,16 @@ import { useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
+import { useSettings } from "@/lib/settings";
 import { Plus, Trash2 } from "lucide-react";
-
-const CATEGORIES = [
-  "Injectable", "Filler", "Toxin", "PRP", "Mesotherapy",
-  "Laser", "RF", "HIFU", "Cryolipolysis", "Microneedling",
-  "Facial", "Body Treatment", "Oral Medication", "Skincare", "Other",
-];
-
-const UNITS = ["session", "ml", "cc", "unit", "vial", "tube", "shot", "minute"];
 
 export default function TreatmentItems({ visit, onSaved }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const CATEGORIES = settings?.form_config?.treatment_categories || [];
+  const UNITS = settings?.form_config?.treatment_units || ["session"];
   const editable = can(user, "add_treatment");
-  const [form, setForm] = useState({ category: "Injectable", name: "", product_used: "", area_treated: "", quantity: 1, unit_type: "session", notes: "", price: 0 });
+  const [form, setForm] = useState({ category: CATEGORIES[0] || "Other", name: "", product_used: "", area_treated: "", quantity: 1, unit_type: UNITS[0] || "session", notes: "", price: 0 });
   const items = visit.treatment_items || [];
 
   const add = async (e) => {

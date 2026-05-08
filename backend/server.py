@@ -217,6 +217,117 @@ class BillingIn(BaseModel):
     payment_status: str = "unpaid"  # unpaid | paid | partial
     notes: Optional[str] = ""
 
+class UserIn(BaseModel):
+    email: EmailStr
+    password: Optional[str] = None
+    name: str
+    role: str
+
+class SettingsIn(BaseModel):
+    branding: Optional[Dict[str, Any]] = None
+    form_config: Optional[Dict[str, Any]] = None
+    mapping_templates: Optional[Dict[str, Any]] = None
+
+# ---------------- Default Settings ----------------
+DEFAULT_FACE_SECTIONS = [
+    {"key":"skin_quality","label":"Skin Quality","subs":[
+        {"key":"thickness","label":"Thickness","options":["Thin","Normal","Thick"]},
+        {"key":"hydration","label":"Hydration","options":["Hydrated","Dry"]},
+        {"key":"laxity","label":"Laxity","options":["Good","Poor"]},
+    ]},
+    {"key":"forehead_lines","label":"Forehead Lines","subs":[
+        {"key":"static","label":"Static","options":["Observed","Not Observed"]},
+        {"key":"dynamic","label":"Dynamic","options":["Observed","Not Observed"]},
+    ]},
+    {"key":"frown_lines","label":"Frown Lines","subs":[
+        {"key":"static","label":"Static","options":["Observed","Not Observed"]},
+        {"key":"dynamic","label":"Dynamic","options":["Observed","Not Observed"]},
+    ]},
+    {"key":"tear_trough","label":"Tear Trough","subs":[
+        {"key":"status","label":"","options":["Observed","Not Observed"]},
+    ]},
+    {"key":"temples","label":"Temples","subs":[
+        {"key":"status","label":"","options":["Full","Hollow"]},
+    ]},
+    {"key":"cheeks","label":"Cheeks","subs":[
+        {"key":"status","label":"","options":["Full","Hollow"]},
+    ]},
+    {"key":"nasolabial_folds","label":"Nasolabial Folds","subs":[
+        {"key":"static","label":"Static","options":["Observed","Not Observed"]},
+        {"key":"dynamic","label":"Dynamic","options":["Observed","Not Observed"]},
+    ]},
+    {"key":"marionette_line","label":"Marionette Line","subs":[
+        {"key":"static","label":"Static","options":["Observed","Not Observed"]},
+        {"key":"projection","label":"Projection","options":["Protruded","Proportionate","Receded"]},
+    ]},
+    {"key":"lips","label":"Lips","subs":[
+        {"key":"thickness","label":"Thickness","options":["Thin","Thick"]},
+        {"key":"vermilion_border","label":"Vermilion Border","options":["Defined","Not Defined"]},
+        {"key":"cupids_bow","label":"Cupid's Bow","options":["Defined","Not Defined"]},
+    ]},
+    {"key":"chin","label":"Chin","subs":[
+        {"key":"length","label":"Length","options":["Short","Proportionate","Long"]},
+        {"key":"projection","label":"Projection","options":["Protruded","Proportionate","Receded"]},
+    ]},
+    {"key":"jawline","label":"Jaw Line","subs":[
+        {"key":"status","label":"","options":["Strong","Weak"]},
+    ]},
+    {"key":"neck_lines","label":"Neck Lines","subs":[
+        {"key":"static","label":"Static","options":["Observed","Not Observed"]},
+        {"key":"dynamic","label":"Dynamic","options":["Observed","Not Observed"]},
+    ]},
+]
+
+DEFAULT_TEMPLATES = {
+    "face": {
+        "label": "Face outline",
+        "svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500"><ellipse cx="200" cy="220" rx="120" ry="160" fill="none" stroke="#C7BFA7" stroke-width="2"/><circle cx="155" cy="200" r="6" fill="none" stroke="#C7BFA7" stroke-width="1.5"/><circle cx="245" cy="200" r="6" fill="none" stroke="#C7BFA7" stroke-width="1.5"/><path d="M180 250 Q200 270 220 250" fill="none" stroke="#C7BFA7" stroke-width="1.5"/><path d="M165 305 Q200 325 235 305" fill="none" stroke="#C7BFA7" stroke-width="1.5"/></svg>',
+    },
+    "body_front": {
+        "label": "Body front",
+        "svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 600"><circle cx="150" cy="60" r="40" fill="none" stroke="#C7BFA7" stroke-width="2"/><path d="M110 100 L100 130 L70 200 L80 320 L100 320 L110 220 L110 350 L120 540 L140 540 L145 360 L155 360 L160 540 L180 540 L190 350 L190 220 L200 320 L220 320 L230 200 L200 130 L190 100 Z" fill="none" stroke="#C7BFA7" stroke-width="2"/></svg>',
+    },
+    "body_back": {
+        "label": "Body back",
+        "svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 600"><circle cx="150" cy="60" r="40" fill="none" stroke="#C7BFA7" stroke-width="2"/><path d="M110 100 L100 130 L70 200 L80 320 L100 320 L110 220 L110 350 L120 540 L140 540 L145 360 L155 360 L160 540 L180 540 L190 350 L190 220 L200 320 L220 320 L230 200 L200 130 L190 100 Z" fill="none" stroke="#C7BFA7" stroke-width="2"/><line x1="150" y1="100" x2="150" y2="350" stroke="#C7BFA7" stroke-width="1" stroke-dasharray="4 4"/></svg>',
+    },
+}
+
+DEFAULT_SETTINGS = {
+    "branding": {
+        "clinic_name": "Body Lab Bali",
+        "tagline": "Aesthetic Clinic · Internal EMR",
+        "logo_path": "",  # storage path for logo
+        "primary_color": "#8A9A86",
+        "primary_hover": "#748470",
+        "accent_color": "#D4A373",
+        "background": "#FDFBF7",
+        "surface": "#FFFFFF",
+        "text_primary": "#2D3A33",
+    },
+    "form_config": {
+        "face_sections": DEFAULT_FACE_SECTIONS,
+        "contraindications": [
+            "Pregnancy", "Breastfeeding", "Active skin infection", "Recent surgery",
+            "Pacemaker / metal implant", "Keloid history", "Photosensitivity",
+            "Active acne flare", "Anti-coagulant medication", "Open wound in treatment area",
+        ],
+        "devices": [
+            "RF (Radio Frequency)", "HIFU", "Cryolipolysis", "Laser CO2", "IPL",
+            "Microneedling", "Ultrasound", "Cavitation", "EMS", "LED Light",
+            "Manual / Hands-on", "Other",
+        ],
+        "treatment_categories": [
+            "Injectable", "Filler", "Toxin", "PRP", "Mesotherapy",
+            "Laser", "RF", "HIFU", "Cryolipolysis", "Microneedling",
+            "Facial", "Body Treatment", "Oral Medication", "Skincare", "Other",
+        ],
+        "treatment_units": ["session", "ml", "cc", "unit", "vial", "tube", "shot", "minute"],
+        "payment_methods": ["Cash", "Debit Card", "Credit Card", "QRIS", "Bank Transfer", "E-Wallet", "Other"],
+    },
+    "mapping_templates": DEFAULT_TEMPLATES,
+}
+
 # ---------------- Auth Endpoints ----------------
 @api.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
@@ -247,6 +358,93 @@ async def logout(response: Response, user: dict = Depends(get_current_user)):
 async def list_users(user: dict = Depends(require_roles("super_admin", "fo", "manager"))):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
     return users
+
+@api.post("/admin/users")
+async def admin_create_user(payload: UserIn, user: dict = Depends(require_roles("super_admin"))):
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if not payload.password:
+        raise HTTPException(status_code=400, detail="Password required")
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email already exists")
+    new_user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "name": payload.name,
+        "role": payload.role,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(new_user)
+    new_user.pop("_id", None); new_user.pop("password_hash", None)
+    await audit(user, "create", "user", new_user["id"])
+    return new_user
+
+@api.put("/admin/users/{uid}")
+async def admin_update_user(uid: str, payload: UserIn, user: dict = Depends(require_roles("super_admin"))):
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    upd = {"email": payload.email.lower(), "name": payload.name, "role": payload.role}
+    if payload.password:
+        upd["password_hash"] = hash_password(payload.password)
+    r = await db.users.update_one({"id": uid}, {"$set": upd})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    await audit(user, "update", "user", uid)
+    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+
+@api.delete("/admin/users/{uid}")
+async def admin_delete_user(uid: str, user: dict = Depends(require_roles("super_admin"))):
+    if uid == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    r = await db.users.delete_one({"id": uid})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    await audit(user, "delete", "user", uid)
+    return {"ok": True}
+
+# ---------------- Settings ----------------
+@api.get("/settings")
+async def get_settings(user: dict = Depends(get_current_user)):
+    s = await db.settings.find_one({"id": "global"}, {"_id": 0})
+    if not s:
+        s = {"id": "global", **DEFAULT_SETTINGS}
+        await db.settings.insert_one(s)
+        s.pop("_id", None)
+    return s
+
+@api.put("/admin/settings")
+async def update_settings(payload: SettingsIn, user: dict = Depends(require_roles("super_admin"))):
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    await db.settings.update_one({"id": "global"}, {"$set": upd}, upsert=True)
+    await audit(user, "update", "settings", "global")
+    return await db.settings.find_one({"id": "global"}, {"_id": 0})
+
+@api.post("/admin/logo")
+async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require_roles("super_admin"))):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() or "png"
+    if ext not in ("png", "jpg", "jpeg", "webp", "svg"):
+        raise HTTPException(status_code=400, detail="Unsupported logo format")
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/branding/logo-{pid}.{ext}"
+    data = await file.read()
+    ct = file.content_type or (f"image/{ext}" if ext != "svg" else "image/svg+xml")
+    result = put_object(path, data, ct)
+    # Persist to settings + create photo-like record so /api/files/{path} can serve it
+    await db.photos.insert_one({
+        "id": pid, "visit_id": "", "patient_id": "",
+        "storage_path": result["path"], "photo_type": "branding", "angle": "logo",
+        "content_type": ct, "uploaded_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await db.settings.update_one(
+        {"id": "global"},
+        {"$set": {"branding.logo_path": result["path"]}},
+        upsert=True,
+    )
+    await audit(user, "upload", "logo", pid)
+    return {"logo_path": result["path"]}
 
 # ---------------- Patients ----------------
 @api.post("/patients")
@@ -455,23 +653,29 @@ async def delete_photo(vid: str, pid: str, user: dict = Depends(require_roles("s
 
 @api.get("/files/{path:path}")
 async def serve_file(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
-    # Lightweight auth: token in query (for img tags) or header
-    token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:]
-    elif auth:
-        token = auth
-    if not token:
-        raise HTTPException(status_code=401, detail="Auth required")
-    try:
-        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
     rec = await db.photos.find_one({"storage_path": path})
     if not rec:
         raise HTTPException(status_code=404, detail="File not found")
+    # Branding assets (logo) are publicly accessible — needed on login page
+    if rec.get("photo_type") != "branding":
+        token = None
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization[7:]
+        elif auth:
+            token = auth
+        if not token:
+            raise HTTPException(status_code=401, detail="Auth required")
+        try:
+            jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
     data, ct = get_object(path)
     return FastResponse(content=data, media_type=rec.get("content_type", ct))
+
+@api.get("/branding")
+async def public_branding():
+    s = await db.settings.find_one({"id": "global"}, {"_id": 0, "branding": 1})
+    return (s or {}).get("branding", DEFAULT_SETTINGS["branding"])
 
 # ---------------- Mappings ----------------
 @api.post("/visits/{vid}/mappings")
@@ -598,6 +802,9 @@ async def startup():
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
     init_storage()
+    # Seed default settings
+    if not await db.settings.find_one({"id": "global"}):
+        await db.settings.insert_one({"id": "global", **DEFAULT_SETTINGS})
     log.info("Body Lab Bali EMR ready")
 
 @app.on_event("shutdown")

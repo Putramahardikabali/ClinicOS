@@ -1,0 +1,70 @@
+{
+  "summary": "Iteration-2 backend admin/settings/users/branding/logo features fully validated: 47/47 pytest tests pass (32 iter-1 regression + 15 new). Frontend: AdminPage RBAC works (doctor redirected from /admin), all 6 admin tabs render (Branding/Users/Doctor/Therapist/Treatment/Mapping), branding edit persists across reload, mobile drawer (390x844) opens with user info. CRITICAL frontend bug: /app/frontend/src/components/visit/Photos.jsx line 83 references undefined identifier 'uploadFile' inside <CameraButton onCapture={uploadFile} />, throwing 'ReferenceError: uploadFile is not defined' and crashing the entire Photos tab for every editable role on every visit. The error overlay also blocks all interaction on the visit page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "components/visit/Photos.jsx (line 83)",
+        "issue": "ReferenceError: uploadFile is not defined. <CameraButton onCapture={uploadFile} /> references a function that was never declared in the component. Crashes the Photos tab for super_admin/doctor/therapist/fo on EVERY visit. Suggested fix: define an async handler that takes a Blob from the camera, builds FormData with photo_type/angle, and POSTs to /api/visits/{id}/photos — e.g. const uploadFile = async (blob) => { const fd = new FormData(); fd.append('file', blob, 'capture.jpg'); fd.append('photo_type', uploadType); fd.append('angle', uploadAngle); await api.post(`/visits/${visit.id}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }); onSaved?.(); };",
+        "selector": "[data-testid=\"photo-uploader\"]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "pages/LoginPage.jsx",
+        "issue": "Iteration-1 bug NOT fixed: when an authenticated user (token in localStorage) navigates to /login, the page calls navigate('/') during render (no useEffect / no <Navigate replace />). Side-effect: any test that switches roles within the same browser session deadlocks because the login form never appears until localStorage is cleared. Recommended fix is the same as iter-1.",
+        "selector": "/app/frontend/src/pages/LoginPage.jsx",
+        "priority": "LOW"
+      },
+      {
+        "component": "pages/AdminPage.jsx Users tab — create user form",
+        "issue": "After clicking Save in the New User modal, the users table does not appear to reflect the new user immediately (likely the list isn't refetched, or modal doesn't close cleanly). Backend POST /api/admin/users works perfectly (verified via pytest), so this is purely a UI-state refresh issue. Confirm by adding a list refetch on save success and closing the modal.",
+        "selector": "[data-testid=\"users-table\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Visit -> Photos tab (any visit, any editable role)",
+        "issue": "Tab does not render at all due to the uploadFile ReferenceError above. CameraButton + the file uploader are both inaccessible because the parent component throws before children render.",
+        "affected_selectors": ["[data-testid=\"photo-uploader\"]", "[data-testid=\"camera-open-button\"]", "[data-testid=\"photo-grid\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_settings.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/iter2_admin.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Define `uploadFile` (or remove/replace the prop) in Photos.jsx so the Photos tab and CameraCapture flow do not crash. Without this, the entire photo feature is broken for all roles on all visits.",
+    "MEDIUM: After successful POST /api/admin/users in AdminPage.jsx Users tab, refetch the user list and close the modal so the new user appears in the table.",
+    "LOW: Carry-over from iter-1: replace direct navigate('/') in LoginPage render with useEffect or <Navigate replace /> to silence React 'setState-during-render' warning AND avoid blocking login form for authenticated sessions."
+  ],
+  "critical_code_review_comments": [
+    "Photos.jsx imports CameraButton but never wires its onCapture prop to a defined handler — caught by simple lint/typecheck. Adding ESLint 'no-undef' to CI would have prevented this regression.",
+    "AdminPage.jsx is 456 lines — borderline for splitting. The 6 tab editors (BrandingTab, UsersTab, DoctorFormTab, ...) could each live in their own file under pages/admin/* for maintainability.",
+    "PUT /api/admin/settings accepts arbitrary nested dicts (Dict[str, Any]) for branding/form_config/mapping_templates with no schema validation — a malformed payload could corrupt the global settings doc. Recommend strict Pydantic models per sub-section.",
+    "POST /api/admin/logo writes a record into db.photos with photo_type='branding' just so /api/files/{path} can serve it without auth. This conflates two concerns; better to add a separate db.assets collection or a public_assets list. Also storage_path is trusted from the storage backend response — make sure it's sanitized/scoped to APP_NAME prefix.",
+    "DELETE /api/admin/users/{uid} doesn't clean up references from visits.created_by / visits.assigned_to / clinical_records.doctor_id — orphan records persist. Consider a soft-delete (active=false) or cascade.",
+    "LoginPage navigates during render — same React warning flagged in iter-1, still unfixed.",
+    "CORS allow_origins=['*'] + allow_credentials=True still invalid (carry-over from iter-1)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin_settings.py (NEW — 15 tests for admin/settings/users/branding/logo)"
+  ],
+  "success_rate": {
+    "backend": "100% (47/47 pytest)",
+    "frontend": "~80% — admin/branding/users/mobile-drawer all work; Photos tab is fully broken on every visit for every editable role"
+  },
+  "test_credentials": "All demo accounts password=password123 — admin@bodylab.id (super_admin), doctor@bodylab.id, therapist@bodylab.id, fo@bodylab.id, manager@bodylab.id. Stored in /app/memory/test_credentials.md.",
+  "seed_data_creation": "Created TEST_-prefixed users via POST /api/admin/users and deleted them in same test. Branding/form_config/mapping_templates were temporarily mutated for persistence tests and restored to originals. No production data left modified.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is rock-solid (47/47). Focus next iteration on retesting Photos.jsx after main agent defines `uploadFile` — verify (1) Photos tab renders for super_admin/doctor/therapist/fo without runtime error, (2) CameraButton modal opens (data-testid=camera-modal, camera-shutter, camera-confirm, camera-retake), (3) file picker upload still works, (4) Users tab refresh after create. Run /app/backend/tests/ via `pytest backend/tests/ -v` for full regression. NOTE: when switching roles in browser tests, ALWAYS clear localStorage first (await page.evaluate('() => { localStorage.clear(); }')) — the iter-1 LoginPage redirect bug is still present.",
+  "rca_of_the_issue": "Bug: Photos.jsx <CameraButton onCapture={uploadFile} /> at line 83 — `uploadFile` was never declared in the Photos component scope. Reproduction: login as super_admin/doctor/therapist/fo → open any visit → click Photos tab. Result: 'Uncaught runtime errors: uploadFile is not defined' overlay covers the entire page; tab is unusable. Root cause: developer added the new CameraButton wrapper but forgot to write the upload handler. Mitigation: declare an async handler in Photos.jsx that converts the captured Blob into FormData and posts to /api/visits/{visitId}/photos with current uploadType/uploadAngle, then call onSaved?.() to refresh the photo grid. Lint with `no-undef` rule enabled would prevent this class of bug."
+}

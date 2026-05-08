@@ -27,12 +27,12 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="label-eyebrow">{ROLE_LABEL[user?.role]} dashboard</div>
-          <h1 className="font-display text-4xl sm:text-5xl tracking-tight font-light mt-2 text-[#2D3A33]">
-            Hello, <span className="text-[#8A9A86]">{user?.name?.split(" ")[0]}</span>
+          <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl tracking-tight font-light mt-2 text-[#2D3A33]">
+            Hello, <span style={{ color: "var(--bl-primary)" }}>{user?.name?.split(" ")[0]}</span>
           </h1>
           <p className="mt-2 text-[#5C6C62]">
             Today is {new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
@@ -57,43 +57,45 @@ export default function DashboardPage() {
 
       <div className="mt-10">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display text-2xl text-[#2D3A33]">Recent visits</h2>
-          <Link to="/visits" className="text-sm text-[#8A9A86] hover:text-[#748470]">See all →</Link>
+          <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Recent visits</h2>
+          <Link to="/visits" className="text-sm" style={{ color: "var(--bl-primary)" }}>See all →</Link>
         </div>
         <div className="bl-card overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
-                <th className="px-5 py-3">Patient</th>
-                <th className="px-5 py-3">Type</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Date</th>
-                <th className="px-5 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No visits yet</td></tr>
-              )}
-              {recent.map((v) => (
-                <tr key={v.id} className="border-t border-[#EAE6D7]">
-                  <td className="px-5 py-4 font-medium text-[#2D3A33]">{v.patient_name}</td>
-                  <td className="px-5 py-4 capitalize text-[#5C6C62]">{v.visit_type}</td>
-                  <td className="px-5 py-4">
-                    <span className={`bl-chip ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>
-                      {v.status.replace("_"," ")}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-[#5C6C62] text-sm">
-                    {new Date(v.visit_date || v.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <Link to={`/visits/${v.id}`} className="text-sm text-[#8A9A86] hover:text-[#748470]">Open →</Link>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
+              <thead className="bg-[#F8F5EC]">
+                <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+                  <th className="px-5 py-3">Patient</th>
+                  <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3">Date</th>
+                  <th className="px-5 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recent.length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No visits yet</td></tr>
+                )}
+                {recent.map((v) => (
+                  <tr key={v.id} className="border-t border-[#EAE6D7]">
+                    <td className="px-5 py-4 font-medium text-[#2D3A33]">{v.patient_name}</td>
+                    <td className="px-5 py-4 capitalize text-[#5C6C62]">{v.visit_type}</td>
+                    <td className="px-5 py-4">
+                      <span className={`bl-chip ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>
+                        {v.status.replace("_"," ")}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-[#5C6C62] text-sm">
+                      {new Date(v.visit_date || v.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <Link to={`/visits/${v.id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Open →</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

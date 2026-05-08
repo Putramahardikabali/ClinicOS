@@ -2,59 +2,13 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
+import { useSettings } from "@/lib/settings";
 import SignaturePad from "@/components/SignaturePad";
-
-const FACE_SECTIONS = [
-  { key: "skin_quality", label: "Skin Quality", subs: [
-    { key: "thickness", label: "Thickness", options: ["Thin", "Normal", "Thick"] },
-    { key: "hydration", label: "Hydration", options: ["Hydrated", "Dry"] },
-    { key: "laxity", label: "Laxity", options: ["Good", "Poor"] },
-  ]},
-  { key: "forehead_lines", label: "Forehead Lines", subs: [
-    { key: "static", label: "Static", options: ["Observed", "Not Observed"] },
-    { key: "dynamic", label: "Dynamic", options: ["Observed", "Not Observed"] },
-  ]},
-  { key: "frown_lines", label: "Frown Lines", subs: [
-    { key: "static", label: "Static", options: ["Observed", "Not Observed"] },
-    { key: "dynamic", label: "Dynamic", options: ["Observed", "Not Observed"] },
-  ]},
-  { key: "tear_trough", label: "Tear Trough", subs: [
-    { key: "status", label: "", options: ["Observed", "Not Observed"] },
-  ]},
-  { key: "temples", label: "Temples", subs: [
-    { key: "status", label: "", options: ["Full", "Hollow"] },
-  ]},
-  { key: "cheeks", label: "Cheeks", subs: [
-    { key: "status", label: "", options: ["Full", "Hollow"] },
-  ]},
-  { key: "nasolabial_folds", label: "Nasolabial Folds", subs: [
-    { key: "static", label: "Static", options: ["Observed", "Not Observed"] },
-    { key: "dynamic", label: "Dynamic", options: ["Observed", "Not Observed"] },
-  ]},
-  { key: "marionette_line", label: "Marionette Line", subs: [
-    { key: "static", label: "Static", options: ["Observed", "Not Observed"] },
-    { key: "projection", label: "Projection", options: ["Protruded", "Proportionate", "Receded"] },
-  ]},
-  { key: "lips", label: "Lips", subs: [
-    { key: "thickness", label: "Thickness", options: ["Thin", "Thick"] },
-    { key: "vermilion_border", label: "Vermilion Border", options: ["Defined", "Not Defined"] },
-    { key: "cupids_bow", label: "Cupid's Bow", options: ["Defined", "Not Defined"] },
-  ]},
-  { key: "chin", label: "Chin", subs: [
-    { key: "length", label: "Length", options: ["Short", "Proportionate", "Long"] },
-    { key: "projection", label: "Projection", options: ["Protruded", "Proportionate", "Receded"] },
-  ]},
-  { key: "jawline", label: "Jaw Line", subs: [
-    { key: "status", label: "", options: ["Strong", "Weak"] },
-  ]},
-  { key: "neck_lines", label: "Neck Lines", subs: [
-    { key: "static", label: "Static", options: ["Observed", "Not Observed"] },
-    { key: "dynamic", label: "Dynamic", options: ["Observed", "Not Observed"] },
-  ]},
-];
 
 export default function DoctorForm({ visit, onSaved }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const FACE_SECTIONS = settings?.form_config?.face_sections || [];
   const editable = can(user, "edit_clinical") && !(visit.clinical_record?.submitted);
   const [data, setData] = useState({
     anamnesis: "", diagnosis: "", treatment_plan: "", therapy_notes: "",
@@ -134,7 +88,8 @@ export default function DoctorForm({ visit, onSaved }) {
                             key={op}
                             disabled={!editable}
                             onClick={() => setOpt(sec.key, sub.key, op)}
-                            className={`text-xs px-3 py-1.5 rounded-full border transition ${cur === op ? "bg-[#8A9A86] text-white border-[#8A9A86]" : "bg-white text-[#5C6C62] border-[#EAE6D7] hover:border-[#8A9A86]"}`}
+                            className={`text-xs px-3 py-1.5 rounded-full border transition ${cur === op ? "text-white" : "bg-white text-[#5C6C62] border-[#EAE6D7] hover:border-[#8A9A86]"}`}
+                            style={cur === op ? { background: "var(--bl-primary)", borderColor: "var(--bl-primary)" } : undefined}
                             data-testid={`doctor-${sec.key}-${sub.key}-${op.toLowerCase().replace(/[^a-z]/g,"")}`}
                           >
                             {op}

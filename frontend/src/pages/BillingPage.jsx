@@ -6,9 +6,9 @@ export default function BillingPage() {
   const [items, setItems] = useState([]);
   useEffect(() => { api.get("/visits/pending-billing").then(r=>setItems(r.data)); }, []);
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
       <div className="label-eyebrow">Front office queue</div>
-      <h1 className="font-display text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Pending billing</h1>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Pending billing</h1>
       <p className="mt-2 text-[#5C6C62]">Visits submitted by doctors and therapists, ready for billing.</p>
 
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-5" data-testid="billing-queue">

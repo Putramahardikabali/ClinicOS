@@ -3,6 +3,7 @@ import api, { fileUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
 import { Upload, Trash2, ImageIcon } from "lucide-react";
+import { CameraButton } from "@/components/CameraCapture";
 
 const ANGLES = [
   { v: "front", label: "Front" },
@@ -69,7 +70,7 @@ export default function Photos({ visit, onSaved }) {
       {editable && (
         <div className="bl-card p-5" data-testid="photo-uploader">
           <div className="font-display text-base text-[#2D3A33] mb-3">Upload photo</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <select className="bl-input" value={uploadType} onChange={(e)=>setUploadType(e.target.value)} data-testid="photo-type-select">
               {TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
             </select>
@@ -79,6 +80,7 @@ export default function Photos({ visit, onSaved }) {
             <button type="button" onClick={onPick} disabled={busy} className="bl-btn-primary inline-flex items-center justify-center gap-2" data-testid="photo-upload-button">
               <Upload className="w-4 h-4" /> {busy ? "Uploading…" : "Choose file"}
             </button>
+            <CameraButton onCapture={uploadFile} />
           </div>
           <input ref={inputRef} type="file" accept="image/*" multiple onChange={onFile} className="hidden" />
         </div>

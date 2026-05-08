@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { useSettings, logoUrl } from "@/lib/settings";
 import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
@@ -14,6 +15,7 @@ const DEMO = [
 
 export default function LoginPage() {
   const { login, user } = useAuth();
+  const { branding } = useSettings();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -89,10 +91,14 @@ export default function LoginPage() {
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-[#8A9A86] flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <div className="font-display text-xl text-[#2D3A33]">Body Lab Bali</div>
+            {branding?.logo_path ? (
+              <img src={logoUrl(branding.logo_path)} alt="logo" className="w-9 h-9 rounded-xl object-cover" />
+            ) : (
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+            )}
+            <div className="font-display text-xl text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
           </div>
 
           <div className="label-eyebrow">Sign in</div>

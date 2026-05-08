@@ -5,13 +5,14 @@ export default function AuditPage() {
   const [logs, setLogs] = useState([]);
   useEffect(() => { api.get("/audit-logs").then(r=>setLogs(r.data)); }, []);
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
       <div className="label-eyebrow">System</div>
-      <h1 className="font-display text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Audit log</h1>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Audit log</h1>
       <p className="mt-2 text-[#5C6C62]">Chronological list of all actions taken in the system.</p>
 
       <div className="mt-8 bl-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px]">
           <thead className="bg-[#F8F5EC]">
             <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
               <th className="px-5 py-3">Time</th>
@@ -34,6 +35,7 @@ export default function AuditPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

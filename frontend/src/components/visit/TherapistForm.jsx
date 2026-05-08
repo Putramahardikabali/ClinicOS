@@ -2,38 +2,14 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
+import { useSettings } from "@/lib/settings";
 import SignaturePad from "@/components/SignaturePad";
-
-const CONTRAINDICATIONS = [
-  "Pregnancy",
-  "Breastfeeding",
-  "Active skin infection",
-  "Recent surgery",
-  "Pacemaker / metal implant",
-  "Keloid history",
-  "Photosensitivity",
-  "Active acne flare",
-  "Anti-coagulant medication",
-  "Open wound in treatment area",
-];
-
-const DEVICES = [
-  "RF (Radio Frequency)",
-  "HIFU",
-  "Cryolipolysis",
-  "Laser CO2",
-  "IPL",
-  "Microneedling",
-  "Ultrasound",
-  "Cavitation",
-  "EMS",
-  "LED Light",
-  "Manual / Hands-on",
-  "Other",
-];
 
 export default function TherapistForm({ visit, onSaved }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const CONTRAINDICATIONS = settings?.form_config?.contraindications || [];
+  const DEVICES = settings?.form_config?.devices || [];
   const editable = can(user, "edit_therapist") && !(visit.therapist_record?.submitted);
   const [data, setData] = useState({
     concern_notes: "", body_concern: "", treatment_area: "",

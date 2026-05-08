@@ -8,9 +8,9 @@ export default function VisitsPage() {
   useEffect(() => { api.get("/visits").then(r=>setItems(r.data)); }, []);
   const filtered = filter ? items.filter(v => v.status === filter) : items;
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
       <div className="label-eyebrow">All visits</div>
-      <h1 className="font-display text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Visits</h1>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Visits</h1>
 
       <div className="mt-6 flex gap-2">
         {["", "in_progress", "submitted", "billed"].map((s) => (
@@ -21,7 +21,8 @@ export default function VisitsPage() {
       </div>
 
       <div className="mt-6 bl-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px]">
           <thead className="bg-[#F8F5EC]">
             <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
               <th className="px-5 py-3">Patient</th>
@@ -44,6 +45,7 @@ export default function VisitsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

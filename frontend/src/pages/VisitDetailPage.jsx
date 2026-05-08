@@ -45,7 +45,7 @@ export default function VisitDetailPage() {
   const tabs = TAB_DEFS.filter(t => !t.restrict || t.restrict.includes(user.role) || user.role === "super_admin");
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
       <button onClick={()=>nav(-1)} className="inline-flex items-center gap-2 text-sm text-[#5C6C62] hover:text-[#2D3A33]">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
@@ -53,8 +53,8 @@ export default function VisitDetailPage() {
       <div className="mt-5 flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="label-eyebrow">{visit.visit_type} visit</div>
-          <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">
-            <Link to={`/patients/${visit.patient.id}`} className="hover:text-[#8A9A86]">{visit.patient.full_name}</Link>
+          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">
+            <Link to={`/patients/${visit.patient.id}`} className="hover:opacity-70">{visit.patient.full_name}</Link>
           </h1>
           <div className="mt-1.5 flex items-center gap-2 flex-wrap text-sm text-[#5C6C62]">
             <span>{new Date(visit.visit_date || visit.created_at).toLocaleString()}</span>

@@ -42,7 +42,7 @@ export default function PatientDetailPage() {
   const filteredAssignees = users.filter(u => vForm.visit_type === "doctor" ? u.role === "doctor" : u.role === "therapist");
 
   return (
-    <div className="p-8 md:p-10 max-w-7xl">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
       <Link to="/patients" className="inline-flex items-center gap-2 text-sm text-[#5C6C62] hover:text-[#2D3A33]">
         <ArrowLeft className="w-4 h-4" /> All patients
       </Link>

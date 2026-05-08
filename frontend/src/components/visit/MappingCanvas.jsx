@@ -1,44 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import api, { fileUrl } from "@/lib/api";
+import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
+import { useSettings } from "@/lib/settings";
 import { Pen, Eraser, MapPin, Type, Trash2, Save, RotateCcw } from "lucide-react";
-
-const TEMPLATES = {
-  face: {
-    label: "Face outline",
-    bg: "https://customer-assets.emergentagent.com/job_aesthetic-records/artifacts/face-outline.svg", // optional
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500">
-      <ellipse cx="200" cy="220" rx="120" ry="160" fill="none" stroke="#C7BFA7" stroke-width="2"/>
-      <circle cx="155" cy="200" r="6" fill="none" stroke="#C7BFA7" stroke-width="1.5"/>
-      <circle cx="245" cy="200" r="6" fill="none" stroke="#C7BFA7" stroke-width="1.5"/>
-      <path d="M180 250 Q200 270 220 250" fill="none" stroke="#C7BFA7" stroke-width="1.5"/>
-      <path d="M165 305 Q200 325 235 305" fill="none" stroke="#C7BFA7" stroke-width="1.5"/>
-      <path d="M155 200 Q140 175 130 195" fill="none" stroke="#C7BFA7" stroke-width="1"/>
-      <path d="M245 200 Q260 175 270 195" fill="none" stroke="#C7BFA7" stroke-width="1"/>
-    </svg>`
-  },
-  body_front: {
-    label: "Body front",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 600">
-      <circle cx="150" cy="60" r="40" fill="none" stroke="#C7BFA7" stroke-width="2"/>
-      <path d="M110 100 L100 130 L70 200 L80 320 L100 320 L110 220 L110 350 L120 540 L140 540 L145 360 L155 360 L160 540 L180 540 L190 350 L190 220 L200 320 L220 320 L230 200 L200 130 L190 100 Z" fill="none" stroke="#C7BFA7" stroke-width="2"/>
-    </svg>`
-  },
-  body_back: {
-    label: "Body back",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 600">
-      <circle cx="150" cy="60" r="40" fill="none" stroke="#C7BFA7" stroke-width="2"/>
-      <path d="M110 100 L100 130 L70 200 L80 320 L100 320 L110 220 L110 350 L120 540 L140 540 L145 360 L155 360 L160 540 L180 540 L190 350 L190 220 L200 320 L220 320 L230 200 L200 130 L190 100 Z" fill="none" stroke="#C7BFA7" stroke-width="2"/>
-      <line x1="150" y1="100" x2="150" y2="350" stroke="#C7BFA7" stroke-width="1" stroke-dasharray="4 4"/>
-    </svg>`
-  },
-};
 
 const COLORS = ["#E76F51", "#8A9A86", "#457B9D", "#D4A373", "#2D3A33"];
 
 export default function MappingCanvas({ visit, onSaved }) {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const TEMPLATES = settings?.mapping_templates || {};
   const editable = can(user, "edit_mapping");
   const [mapType, setMapType] = useState("face");
   const [tool, setTool] = useState("pen");
@@ -56,6 +28,7 @@ export default function MappingCanvas({ visit, onSaved }) {
   // Render
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
+    if (!tpl?.svg) return;
     const ctx = c.getContext("2d");
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
@@ -159,9 +132,9 @@ export default function MappingCanvas({ visit, onSaved }) {
         <div className="bl-card p-5">
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <select className="bl-input w-auto" value={mapType} onChange={(e)=>{ setMapType(e.target.value); clearAll(); }} data-testid="map-template-select">
-              <option value="face">Face outline</option>
-              <option value="body_front">Body front</option>
-              <option value="body_back">Body back</option>
+              {Object.entries(TEMPLATES).map(([k, v]) => (
+                <option key={k} value={k}>{v.label || k}</option>
+              ))}
             </select>
             <div className="flex items-center gap-1 bg-[#F3F1EB] rounded-lg p-1">
               <button onClick={()=>setTool("pen")} className={`p-2 rounded-md ${tool==="pen" ? "bg-white shadow-sm" : ""}`} data-testid="tool-pen"><Pen className="w-4 h-4" /></button>
