@@ -38,6 +38,10 @@ Secure internal medical record system prototype for an aesthetic clinic ("Body L
 - Print/PDF preview page (window.print) with full record.
 - Audit log viewer (Manager + Admin).
 
+## Iteration 2.1 (2026-02 hotfix)
+- Fixed `MappingCanvas` runtime error `Cannot read properties of null (reading 'points')` — `handleMove` now snapshots `cur.current.points` synchronously before queuing the React state update, and bails out if `cur.current` is null (mid-tick race after `handleEnd`).
+- **Mapping templates now accept PNG/JPG/WebP image uploads** — new endpoint `POST /api/admin/template-image` stores the uploaded image as a public branding asset in object storage and returns its path. Admin → Mapping Templates tab now has an "Upload PNG / JPG" button per template; if an image is set, it takes precedence over the SVG fallback. Mapping canvas renders uploaded images letterboxed (preserves aspect) with `crossOrigin="anonymous"` so `toDataURL` still works for saving the marked-up mapping.
+
 ## Iteration 2 (2026-02)
 - **Super Admin Settings Center** at `/admin` with 6 tabs:
   - **Branding**: clinic name, tagline, logo upload to object storage (publicly served), 6 theme colors with live preview via CSS custom properties

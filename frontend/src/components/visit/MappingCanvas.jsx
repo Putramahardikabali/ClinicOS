@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import api from "@/lib/api";
+import api, { API_BASE } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
 import { useSettings } from "@/lib/settings";
@@ -28,17 +28,15 @@ export default function MappingCanvas({ visit, onSaved }) {
   // Render
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
-    if (!tpl?.svg) return;
+    if (!tpl?.svg && !tpl?.image_path) return;
     const ctx = c.getContext("2d");
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
 
-    // Draw template SVG as background
-    const img = new Image();
-    img.onload = () => {
-      ctx.drawImage(img, 0, 0, c.width, c.height);
+    const renderOverlay = () => {
       // strokes
       strokes.forEach((s) => {
+        if (!s || !s.points) return;
         ctx.strokeStyle = s.color; ctx.lineWidth = s.size; ctx.lineCap = "round"; ctx.lineJoin = "round";
         if (s.tool === "eraser") { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = s.size * 4; }
         if (s.points.length < 2) return;
@@ -62,8 +60,24 @@ export default function MappingCanvas({ visit, onSaved }) {
         }
       });
     };
-    img.src = "data:image/svg+xml;utf8," + encodeURIComponent(tpl.svg);
-  }, [strokes, markers, mapType]);
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      // letterbox-fit the template inside the canvas keeping aspect ratio
+      const ratio = Math.min(c.width / img.width, c.height / img.height);
+      const w = img.width * ratio, h = img.height * ratio;
+      const ox = (c.width - w) / 2, oy = (c.height - h) / 2;
+      ctx.drawImage(img, ox, oy, w, h);
+      renderOverlay();
+    };
+    img.onerror = () => { renderOverlay(); };
+    if (tpl.image_path) {
+      img.src = `${API_BASE}/files/${tpl.image_path}`;
+    } else {
+      img.src = "data:image/svg+xml;utf8," + encodeURIComponent(tpl.svg);
+    }
+  }, [strokes, markers, mapType, tpl]);
 
   const pos = (e) => {
     const c = canvasRef.current; const r = c.getBoundingClientRect();
@@ -87,12 +101,18 @@ export default function MappingCanvas({ visit, onSaved }) {
     setStrokes((s) => [...s, cur.current]);
   };
   const handleMove = (e) => {
-    if (!drawing.current) return;
+    if (!drawing.current || !cur.current) return;
     e.preventDefault();
     cur.current.points.push(pos(e));
-    setStrokes((s) => [...s.slice(0, -1), { ...cur.current, points: [...cur.current.points] }]);
+    const snapshot = { ...cur.current, points: [...cur.current.points] };
+    setStrokes((s) => (s.length === 0 ? [snapshot] : [...s.slice(0, -1), snapshot]));
   };
   const handleEnd = () => {
+    if (cur.current) {
+      // commit final snapshot to ensure no lingering shared reference
+      const final = { ...cur.current, points: [...cur.current.points] };
+      setStrokes((s) => (s.length === 0 ? [final] : [...s.slice(0, -1), final]));
+    }
     drawing.current = false;
     cur.current = null;
   };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api from "@/lib/api";
+import api, { API_BASE } from "@/lib/api";
 import { useSettings, logoUrl } from "@/lib/settings";
 import { toast } from "sonner";
 import { Settings, Users as UsersIcon, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw } from "lucide-react";
@@ -383,7 +383,17 @@ function MappingTab() {
     setTemplates({ ...templates, [k]: { label: k, svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"></svg>' } });
   };
   const removeTpl = (k) => { const next = { ...templates }; delete next[k]; setTemplates(next); };
-  const reset = () => { if (window.confirm("Reset templates to defaults?")) refresh(); };
+  const reset = () => { if (window.confirm("Reload templates from server?")) refresh(); };
+
+  const uploadImage = async (key, file) => {
+    if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      const r = await api.post("/admin/template-image", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setTemplates(prev => ({ ...prev, [key]: { ...prev[key], image_path: r.data.image_path, svg: "" } }));
+      toast.success("Image uploaded — remember to save");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
+  };
 
   const save = async () => {
     try {
@@ -395,19 +405,41 @@ function MappingTab() {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-[#5C6C62]">Customize the face/body outline templates used in the mapping canvas. Paste raw SVG content (without surrounding <code className="bg-[#F3F1EB] px-1 rounded">{'<html>'}</code> tags).</p>
+      <p className="text-sm text-[#5C6C62]">Customize the face/body outline templates used in the mapping canvas. Either upload a PNG/JPG/WebP image or paste raw SVG markup. Image takes precedence if both are set.</p>
       <div className="space-y-4" data-testid="mapping-editor">
         {Object.entries(templates).map(([key, tpl]) => (
           <div key={key} className="bl-card p-5">
             <div className="flex flex-wrap items-center gap-3 mb-3">
               <input className="bl-input w-44 font-mono text-sm" value={key} disabled />
               <input className="bl-input flex-1 min-w-[200px]" value={tpl.label || ""} onChange={(e)=>updateTpl(key, "label", e.target.value)} placeholder="Display label" />
-              <button onClick={()=>removeTpl(key)} className="text-[#B14A2C]"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={()=>removeTpl(key)} className="text-[#B14A2C]" title="Remove template"><Trash2 className="w-4 h-4" /></button>
             </div>
+
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <label className="bl-btn-ghost inline-flex items-center gap-2 cursor-pointer text-sm" data-testid={`tpl-image-upload-${key}`}>
+                <Upload className="w-4 h-4" /> {tpl.image_path ? "Replace image" : "Upload PNG / JPG"}
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e)=>uploadImage(key, e.target.files?.[0])} />
+              </label>
+              {tpl.image_path && (
+                <button onClick={()=>updateTpl(key, "image_path", "")} className="text-sm text-[#B14A2C]">Remove image</button>
+              )}
+              <span className="text-xs text-[#5C6C62]">{tpl.image_path ? "Using uploaded image" : "Using SVG markup"}</span>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <textarea className="bl-input min-h-[180px] font-mono text-xs" value={tpl.svg || ""} onChange={(e)=>updateTpl(key, "svg", e.target.value)} placeholder="SVG markup" />
-              <div className="bg-[#FBF8EF] rounded-xl border border-[#EAE6D7] flex items-center justify-center p-3">
-                <div className="max-h-48" dangerouslySetInnerHTML={{ __html: tpl.svg || "" }} />
+              <div>
+                <div className="label-eyebrow mb-1.5">SVG markup (fallback)</div>
+                <textarea className="bl-input min-h-[160px] font-mono text-xs" value={tpl.svg || ""} onChange={(e)=>updateTpl(key, "svg", e.target.value)} placeholder="<svg ...>" disabled={!!tpl.image_path} />
+              </div>
+              <div>
+                <div className="label-eyebrow mb-1.5">Preview</div>
+                <div className="bg-[#FBF8EF] rounded-xl border border-[#EAE6D7] flex items-center justify-center p-3 min-h-[160px]">
+                  {tpl.image_path ? (
+                    <img src={`${API_BASE}/files/${tpl.image_path}`} alt={tpl.label} className="max-h-56 object-contain" />
+                  ) : (
+                    <div className="max-h-56" dangerouslySetInnerHTML={{ __html: tpl.svg || "" }} />
+                  )}
+                </div>
               </div>
             </div>
           </div>

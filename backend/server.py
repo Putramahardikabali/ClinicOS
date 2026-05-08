@@ -421,6 +421,26 @@ async def update_settings(payload: SettingsIn, user: dict = Depends(require_role
     await audit(user, "update", "settings", "global")
     return await db.settings.find_one({"id": "global"}, {"_id": 0})
 
+@api.post("/admin/template-image")
+async def upload_template_image(file: UploadFile = File(...), user: dict = Depends(require_roles("super_admin"))):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() or "png"
+    if ext not in ("png", "jpg", "jpeg", "webp", "svg"):
+        raise HTTPException(status_code=400, detail="Unsupported image format")
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/templates/template-{pid}.{ext}"
+    data = await file.read()
+    ct = file.content_type or (f"image/{ext}" if ext != "svg" else "image/svg+xml")
+    result = put_object(path, data, ct)
+    # Mark as branding so it's served publicly (templates aren't sensitive)
+    await db.photos.insert_one({
+        "id": pid, "visit_id": "", "patient_id": "",
+        "storage_path": result["path"], "photo_type": "branding", "angle": "template",
+        "content_type": ct, "uploaded_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await audit(user, "upload", "template_image", pid)
+    return {"image_path": result["path"]}
+
 @api.post("/admin/logo")
 async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require_roles("super_admin"))):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() or "png"
