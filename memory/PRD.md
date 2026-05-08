@@ -37,14 +37,29 @@ Secure internal medical record system prototype for an aesthetic clinic ("Body L
 - Patient history timeline (chronological visits with diagnosis preview + photo count + billing status).
 - Print/PDF preview page (window.print) with full record.
 - Audit log viewer (Manager + Admin).
-- 32/32 backend tests pass; frontend flows verified.
+
+## Iteration 2 (2026-02)
+- **Super Admin Settings Center** at `/admin` with 6 tabs:
+  - **Branding**: clinic name, tagline, logo upload to object storage (publicly served), 6 theme colors with live preview via CSS custom properties
+  - **Users CRUD**: list/add/edit/delete users with role assignment (super_admin self-deletion blocked)
+  - **Doctor Form Builder**: dynamic add/edit/remove of face-assessment sections, sub-questions, and option chips
+  - **Therapist Form**: editable contraindication checklist + device list
+  - **Treatment / Billing**: editable categories, units, payment methods
+  - **Mapping Templates**: per-template SVG editor with live preview (face / body_front / body_back)
+- **Camera capture** via `getUserMedia` for before/after photos — front/rear camera switch, capture/retake/confirm flow alongside file picker
+- **Mobile/tablet responsive shell**: sidebar collapses to drawer with hamburger top bar at <1024px; all tables wrapped in horizontal scroll containers; reduced padding on small screens
+- **Frontend settings context** (`useSettings`) reads from `/api/branding` (public) before login and `/api/settings` (auth) after, applies CSS variables (`--bl-primary`, `--bl-accent`, etc.) globally
+- All hardcoded form options (face sections, contraindications, devices, treatment categories, units, payment methods, mapping templates) now come from server settings — instantly editable by Super Admin
+- 47/47 backend pytest tests pass; full frontend regression verified
 
 ## Prioritized backlog
-- **P1**: Patch CORS to use explicit origin instead of `*` + `allow_credentials=True`.
+- **P1**: Tighten CORS (explicit origin instead of `*` + credentials).
 - **P1**: Move large mapping images to object storage (currently inline base64 in Mongo).
-- **P2**: User management UI for Super Admin (currently seeded only).
-- **P2**: Reports/analytics for Manager (revenue per category, doctor performance).
+- **P2**: Add strict Pydantic schemas for `/api/admin/settings` sub-sections (currently `Dict[str, Any]`).
+- **P2**: Soft-delete users to preserve historical references on visits/records.
+- **P2**: Manager analytics (revenue per category, top doctors, retention).
 - **P2**: Photo lightbox + side-by-side before/after comparison view.
-- **P2**: Replace `?auth=token` query param for files with short-lived signed URLs.
+- **P2**: Replace `?auth=token` query param on file URLs with short-lived signed URLs.
 - **P3**: Lifespan context manager (replacing deprecated `@on_event`).
-- **P3**: Server-side PDF export (currently uses browser print).
+- **P3**: Server-side PDF export.
+- **P3**: Split AdminPage.jsx into per-tab files (currently 461 lines).
