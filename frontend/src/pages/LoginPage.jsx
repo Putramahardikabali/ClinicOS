@@ -5,14 +5,6 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
-const DEMO = [
-  { role: "Super Admin", email: "admin@bodylab.id" },
-  { role: "Doctor", email: "doctor@bodylab.id" },
-  { role: "Therapist", email: "therapist@bodylab.id" },
-  { role: "Front Office", email: "fo@bodylab.id" },
-  { role: "Manager", email: "manager@bodylab.id" },
-];
-
 export default function LoginPage() {
   const { login, user } = useAuth();
   const { branding } = useSettings();
@@ -38,52 +30,38 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = (em) => {
-    setEmail(em);
-    setPassword("password123");
-  };
-
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-[#FDFBF7]">
       {/* Left brand panel */}
       <div className="hidden lg:flex flex-col justify-between p-12 bg-[#F3F1EB] border-r border-[#EAE6D7]">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-[#8A9A86] flex items-center justify-center">
-            <Sparkles className="w-6 h-6 text-white" strokeWidth={1.5} />
-          </div>
+          {branding?.logo_path ? (
+            <img src={logoUrl(branding.logo_path)} alt="logo" className="w-11 h-11 rounded-2xl object-cover" />
+          ) : (
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
+              <Sparkles className="w-6 h-6 text-white" strokeWidth={1.5} />
+            </div>
+          )}
           <div>
-            <div className="font-display text-2xl text-[#2D3A33]">Body Lab Bali</div>
-            <div className="text-sm text-[#D4A373] font-medium">Aesthetic Clinic · Internal EMR</div>
+            <div className="font-display text-2xl text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
+            <div className="text-sm font-medium" style={{ color: "var(--bl-accent)" }}>{branding?.tagline || "Aesthetic Clinic · Internal EMR"}</div>
           </div>
         </div>
 
         <div>
           <div className="label-eyebrow">Modern clinical records</div>
           <h1 className="font-display text-5xl tracking-tight font-light mt-3 text-[#2D3A33] leading-[1.05]">
-            Where <span className="text-[#8A9A86]">care</span><br/>meets clarity.
+            Where <span style={{ color: "var(--bl-primary)" }}>care</span><br/>meets clarity.
           </h1>
           <p className="mt-6 max-w-md text-[#5C6C62] leading-relaxed">
             A secure internal medical record system designed for our doctors, therapists,
             front office and management. Tablet-first, role-aware, and built for the way
-            we work at Body Lab Bali.
+            we work.
           </p>
         </div>
 
-        <div className="bl-card p-5">
-          <div className="label-eyebrow">Demo accounts (password: <span className="normal-case tracking-normal text-[#2D3A33]">password123</span>)</div>
-          <div className="mt-3 grid grid-cols-1 gap-1.5">
-            {DEMO.map((d) => (
-              <button
-                key={d.email}
-                onClick={() => fillDemo(d.email)}
-                className="text-left px-3 py-2 rounded-lg hover:bg-[#F3F1EB] flex items-center justify-between text-sm transition"
-                data-testid={`demo-${d.role.toLowerCase().replace(/\s+/g,'-')}`}
-              >
-                <span className="font-medium text-[#2D3A33]">{d.role}</span>
-                <span className="text-xs text-[#5C6C62]">{d.email}</span>
-              </button>
-            ))}
-          </div>
+        <div className="text-xs text-[#5C6C62]">
+          © {new Date().getFullYear()} {branding?.clinic_name || "Body Lab Bali"}. Confidential clinical records.
         </div>
       </div>
 
@@ -140,16 +118,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="lg:hidden mt-8 bl-card p-4">
-            <div className="label-eyebrow">Demo accounts</div>
-            <div className="mt-2 grid grid-cols-1 gap-1">
-              {DEMO.map((d) => (
-                <button key={d.email} onClick={() => fillDemo(d.email)} className="text-left text-sm py-1.5 px-2 rounded hover:bg-[#F3F1EB]">
-                  <span className="font-medium">{d.role}</span> · <span className="text-[#5C6C62]">{d.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="mt-8 text-xs text-[#5C6C62] text-center">
+            Lost access? Contact your clinic Super Admin.
+          </p>
         </div>
       </div>
     </div>
