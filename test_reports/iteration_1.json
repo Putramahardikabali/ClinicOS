@@ -1,0 +1,48 @@
+{
+  "summary": "Full-pass test of Body Lab Bali EMR: 32/32 backend pytest tests pass (auth for all 5 roles, RBAC, patient/visit CRUD, clinical+therapist record submit-locking, treatments, photo upload via Emergent Object Storage + signed file serving, mappings, billing calc/total, pending-billing queue, timeline, audit, stats). Frontend: login flow works for all 5 roles, role-aware sidebar verified (FO=Pending Billing, Manager+Admin=Audit, Doctor/Therapist=neither), patient creation, visit creation, all 7 visit tabs render, photo upload works end-to-end through the UI, clinical form (chip-style assessment buttons) renders, audit log table populated, billing calc verified server-side. One non-blocking React warning identified: LoginPage navigates during render.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LoginPage.jsx (line 22)",
+        "issue": "Calls nav('/') directly inside the render body when `user` is already authenticated. React logs: 'Cannot update a component (BrowserRouter) while rendering a different component (LoginPage)'. Should be moved into a useEffect hook (or use <Navigate to='/' replace />).",
+        "selector": "/app/frontend/src/pages/LoginPage.jsx:22",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional/low) Fix LoginPage setState-during-render warning by replacing `if (user) { nav('/') }` with a useEffect or <Navigate to='/' replace />."
+  ],
+  "critical_code_review_comments": [
+    "server.py @app.on_event('startup')/'shutdown') uses deprecated FastAPI hooks; consider lifespan context manager (non-blocking).",
+    "server.py CORS: allow_origins=['*'] together with allow_credentials=True is invalid per CORS spec; browsers will reject credentialed requests. Currently the frontend uses Bearer tokens so this works, but cookie-based auth (httpOnly cookie is set on /api/auth/login) will not work cross-origin. Either set allow_credentials=False or replace '*' with explicit origin.",
+    "/api/files/{path} accepts the JWT in a query param (?auth=...) which leaks the token into server access logs and browser history. Consider a short-lived signed URL or returning a separate file-access token.",
+    "PatientIn validation: empty body still allowed because every field is Optional except full_name; OK for now but date_of_birth has no format validation.",
+    "BillingIn.items is List[Dict[str, Any]] (no schema validation) — client can pass arbitrary keys.",
+    "MappingIn.image_data is base64 stored directly in MongoDB document; large face mappings can exceed Mongo 16MB doc limit. Should be uploaded via object storage.",
+    "Frontend: /api/auth/me errors do not redirect to /login on 401 token expiry — token exists in localStorage but API returns 401; ensure axios interceptor handles auth refresh/redirect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32)",
+    "frontend": "~96% (one minor React warning, all functional flows pass)"
+  },
+  "test_credentials": "All demo accounts password=password123 — admin@bodylab.id, doctor@bodylab.id, therapist@bodylab.id, fo@bodylab.id, manager@bodylab.id. Stored in /app/memory/test_credentials.md.",
+  "seed_data_creation": "Test created TEST_-prefixed patients/visits/clinical/therapist/billing records. Did not delete (DB is dev). No production data modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All backend endpoints verified end-to-end via /app/backend/tests/backend_test.py (run with `pytest backend/tests/backend_test.py -v`). Photos upload uses Emergent Object Storage which IS reachable from this preview env. The `submit=true` flag is the standard pattern for locking clinical/therapist records. Visit status transitions: in_progress -> submitted (after clinical/therapist submit) -> billed (after billing payment_status=paid). Frontend post-login route is `/` (not `/dashboard`); the Dashboard component is mounted at `/`. Treatments tab does NOT show the Add form for FO role (only doctor/therapist/super_admin) — this is correct per backend RBAC. Doctor visit detail correctly hides Therapist & Billing tabs.",
+  "rca_of_the_issue": "LoginPage.jsx line 22 calls navigate('/') during render synchronously when an authenticated user lands on /login. React forbids triggering parent-state updates inside a render. Fix: wrap in useEffect(() => { if (user) nav('/') }, [user, nav]) or replace with `if (user) return <Navigate to='/' replace />;`."
+}
