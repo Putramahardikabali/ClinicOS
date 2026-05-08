@@ -1,0 +1,89 @@
+{
+  "theme": "LIGHT",
+  "archetype": "1_Organic_Earthy",
+  "brand_name": "Body Lab Bali",
+  "design_philosophy": "A premium, tropical aesthetic clinic internal system. Needs to balance clinical precision with a calming, luxurious Bali wellness vibe. Medical data must be clear and legible, while the overall UI feels warm and trustworthy. Tension is created through organic, soft colors paired with highly structured, dense data grids.",
+  "colors": {
+    "background": "#FDFBF7",
+    "surface": "#FFFFFF",
+    "surface_secondary": "#F3F1EB",
+    "primary": "#8A9A86",
+    "primary_hover": "#748470",
+    "secondary": "#D4A373",
+    "text_primary": "#2D3A33",
+    "text_secondary": "#5C6C62",
+    "border": "#EAE6D7",
+    "status": {
+      "success": "#52796F",
+      "warning": "#E9C46A",
+      "danger": "#E76F51",
+      "info": "#457B9D"
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "DM Sans",
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-light",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "body": "text-base leading-relaxed",
+      "label": "text-xs tracking-[0.2em] uppercase font-semibold"
+    }
+  },
+  "layout_spacing": {
+    "strategy": "The Control Room Grid (Dense but readable)",
+    "container_padding": "p-6 md:p-8",
+    "gap": "gap-6",
+    "border_radius": "rounded-2xl"
+  },
+  "surface_styles": {
+    "cards": "Flat solid background #FFFFFF, 1px solid border #EAE6D7, no default shadow. Hover: slight lift -translate-y-0.5 and shadow-sm.",
+    "header": "Solid background #FDFBF7 with a hard bottom border 1px #EAE6D7. No glassmorphism to keep clinical data pure and avoid refraction.",
+    "sidebar": "Background #F3F1EB, text #5C6C62. Active item gets #FFFFFF background with #2D3A33 text and shadow-sm."
+  },
+  "components": {
+    "forms": "Use Shadcn Form, Input, Select, Textarea. Generous padding p-4 in inputs. Label should be uppercase small tracking-widest.",
+    "tables": "Shadcn Table. Flat, no borders between rows, generous py-4 per cell.",
+    "face_body_mapping": "Implement using HTML5 <canvas> or 'react-signature-canvas' layered over an SVG outline. Needs Pen, Eraser, Marker tools.",
+    "photo_upload": "Grid layout (bento style) for angles (Front, Left 45, Right 45, Side, Back). Aspect ratio 3:4 for portraits.",
+    "buttons": "Rounded-xl for a soft, human-friendly feel. Use primary color heavily but restrict it only to primary actions."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Duotone or Light weight for a premium, delicate look."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "dashboard_welcome_background",
+        "url": "https://images.unsplash.com/photo-1778151270886-f227700b0eba?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBhZXN0aGV0aWMlMjBjbGluaWMlMjBpbnRlcmlvcnxlbnwwfHx8fDE3NzgyMzQxMTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Luxury clinic interior"
+      },
+      {
+        "category": "patient_placeholder_1",
+        "url": "https://images.unsplash.com/photo-1731514771613-991a02407132?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwyfHxza2luY2FyZSUyMHRyZWF0bWVudCUyMHBhdGllbnQlMjBmYWNlfGVufDB8fHx8MTc3ODIzNDExM3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Patient receiving treatment"
+      },
+      {
+        "category": "patient_placeholder_2",
+        "url": "https://images.unsplash.com/photo-1761718209708-9ab9ba1c7252?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxza2luY2FyZSUyMHRyZWF0bWVudCUyMHBhdGllbnQlMjBmYWNlfGVufDB8fHx8MTc3ODIzNDExM3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Woman's face with cleansing foam during facial treatment."
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure minimum 4.5:1 ratio for text. Focus states must have ring-2 ring-primary/50.",
+    "testing": "All interactive elements MUST have data-testid attributes (e.g., data-testid='login-submit-button')."
+  },
+  "instructions_to_main_agent": [
+    "Strictly use the defined color palette. Do NOT introduce default Tailwind colors like slate, blue, or zinc.",
+    "Install @phosphor-icons/react for icons.",
+    "Implement the Face/Body Mapping Canvas using an HTML5 Canvas API overlaid on a static SVG/image of a face or body. Allow basic drawing (pen), clearing (eraser), marker point, and dosage label features.",
+    "Clinical forms are extremely complex; break them down using Shadcn Tabs or Accordions to prevent vertical fatigue for the Doctors and Therapists.",
+    "Ensure the layout is responsive and strictly tablet-friendly (iPad Pro size is the primary target for clinicians). Tap targets should be generous.",
+    "For the photo upload multi-angle gallery, use a grid layout with distinct dropzones for each required angle (front, left 45, right 45, side, back, body angles).",
+    "Use standard HTML5 + Tailwind for layouts, avoiding Shadcn generic layout wrappers to preserve the 'Control Room Grid' aesthetic.",
+    "Include a digital signature pad for Doctor and Therapist forms using a canvas-based library like react-signature-canvas."
+  ]
+}
