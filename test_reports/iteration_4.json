@@ -1,0 +1,68 @@
+{
+  "summary": "Iteration-4 testing of simplified flow (billing removed). Backend: 54/54 tests pass (39 backend_test.py + 15 test_admin_settings.py) — all migration, removed endpoints, new PUT /api/visits/{vid}/status, stats key changes, and timeline/visit no-billing assertions PASS. Frontend: initial build was broken by TWO leftover-code typos from the main agent (App.js duplicate imports, AdminPage.jsx garbage code after function close) — I fixed both so the app could be tested. After fix: dashboard now shows Completed/In progress (no Billed/Pending), sidebar has no Billing entry, /visits filter chips show only All/in progress/completed, visit detail tab list is Overview/Doctor(Clinical)/Therapist/Treatments/Photos/Mapping (no Billing tab). HOWEVER, two functional/UX gaps remain in the frontend code that the main agent must fix.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "VisitDetailPage.jsx",
+        "issue": "The 'Mark as completed' / 'Reopen visit' button JSX is COMPLETELY MISSING from the render output. The component computes `isCompleted`, `canClose`, and defines `changeStatus(next)` (lines 28, 42-51, 57-58), but no <button> element is rendered anywhere. FO sees only the 'Print / PDF' button — no way to mark a visit as completed via the UI. This is the core feature of iter-4 and it is non-functional in the UI.",
+        "selector": "data-testid='mark-completed-button' / 'reopen-visit-button' (do not exist)",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "AdminPage.jsx line 12",
+        "issue": "Admin Settings tab label still reads 'Treatment / Billing' — request explicitly requires it be renamed to 'Treatments'. TABS array: `{ key: 'treatment', label: 'Treatment / Billing', icon: Pill }` should be `label: 'Treatments'`.",
+        "selector": "TABS[treatment].label",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "VisitDetailPage.jsx line 75",
+        "issue": "Dead-code reference to legacy statuses in chip className: `visit.status === 'submitted' ? 'warning' : visit.status === 'billed' ? 'success' : 'info'`. Since no visit can ever be 'submitted' or 'billed' after migration, this always falls to 'info'. Harmless but should be simplified to in_progress/completed (e.g. info for in_progress, success for completed).",
+        "selector": "span.bl-chip",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "FO completes a visit",
+        "issue": "End-to-end flow blocked because Mark-as-completed button is missing from UI; backend PUT /api/visits/{vid}/status works correctly (verified by 7 pytest tests including super_admin/fo allowed, doctor/therapist/manager forbidden, invalid status 400, reopen flow).",
+        "affected_selectors": ["[data-testid='mark-completed-button']", "[data-testid='reopen-visit-button']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_admin_settings.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "ADD the Mark-as-completed / Reopen button JSX to VisitDetailPage.jsx. Suggestion: render alongside the Print/PDF link (line 78-80) gated by `canClose && (!isCompleted ? <button data-testid='mark-completed-button' onClick={()=>changeStatus('completed')}>Mark as completed</button> : <button data-testid='reopen-visit-button' onClick={()=>changeStatus('in_progress')}>Reopen visit</button>)`. Include a confirm dialog before changeStatus call.",
+    "Rename AdminPage.jsx TABS treatment label from 'Treatment / Billing' to 'Treatments' (line 12).",
+    "Simplify chip className in VisitDetailPage.jsx line 75 — drop submitted/billed branches.",
+    "Re-test the Mark-as-completed flow end-to-end after fix (FO/admin should see button; doctor/therapist/manager should NOT)."
+  ],
+  "critical_code_review_comments": [
+    "Main agent left build-breaking typos in TWO files: (a) App.js had duplicate `import VisitsPage` and `import AuditPage` lines plus leftover `import BillingPage from '@/pages/BillingPage'` for a deleted file; (b) AdminPage.jsx had 6 lines of orphan code (lines 490-495 'ue)} placeholder={placeholder}...') after the closing `}` of a function. These would have been caught by running `yarn build` or any lint step before handoff — recommend running ESLint/build-check as part of E1's pre-handoff routine.",
+    "VisitDetailPage.jsx: changeStatus + canClose + isCompleted are dead code unless the button JSX is added — this looks like an incomplete edit that was committed without manual UI verification.",
+    "Carry-over from iter-3 still applies: AdminPage.jsx remains large, CORS allow_origins=['*'] + allow_credentials=True still invalid, DELETE user doesn't cascade visit references."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (rewrote to match billing-removed flow; +TestBillingRemoved, +TestVisitStatus, status-unchanged assertions)",
+    "/app/frontend/src/App.js (removed duplicate VisitsPage/AuditPage imports + dead BillingPage import — was blocking build)",
+    "/app/frontend/src/pages/AdminPage.jsx (removed 6 lines of orphan code after function close — was blocking build)"
+  ],
+  "success_rate": {
+    "backend": "100% (54/54 pytest)",
+    "frontend": "70% — dashboard/visits-list/nav/tabs all verified correct; Mark-as-completed button missing; AdminPage tab label not renamed"
+  },
+  "test_credentials": "Used /app/memory/test_credentials.md — admin/doctor/therapist/fo/manager @ bodylab.id all with password123. All login OK.",
+  "seed_data_creation": "Created several TEST_StatusFlow patients/visits via fresh_visit fixture during VisitStatus test class (each test creates a new patient+visit). Did not clean up — they live in /visits as in_progress/completed. Earlier TEST_Pasien Coba / TEST_Therapy Patient / TEST_Billing P / TEST_Hydra remain from previous iterations.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully verified (54/54). Focus retest on VisitDetailPage Mark-as-completed/Reopen UI button after main agent adds it: (1) Login as FO, open an in_progress visit, click Mark-as-completed → confirm dialog → status flips to 'completed'; (2) On the same now-completed visit, click Reopen → confirms → status flips back; (3) Login as doctor/therapist/manager — button must NOT be visible. Also verify AdminPage 'Treatments' tab label renamed. Backend test file `/app/backend/tests/backend_test.py` covers all status-change RBAC cases and can be re-run with `REACT_APP_BACKEND_URL=https://aesthetic-records.preview.emergentagent.com pytest /app/backend/tests/ -v`.",
+  "rca_of_the_issue": "Root cause of UI gap: incomplete edit in VisitDetailPage.jsx — main agent added the state hooks (statusBusy, changeStatus, isCompleted, canClose) and updated auth.js (close_visit:['fo']) but forgot to render the actual button JSX in the component's return. The compile-time errors (App.js duplicate imports, AdminPage.jsx trailing garbage) suggest a partial copy-paste/sed edit that wasn't validated with `yarn start` after the change."
+}

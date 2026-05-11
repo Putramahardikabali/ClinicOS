@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth, ROLE_LABEL } from "@/lib/auth";
 import { Link } from "react-router-dom";
-import { Users, Stethoscope, Receipt, ClipboardCheck, Activity, Calendar } from "lucide-react";
+import { Users, Stethoscope, Activity, Calendar, CheckCircle2 } from "lucide-react";
 
 const Stat = ({ icon: Icon, label, value, accent }) => (
   <div className="bl-card p-6" data-testid={`stat-${label.toLowerCase().replace(/\s+/g,"-")}`}>
@@ -46,12 +46,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
+      <div className="mt-10 grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         <Stat icon={Users} label="Total patients" value={stats.total_patients ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" />
         <Stat icon={Calendar} label="Visits today" value={stats.visits_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" />
         <Stat icon={Stethoscope} label="In progress" value={stats.in_progress ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" />
-        <Stat icon={ClipboardCheck} label="Pending billing" value={stats.pending_billing ?? "—"} accent="bg-[#FBE7DF] text-[#B14A2C]" />
-        <Stat icon={Receipt} label="Billed" value={stats.billed ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" />
+        <Stat icon={CheckCircle2} label="Completed" value={stats.completed ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" />
         <Stat icon={Activity} label="Total visits" value={stats.total_visits ?? "—"} accent="bg-[#F3F1EB] text-[#5C6C62]" />
       </div>
 
@@ -81,7 +80,7 @@ export default function DashboardPage() {
                     <td className="px-5 py-4 font-medium text-[#2D3A33]">{v.patient_name}</td>
                     <td className="px-5 py-4 capitalize text-[#5C6C62]">{v.visit_type}</td>
                     <td className="px-5 py-4">
-                      <span className={`bl-chip ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>
+                      <span className={`bl-chip ${v.status === "completed" ? "success" : "info"}`}>
                         {v.status.replace("_"," ")}
                       </span>
                     </td>

@@ -338,23 +338,21 @@ function TherapistFormTab() {
   );
 }
 
-/* ---------------- Treatment / Billing ---------------- */
+/* ---------------- Treatment ---------------- */
 function TreatmentTab() {
   const { settings, refresh } = useSettings();
   const [categories, setCats] = useState([]);
   const [units, setUnits] = useState([]);
-  const [methods, setMethods] = useState([]);
 
   useEffect(() => {
     if (!settings?.form_config) return;
     setCats(settings.form_config.treatment_categories || []);
     setUnits(settings.form_config.treatment_units || []);
-    setMethods(settings.form_config.payment_methods || []);
   }, [settings?.form_config]);
 
   const save = async () => {
     try {
-      await api.put("/admin/settings", { form_config: { ...settings.form_config, treatment_categories: categories, treatment_units: units, payment_methods: methods } });
+      await api.put("/admin/settings", { form_config: { ...settings.form_config, treatment_categories: categories, treatment_units: units } });
       toast.success("Saved");
       await refresh();
     } catch (e) { toast.error("Failed"); }
@@ -364,7 +362,6 @@ function TreatmentTab() {
     <div className="space-y-6">
       <ListEditor title="Treatment categories" items={categories} setItems={setCats} placeholder="e.g. Injectable" testid="cat" />
       <ListEditor title="Unit types" items={units} setItems={setUnits} placeholder="e.g. ml" testid="unit" />
-      <ListEditor title="Payment methods" items={methods} setItems={setMethods} placeholder="e.g. QRIS" testid="method" />
       <button onClick={save} className="bl-btn-primary" data-testid="treatment-form-save">Save</button>
     </div>
   );

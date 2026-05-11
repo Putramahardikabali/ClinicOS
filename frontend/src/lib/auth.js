@@ -64,7 +64,7 @@ export const can = (user, action) => {
     add_treatment: ["doctor", "therapist"],
     upload_photo: ["doctor", "therapist", "fo"],
     edit_mapping: ["doctor", "therapist"],
-    process_billing: ["fo"],
+    close_visit: ["fo"],
     view_audit: ["manager"],
   };
   return (matrix[action] || []).includes(user.role);

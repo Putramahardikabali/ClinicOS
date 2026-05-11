@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Calendar, ImageIcon, Receipt } from "lucide-react";
+import { ArrowLeft, Plus, Calendar, Image as ImageIcon } from "lucide-react";
 
 export default function PatientDetailPage() {
   const { pid } = useParams();
@@ -75,7 +75,7 @@ export default function PatientDetailPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-[#2D3A33] capitalize">{v.visit_type} visit</span>
-                      <span className={`bl-chip ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
+                      <span className={`bl-chip ${v.status === "completed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
                     </div>
                     <div className="mt-1 text-sm text-[#5C6C62] line-clamp-2">
                       {v.clinical_record?.diagnosis || v.therapist_record?.body_concern || v.chief_complaint || "—"}
@@ -83,7 +83,6 @@ export default function PatientDetailPage() {
                     <div className="mt-2 flex gap-3 text-xs text-[#5C6C62]">
                       <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3"/>{new Date(v.visit_date || v.created_at).toLocaleDateString()}</span>
                       <span className="inline-flex items-center gap-1"><ImageIcon className="w-3 h-3"/>{v.photo_count || 0} photos</span>
-                      <span className="inline-flex items-center gap-1"><Receipt className="w-3 h-3"/>{v.billing?.payment_status || "no billing"}</span>
                     </div>
                   </div>
                   <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm shrink-0" data-testid={`open-visit-${v.id}`}>Open visit</Link>

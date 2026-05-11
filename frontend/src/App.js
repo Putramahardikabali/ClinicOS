@@ -9,7 +9,6 @@ import DashboardPage from "@/pages/DashboardPage";
 import PatientsPage from "@/pages/PatientsPage";
 import PatientDetailPage from "@/pages/PatientDetailPage";
 import VisitDetailPage from "@/pages/VisitDetailPage";
-import BillingPage from "@/pages/BillingPage";
 import VisitsPage from "@/pages/VisitsPage";
 import AuditPage from "@/pages/AuditPage";
 import PrintVisitPage from "@/pages/PrintVisitPage";
@@ -39,7 +38,6 @@ export default function App() {
             <Route path="/patients/:pid" element={<Protected><Shell><PatientDetailPage /></Shell></Protected>} />
             <Route path="/visits" element={<Protected><Shell><VisitsPage /></Shell></Protected>} />
             <Route path="/visits/:vid" element={<Protected><Shell><VisitDetailPage /></Shell></Protected>} />
-            <Route path="/billing" element={<Protected><Shell><BillingPage /></Shell></Protected>} />
             <Route path="/audit" element={<Protected><Shell><AuditPage /></Shell></Protected>} />
             <Route path="/admin" element={<Protected roles={["super_admin"]}><Shell><AdminPage /></Shell></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />

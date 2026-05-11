@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { useAuth, ROLE_LABEL } from "@/lib/auth";
-import { ArrowLeft, Printer, FileText, Stethoscope, Heart, Pill, Image as ImageIcon, MapPin, Receipt } from "lucide-react";
+import { useAuth, ROLE_LABEL, can } from "@/lib/auth";
+import { toast } from "sonner";
+import { ArrowLeft, Printer, FileText, Stethoscope, Heart, Pill, Image as ImageIcon, MapPin, CheckCircle2, RotateCcw } from "lucide-react";
 import DoctorForm from "@/components/visit/DoctorForm";
 import TherapistForm from "@/components/visit/TherapistForm";
 import TreatmentItems from "@/components/visit/TreatmentItems";
 import Photos from "@/components/visit/Photos";
 import MappingCanvas from "@/components/visit/MappingCanvas";
-import Billing from "@/components/visit/Billing";
 
 const TAB_DEFS = [
   { key: "overview", label: "Overview", icon: FileText },
@@ -17,7 +17,6 @@ const TAB_DEFS = [
   { key: "treatments", label: "Treatments", icon: Pill },
   { key: "photos", label: "Photos", icon: ImageIcon },
   { key: "mapping", label: "Mapping", icon: MapPin },
-  { key: "billing", label: "Billing", icon: Receipt, restrict: ["super_admin","fo","manager"] },
 ];
 
 export default function VisitDetailPage() {
@@ -26,6 +25,7 @@ export default function VisitDetailPage() {
   const nav = useNavigate();
   const [visit, setVisit] = useState(null);
   const [tab, setTab] = useState("overview");
+  const [statusBusy, setStatusBusy] = useState(false);
 
   const load = () => api.get(`/visits/${vid}`).then(r => setVisit(r.data));
   useEffect(() => { load(); }, [vid]);
@@ -36,13 +36,26 @@ export default function VisitDetailPage() {
     if (tab !== "overview") return;
     if (user.role === "doctor" && visit.visit_type === "doctor") setTab("clinical");
     else if (user.role === "therapist" && visit.visit_type === "therapist") setTab("therapist");
-    else if (user.role === "fo" && visit.status === "submitted") setTab("billing");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visit?.id]);
+
+  const changeStatus = async (next) => {
+    if (next === "completed" && !window.confirm("Close this visit and mark it as completed? Doctor/therapist will no longer be able to edit.")) return;
+    setStatusBusy(true);
+    try {
+      await api.put(`/visits/${vid}/status`, { status: next });
+      toast.success(next === "completed" ? "Visit marked as completed" : "Visit reopened");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    } finally { setStatusBusy(false); }
+  };
 
   if (!visit) return <div className="p-10 text-[#5C6C62]">Loading…</div>;
 
   const tabs = TAB_DEFS.filter(t => !t.restrict || t.restrict.includes(user.role) || user.role === "super_admin");
+  const isCompleted = visit.status === "completed";
+  const canClose = can(user, "close_visit");
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
@@ -95,7 +108,6 @@ export default function VisitDetailPage() {
         {tab === "treatments" && <TreatmentItems visit={visit} onSaved={load} />}
         {tab === "photos" && <Photos visit={visit} onSaved={load} />}
         {tab === "mapping" && <MappingCanvas visit={visit} onSaved={load} />}
-        {tab === "billing" && <Billing visit={visit} onSaved={load} />}
       </div>
     </div>
   );

@@ -14,7 +14,6 @@ export default function PrintVisitPage() {
   const pat = visit.patient;
   const cr = visit.clinical_record;
   const tr = visit.therapist_record;
-  const billing = visit.billing;
 
   const renderAssessment = () => {
     if (!cr?.assessment) return null;
@@ -181,42 +180,6 @@ export default function PrintVisitPage() {
                   <div className="text-xs text-[#5C6C62] mt-1">{p.photo_type} · {p.angle.replace("_"," ")}</div>
                 </div>
               ))}
-            </div>
-          </section>
-        )}
-
-        {/* Billing */}
-        {billing && (
-          <section className="mt-7">
-            <div className="text-xs uppercase tracking-[0.25em] text-[#8A9A86]">Invoice</div>
-            <table className="w-full text-sm mt-3">
-              <thead>
-                <tr className="border-b border-[#2D3A33]/40">
-                  <th className="text-left py-1.5">Description</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Price</th>
-                  <th className="text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(billing.items || []).map((it, i) => (
-                  <tr key={i} className="border-b border-[#2D3A33]/10">
-                    <td className="py-1.5">{it.name}</td>
-                    <td className="text-right">{it.qty}</td>
-                    <td className="text-right">{fmt(it.price)}</td>
-                    <td className="text-right">{fmt((it.qty || 0) * (it.price || 0) - (it.discount || 0))}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr><td colSpan={3} className="text-right pt-2">Subtotal</td><td className="text-right pt-2">{fmt(billing.subtotal)}</td></tr>
-                <tr><td colSpan={3} className="text-right">Discount</td><td className="text-right">{fmt(billing.discount)}</td></tr>
-                <tr className="border-t border-[#2D3A33]"><td colSpan={3} className="text-right pt-2 font-bold">Total</td><td className="text-right pt-2 font-bold">{fmt(billing.total)}</td></tr>
-              </tfoot>
-            </table>
-            <div className="mt-2 text-sm flex justify-between">
-              <span>Payment: {billing.payment_method || "—"}</span>
-              <span className="capitalize font-semibold">{billing.payment_status}</span>
             </div>
           </section>
         )}

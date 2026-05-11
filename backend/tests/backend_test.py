@@ -1,11 +1,11 @@
-"""Body Lab Bali EMR - Backend integration tests."""
+"""Body Lab Bali EMR - Backend integration tests (Iteration 4 - Billing removed)."""
 import io
 import os
 import base64
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://aesthetic-records.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 API = f"{BASE_URL}/api"
 
 CREDS = {
@@ -137,7 +137,6 @@ class TestPatients:
         r = requests.put(f"{API}/patients/{patient_visit['patient_id']}", headers=H(tokens["fo"]),
                          json={"full_name": "TEST_Pasien Coba", "notes": "updated"}, timeout=30)
         assert r.status_code == 200
-        # verify
         r2 = requests.get(f"{API}/patients/{patient_visit['patient_id']}", headers=H(tokens["fo"]), timeout=30)
         assert r2.json()["notes"] == "updated"
 
@@ -146,24 +145,35 @@ class TestPatients:
         assert r.status_code == 404
 
 
-# ---------------- Visits ----------------
+# ---------------- Visits (no billing field) ----------------
 class TestVisits:
     def test_list_visits(self, tokens):
         r = requests.get(f"{API}/visits", headers=H(tokens["fo"]), timeout=30)
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
-    def test_get_visit_enriched(self, tokens, patient_visit):
+    def test_get_visit_no_billing_field(self, tokens, patient_visit):
         r = requests.get(f"{API}/visits/{patient_visit['visit_id']}", headers=H(tokens["doctor"]), timeout=30)
         assert r.status_code == 200
         v = r.json()
-        for k in ("patient", "clinical_record", "therapist_record", "treatment_items", "photos", "mappings", "billing"):
-            assert k in v
+        # required enriched keys
+        for k in ("patient", "clinical_record", "therapist_record", "treatment_items", "photos", "mappings"):
+            assert k in v, f"missing key {k}"
+        # billing must NOT be present
+        assert "billing" not in v, "billing field should be removed from visit detail"
+        # status must be in_progress on a freshly created visit
+        assert v["status"] in ("in_progress", "completed")
+
+    def test_migration_no_legacy_statuses(self, tokens):
+        r = requests.get(f"{API}/visits", headers=H(tokens["super_admin"]), timeout=30)
+        assert r.status_code == 200
+        bad = [v for v in r.json() if v.get("status") in ("submitted", "billed")]
+        assert not bad, f"Found {len(bad)} visits with legacy status: {[v['id'] for v in bad[:3]]}"
 
 
-# ---------------- Clinical record ----------------
+# ---------------- Clinical record: submit no longer flips status ----------------
 class TestClinical:
-    def test_save_then_submit_doctor(self, tokens, patient_visit):
+    def test_save_then_submit_doctor_status_unchanged(self, tokens, patient_visit):
         vid = patient_visit["visit_id"]
         # save (no submit)
         r = requests.put(f"{API}/visits/{vid}/clinical", headers=H(tokens["doctor"]),
@@ -179,9 +189,9 @@ class TestClinical:
                          json={"diagnosis": "TEST final", "assessment": {}, "submit": True}, timeout=30)
         assert r.status_code == 200
         assert r.json().get("submitted") is True
-        # visit status submitted
+        # visit status MUST remain in_progress (NOT submitted/completed)
         v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["doctor"]), timeout=30).json()
-        assert v["status"] == "submitted"
+        assert v["status"] == "in_progress", f"status should stay in_progress, got {v['status']}"
 
     def test_doctor_cannot_edit_after_submit(self, tokens, patient_visit):
         vid = patient_visit["visit_id"]
@@ -209,7 +219,7 @@ def therapist_visit(tokens):
 
 
 class TestTherapist:
-    def test_save_and_submit(self, tokens, therapist_visit):
+    def test_save_and_submit_status_unchanged(self, tokens, therapist_visit):
         vid = therapist_visit["visit_id"]
         r = requests.put(f"{API}/visits/{vid}/therapist", headers=H(tokens["therapist"]),
                          json={"contraindication": ["pregnancy"], "device_used": "RF",
@@ -217,6 +227,9 @@ class TestTherapist:
                                "duration": "30min", "submit": True}, timeout=30)
         assert r.status_code == 200, r.text
         assert r.json().get("submitted") is True
+        # status remains in_progress
+        v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["fo"]), timeout=30).json()
+        assert v["status"] == "in_progress", f"status should stay in_progress, got {v['status']}"
 
     def test_therapist_cannot_edit_after_submit(self, tokens, therapist_visit):
         vid = therapist_visit["visit_id"]
@@ -233,10 +246,8 @@ class TestTreatments:
                           json={"category": "facial", "name": "TEST_Hydra", "quantity": 1, "price": 500000}, timeout=30)
         assert r.status_code == 200
         iid = r.json()["id"]
-        # verify in visit
         v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["fo"]), timeout=30).json()
         assert any(t["id"] == iid for t in v["treatment_items"])
-        # delete
         r = requests.delete(f"{API}/visits/{vid}/treatments/{iid}", headers=H(tokens["doctor"]), timeout=30)
         assert r.status_code == 200
 
@@ -257,11 +268,9 @@ class TestPhotos:
         assert r.status_code == 200, r.text
         rec = r.json()
         path = rec["storage_path"]
-        # serve via query auth
         r2 = requests.get(f"{API}/files/{path}?auth={tokens['fo']}", timeout=30)
         assert r2.status_code == 200
         assert len(r2.content) > 0
-        # auth required
         r3 = requests.get(f"{API}/files/{path}", timeout=30)
         assert r3.status_code == 401
 
@@ -277,59 +286,95 @@ class TestMapping:
         assert r.json()["map_type"] == "face"
 
 
-# ---------------- Billing ----------------
-@pytest.fixture(scope="session")
-def billing_visit(tokens):
+# ---------------- Billing REMOVED ----------------
+class TestBillingRemoved:
+    def test_pending_billing_endpoint_removed(self, tokens):
+        r = requests.get(f"{API}/visits/pending-billing", headers=H(tokens["fo"]), timeout=30)
+        # could be 404 or routed through {vid} -> 404 not found
+        assert r.status_code in (404, 405), f"expected 404/405, got {r.status_code}"
+
+    def test_billing_put_endpoint_removed(self, tokens, patient_visit):
+        vid = patient_visit["visit_id"]
+        r = requests.put(f"{API}/visits/{vid}/billing", headers=H(tokens["fo"]),
+                         json={"items": [], "discount": 0, "payment_status": "unpaid"}, timeout=30)
+        assert r.status_code in (404, 405), f"expected 404/405, got {r.status_code}"
+
+
+# ---------------- NEW: Visit status endpoint ----------------
+@pytest.fixture
+def fresh_visit(tokens):
     fo = tokens["fo"]
-    r = requests.post(f"{API}/patients", headers=H(fo), json={"full_name": "TEST_Billing P"}, timeout=30)
+    r = requests.post(f"{API}/patients", headers=H(fo), json={"full_name": "TEST_StatusFlow"}, timeout=30)
     pid = r.json()["id"]
     r = requests.post(f"{API}/visits", headers=H(fo), json={"patient_id": pid, "visit_type": "doctor"}, timeout=30)
-    vid = r.json()["id"]
-    # submit clinical to move status to submitted
-    requests.put(f"{API}/visits/{vid}/clinical", headers=H(tokens["doctor"]),
-                 json={"diagnosis": "TEST", "submit": True}, timeout=30)
-    return {"patient_id": pid, "visit_id": vid}
+    return r.json()["id"]
 
 
-class TestBilling:
-    def test_pending_billing_includes_visit(self, tokens, billing_visit):
-        r = requests.get(f"{API}/visits/pending-billing", headers=H(tokens["fo"]), timeout=30)
-        assert r.status_code == 200
-        ids = [v["id"] for v in r.json()]
-        assert billing_visit["visit_id"] in ids
-
-    def test_billing_calculation_and_paid_status(self, tokens, billing_visit):
-        vid = billing_visit["visit_id"]
-        r = requests.put(f"{API}/visits/{vid}/billing", headers=H(tokens["fo"]),
-                         json={"items": [{"name": "Facial", "qty": 2, "price": 500000, "discount": 0}],
-                               "discount": 100000, "payment_method": "cash", "payment_status": "paid"},
-                         timeout=30)
+class TestVisitStatus:
+    def test_fo_can_mark_completed(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["fo"]),
+                         json={"status": "completed"}, timeout=30)
         assert r.status_code == 200, r.text
-        b = r.json()
-        assert b["subtotal"] == 1000000
-        assert b["total"] == 900000
-        # visit status should be billed
-        v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["fo"]), timeout=30).json()
-        assert v["status"] == "billed"
+        v = requests.get(f"{API}/visits/{fresh_visit}", headers=H(tokens["fo"]), timeout=30).json()
+        assert v["status"] == "completed"
+        assert v.get("completed_at"), "completed_at should be set"
+        assert v.get("completed_by"), "completed_by should be set"
 
-    def test_doctor_cannot_bill(self, tokens, billing_visit):
-        r = requests.put(f"{API}/visits/{billing_visit['visit_id']}/billing", headers=H(tokens["doctor"]),
-                         json={"items": [], "discount": 0, "payment_status": "unpaid"}, timeout=30)
+    def test_super_admin_can_mark_completed(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["super_admin"]),
+                         json={"status": "completed"}, timeout=30)
+        assert r.status_code == 200
+
+    def test_doctor_cannot_change_status(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["doctor"]),
+                         json={"status": "completed"}, timeout=30)
         assert r.status_code == 403
+
+    def test_therapist_cannot_change_status(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["therapist"]),
+                         json={"status": "completed"}, timeout=30)
+        assert r.status_code == 403
+
+    def test_manager_cannot_change_status(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["manager"]),
+                         json={"status": "completed"}, timeout=30)
+        assert r.status_code == 403
+
+    def test_reopen_completed_visit(self, tokens, fresh_visit):
+        # complete
+        requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["fo"]),
+                     json={"status": "completed"}, timeout=30)
+        # reopen
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["fo"]),
+                        json={"status": "in_progress"}, timeout=30)
+        assert r.status_code == 200, r.text
+        v = requests.get(f"{API}/visits/{fresh_visit}", headers=H(tokens["fo"]), timeout=30).json()
+        assert v["status"] == "in_progress"
+
+    def test_invalid_status_returns_400(self, tokens, fresh_visit):
+        r = requests.put(f"{API}/visits/{fresh_visit}/status", headers=H(tokens["fo"]),
+                         json={"status": "foo"}, timeout=30)
+        assert r.status_code == 400
 
 
 # ---------------- Timeline / Stats ----------------
 class TestMisc:
-    def test_timeline(self, tokens, patient_visit):
+    def test_timeline_no_billing(self, tokens, patient_visit):
         r = requests.get(f"{API}/patients/{patient_visit['patient_id']}/timeline",
                          headers=H(tokens["doctor"]), timeout=30)
         assert r.status_code == 200
-        assert isinstance(r.json(), list)
-        assert len(r.json()) >= 1
+        data = r.json()
+        assert isinstance(data, list) and len(data) >= 1
+        for v in data:
+            assert "billing" not in v, "timeline visits should not include billing field"
 
-    def test_stats(self, tokens):
+    def test_stats_new_keys(self, tokens):
         r = requests.get(f"{API}/stats", headers=H(tokens["manager"]), timeout=30)
         assert r.status_code == 200
         d = r.json()
-        for k in ("total_patients", "total_visits", "pending_billing", "in_progress", "billed", "visits_today"):
-            assert k in d
+        # new required keys
+        for k in ("total_patients", "total_visits", "in_progress", "completed", "visits_today"):
+            assert k in d, f"missing stats key {k}"
+        # legacy keys must be gone
+        assert "pending_billing" not in d, "pending_billing should be removed from stats"
+        assert "billed" not in d, "billed should be removed from stats"

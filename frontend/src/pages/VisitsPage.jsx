@@ -13,7 +13,7 @@ export default function VisitsPage() {
       <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Visits</h1>
 
       <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
-        {["", "in_progress", "submitted", "billed"].map((s) => (
+        {["", "in_progress", "completed"].map((s) => (
           <button key={s||"all"} onClick={()=>setFilter(s)} className={`bl-chip whitespace-nowrap ${filter===s ? "info" : ""}`} data-testid={`filter-${s||"all"}`}>
             {s === "" ? "All" : s.replace("_"," ")}
           </button>
@@ -33,7 +33,7 @@ export default function VisitsPage() {
               <div className="font-medium text-[#2D3A33] truncate">{v.patient_name}</div>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-xs text-[#5C6C62] capitalize">{v.visit_type}</span>
-                <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
+                <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${v.status === "completed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
               </div>
             </div>
             <div className="text-[#5C6C62]">›</div>
@@ -60,7 +60,7 @@ export default function VisitsPage() {
               <tr key={v.id} className="border-t border-[#EAE6D7] hover:bg-[#FBF8EF]">
                 <td className="px-5 py-4 font-medium">{v.patient_name}</td>
                 <td className="px-5 py-4 capitalize text-[#5C6C62]">{v.visit_type}</td>
-                <td className="px-5 py-4"><span className={`bl-chip ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span></td>
+                <td className="px-5 py-4"><span className={`bl-chip ${v.status === "completed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span></td>
                 <td className="px-5 py-4 text-sm text-[#5C6C62]">{new Date(v.visit_date || v.created_at).toLocaleDateString()}</td>
                 <td className="px-5 py-4 text-right"><Link to={`/visits/${v.id}`} className="text-sm text-[#8A9A86] hover:text-[#748470]">Open →</Link></td>
               </tr>

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABEL } from "@/lib/auth";
 import { useSettings, logoUrl } from "@/lib/settings";
 import {
-  LayoutDashboard, Users, Stethoscope, Receipt, ScrollText, LogOut, Sparkles,
+  LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
   Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight,
 } from "lucide-react";
 
@@ -11,7 +11,6 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/patients", label: "Patients", icon: Users, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/visits", label: "Visits", icon: Stethoscope, roles: ["super_admin","doctor","therapist","fo","manager"] },
-  { to: "/billing", label: "Billing", icon: Receipt, roles: ["super_admin","fo","manager"], shortLabel: "Billing" },
   { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit" },
   { to: "/admin", label: "Admin Settings", icon: SettingsIcon, roles: ["super_admin"], shortLabel: "Admin" },
 ];
@@ -21,7 +20,7 @@ const BOTTOM_NAV_BY_ROLE = {
   super_admin: ["/", "/patients", "/visits", "/admin"],
   doctor: ["/", "/patients", "/visits"],
   therapist: ["/", "/patients", "/visits"],
-  fo: ["/", "/patients", "/visits", "/billing"],
+  fo: ["/", "/patients", "/visits"],
   manager: ["/", "/patients", "/visits", "/audit"],
 };
 

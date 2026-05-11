@@ -211,11 +211,10 @@ class MappingIn(BaseModel):
     notes: Optional[str] = ""
 
 class BillingIn(BaseModel):
-    items: List[Dict[str, Any]]  # {name, qty, price, discount}
-    discount: float = 0
-    payment_method: Optional[str] = ""
-    payment_status: str = "unpaid"  # unpaid | paid | partial
-    notes: Optional[str] = ""
+    pass  # deprecated — kept as no-op placeholder for migration safety
+
+class VisitStatusIn(BaseModel):
+    status: str  # in_progress | completed
 
 class UserIn(BaseModel):
     email: EmailStr
@@ -511,7 +510,7 @@ async def update_patient(pid: str, payload: PatientIn, user: dict = Depends(requ
 async def create_visit(payload: VisitIn, user: dict = Depends(require_roles("super_admin", "fo"))):
     v = payload.model_dump()
     v["id"] = str(uuid.uuid4())
-    v["status"] = "in_progress"  # in_progress | submitted | billed
+    v["status"] = "in_progress"  # in_progress | completed
     v["created_at"] = datetime.now(timezone.utc).isoformat()
     v["created_by"] = user["id"]
     if not v.get("visit_date"):
@@ -534,14 +533,6 @@ async def list_visits(patient_id: Optional[str] = None, status: Optional[str] = 
         v["patient_name"] = p["full_name"] if p else "Unknown"
     return items
 
-@api.get("/visits/pending-billing")
-async def pending_billing(user: dict = Depends(require_roles("super_admin", "fo", "manager"))):
-    items = await db.visits.find({"status": "submitted"}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    for v in items:
-        p = await db.patients.find_one({"id": v["patient_id"]}, {"_id": 0, "full_name": 1})
-        v["patient_name"] = p["full_name"] if p else "Unknown"
-    return items
-
 @api.get("/visits/{vid}")
 async def get_visit(vid: str, user: dict = Depends(get_current_user)):
     v = await db.visits.find_one({"id": vid}, {"_id": 0})
@@ -554,11 +545,25 @@ async def get_visit(vid: str, user: dict = Depends(get_current_user)):
     v["treatment_items"] = await db.treatment_items.find({"visit_id": vid}, {"_id": 0}).to_list(200)
     v["photos"] = await db.photos.find({"visit_id": vid}, {"_id": 0}).to_list(200)
     v["mappings"] = await db.mappings.find({"visit_id": vid}, {"_id": 0}).to_list(50)
-    v["billing"] = await db.billings.find_one({"visit_id": vid}, {"_id": 0})
     if v.get("assigned_to"):
         u = await db.users.find_one({"id": v["assigned_to"]}, {"_id": 0, "name": 1, "role": 1})
         v["assigned_user"] = u
     return v
+
+@api.put("/visits/{vid}/status")
+async def update_visit_status(vid: str, payload: VisitStatusIn, user: dict = Depends(require_roles("super_admin", "fo"))):
+    if payload.status not in ("in_progress", "completed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    visit = await db.visits.find_one({"id": vid})
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    upd = {"status": payload.status}
+    if payload.status == "completed":
+        upd["completed_at"] = datetime.now(timezone.utc).isoformat()
+        upd["completed_by"] = user["id"]
+    await db.visits.update_one({"id": vid}, {"$set": upd})
+    await audit(user, "status_change", "visit", vid, {"to": payload.status})
+    return await db.visits.find_one({"id": vid}, {"_id": 0})
 
 # ---------------- Clinical Record (Doctor) ----------------
 @api.put("/visits/{vid}/clinical")
@@ -580,8 +585,6 @@ async def upsert_clinical(vid: str, payload: ClinicalRecordIn, user: dict = Depe
         data["submitted"] = True
         data["submitted_at"] = datetime.now(timezone.utc).isoformat()
     await db.clinical_records.update_one({"visit_id": vid}, {"$set": data}, upsert=True)
-    if submit:
-        await db.visits.update_one({"id": vid}, {"$set": {"status": "submitted"}})
     await audit(user, "submit" if submit else "save", "clinical_record", vid)
     return await db.clinical_records.find_one({"visit_id": vid}, {"_id": 0})
 
@@ -604,8 +607,6 @@ async def upsert_therapist(vid: str, payload: TherapistRecordIn, user: dict = De
         data["submitted"] = True
         data["submitted_at"] = datetime.now(timezone.utc).isoformat()
     await db.therapist_records.update_one({"visit_id": vid}, {"$set": data}, upsert=True)
-    if submit:
-        await db.visits.update_one({"id": vid}, {"$set": {"status": "submitted"}})
     await audit(user, "submit" if submit else "save", "therapist_record", vid)
     return await db.therapist_records.find_one({"visit_id": vid}, {"_id": 0})
 
@@ -715,38 +716,6 @@ async def delete_mapping(vid: str, mid: str, user: dict = Depends(require_roles(
     await db.mappings.delete_one({"id": mid, "visit_id": vid})
     return {"ok": True}
 
-# ---------------- Billing ----------------
-@api.put("/visits/{vid}/billing")
-async def upsert_billing(vid: str, payload: BillingIn, user: dict = Depends(require_roles("super_admin", "fo"))):
-    visit = await db.visits.find_one({"id": vid})
-    if not visit:
-        raise HTTPException(status_code=404, detail="Visit not found")
-    items = payload.items or []
-    subtotal = 0.0
-    for it in items:
-        qty = float(it.get("qty", 1))
-        price = float(it.get("price", 0))
-        line_disc = float(it.get("discount", 0))
-        subtotal += (qty * price) - line_disc
-    total = max(0.0, subtotal - float(payload.discount or 0))
-    data = {
-        "visit_id": vid,
-        "items": items,
-        "discount": payload.discount,
-        "subtotal": subtotal,
-        "total": total,
-        "payment_method": payload.payment_method,
-        "payment_status": payload.payment_status,
-        "notes": payload.notes,
-        "updated_by": user["id"],
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.billings.update_one({"visit_id": vid}, {"$set": data}, upsert=True)
-    if payload.payment_status == "paid":
-        await db.visits.update_one({"id": vid}, {"$set": {"status": "billed"}})
-    await audit(user, "billing", "visit", vid, {"total": total, "status": payload.payment_status})
-    return await db.billings.find_one({"visit_id": vid}, {"_id": 0})
-
 # ---------------- History Timeline ----------------
 @api.get("/patients/{pid}/timeline")
 async def patient_timeline(pid: str, user: dict = Depends(get_current_user)):
@@ -756,7 +725,6 @@ async def patient_timeline(pid: str, user: dict = Depends(get_current_user)):
         v["therapist_record"] = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0})
         v["treatment_items"] = await db.treatment_items.find({"visit_id": v["id"]}, {"_id": 0}).to_list(50)
         v["photo_count"] = await db.photos.count_documents({"visit_id": v["id"]})
-        v["billing"] = await db.billings.find_one({"visit_id": v["id"]}, {"_id": 0})
     return visits
 
 # ---------------- Audit Log ----------------
@@ -771,16 +739,14 @@ async def stats(user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     total_patients = await db.patients.count_documents({})
     total_visits = await db.visits.count_documents({})
-    pending_billing = await db.visits.count_documents({"status": "submitted"})
     in_progress = await db.visits.count_documents({"status": "in_progress"})
-    billed = await db.visits.count_documents({"status": "billed"})
+    completed = await db.visits.count_documents({"status": "completed"})
     visits_today = await db.visits.count_documents({"visit_date": {"$regex": f"^{today}"}})
     return {
         "total_patients": total_patients,
         "total_visits": total_visits,
-        "pending_billing": pending_billing,
         "in_progress": in_progress,
-        "billed": billed,
+        "completed": completed,
         "visits_today": visits_today,
     }
 
@@ -825,6 +791,9 @@ async def startup():
     # Seed default settings
     if not await db.settings.find_one({"id": "global"}):
         await db.settings.insert_one({"id": "global", **DEFAULT_SETTINGS})
+    # Migrate legacy visit statuses → new simplified flow
+    await db.visits.update_many({"status": "submitted"}, {"$set": {"status": "in_progress"}})
+    await db.visits.update_many({"status": "billed"}, {"$set": {"status": "completed"}})
     log.info("Body Lab Bali EMR ready")
 
 @app.on_event("shutdown")
