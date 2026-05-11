@@ -67,8 +67,9 @@ export default function VisitDetailPage() {
         </Link>
       </div>
 
-      {/* Tabs */}
-      <div className="mt-7 border-b border-[#EAE6D7] flex gap-1 overflow-x-auto" data-testid="visit-tabs">
+      {/* Tabs — sticky on mobile, snap scroll */}
+      <div className="mt-6 lg:mt-7 sticky top-[56px] lg:top-0 z-20 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 bg-[#FDFBF7]">
+        <div className="bl-tab-scroller" data-testid="visit-tabs">
         {tabs.map(t => {
           const Icon = t.icon;
           const active = tab === t.key;
@@ -76,13 +77,15 @@ export default function VisitDetailPage() {
             <button
               key={t.key}
               onClick={()=>setTab(t.key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 inline-flex items-center gap-2 whitespace-nowrap transition ${active ? "border-[#8A9A86] text-[#2D3A33]" : "border-transparent text-[#5C6C62] hover:text-[#2D3A33]"}`}
+              className={`px-3 sm:px-4 py-3 text-sm font-medium border-b-2 inline-flex items-center gap-2 whitespace-nowrap transition ${active ? "text-[#2D3A33]" : "border-transparent text-[#5C6C62]"}`}
+              style={active ? { borderColor: "var(--bl-primary)" } : { borderColor: "transparent" }}
               data-testid={`tab-${t.key}`}
             >
               <Icon className="w-4 h-4" strokeWidth={1.6} /> {t.label}
             </button>
           );
         })}
+        </div>
       </div>
 
       <div className="mt-7">

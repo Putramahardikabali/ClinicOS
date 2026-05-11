@@ -4,17 +4,26 @@ import { useAuth, ROLE_LABEL } from "@/lib/auth";
 import { useSettings, logoUrl } from "@/lib/settings";
 import {
   LayoutDashboard, Users, Stethoscope, Receipt, ScrollText, LogOut, Sparkles,
-  Settings as SettingsIcon, Menu, X,
+  Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight,
 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/patients", label: "Patients", icon: Users, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/visits", label: "Visits", icon: Stethoscope, roles: ["super_admin","doctor","therapist","fo","manager"] },
-  { to: "/billing", label: "Pending Billing", icon: Receipt, roles: ["super_admin","fo","manager"] },
-  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"] },
-  { to: "/admin", label: "Admin Settings", icon: SettingsIcon, roles: ["super_admin"] },
+  { to: "/billing", label: "Billing", icon: Receipt, roles: ["super_admin","fo","manager"], shortLabel: "Billing" },
+  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit" },
+  { to: "/admin", label: "Admin Settings", icon: SettingsIcon, roles: ["super_admin"], shortLabel: "Admin" },
 ];
+
+// Bottom nav: only the 4 most relevant per role, plus "More" if extras exist
+const BOTTOM_NAV_BY_ROLE = {
+  super_admin: ["/", "/patients", "/visits", "/admin"],
+  doctor: ["/", "/patients", "/visits"],
+  therapist: ["/", "/patients", "/visits"],
+  fo: ["/", "/patients", "/visits", "/billing"],
+  manager: ["/", "/patients", "/visits", "/audit"],
+};
 
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
@@ -22,9 +31,14 @@ export default function AppShell({ children }) {
   const loc = useLocation();
   const nav = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const visibleNav = NAV.filter(n => n.roles.includes(user?.role));
+  const bottomKeys = BOTTOM_NAV_BY_ROLE[user?.role] || ["/", "/patients", "/visits"];
+  const bottomItems = bottomKeys.map(k => visibleNav.find(n => n.to === k)).filter(Boolean);
 
   const Sidebar = ({ inDrawer = false }) => (
-    <div className={`flex flex-col h-full ${inDrawer ? "" : "w-64 shrink-0 border-r border-[#EAE6D7] bg-[#F3F1EB]"}`} style={inDrawer ? { background: "#F3F1EB" } : {}}>
+    <div className={`flex flex-col h-full ${inDrawer ? "" : "w-64 shrink-0 border-r border-[#EAE6D7]"}`} style={{ background: "#F3F1EB" }}>
       <div className="px-5 lg:px-6 py-5 lg:py-7 border-b border-[#EAE6D7] flex items-center justify-between">
         <button onClick={() => { nav("/"); setMobileOpen(false); }} className="flex items-center gap-2 text-left">
           {branding?.logo_path ? (
@@ -35,7 +49,7 @@ export default function AppShell({ children }) {
             </div>
           )}
           <div>
-            <div className="font-display text-lg leading-tight text-[#2D3A33]">{branding?.clinic_name?.split(" ")[0] || "Body"} {branding?.clinic_name?.split(" ").slice(1).join(" ") || "Lab"}</div>
+            <div className="font-display text-lg leading-tight text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
             <div className="font-display text-sm -mt-0.5" style={{ color: "var(--bl-accent)" }}>{branding?.tagline?.includes("·") ? branding.tagline.split("·")[1].trim() : "EMR"}</div>
           </div>
         </button>
@@ -47,7 +61,7 @@ export default function AppShell({ children }) {
       </div>
 
       <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-        {NAV.filter(n => n.roles.includes(user?.role)).map((n) => {
+        {visibleNav.map((n) => {
           const active = n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to);
           const Icon = n.icon;
           return (
@@ -85,7 +99,7 @@ export default function AppShell({ children }) {
         <Sidebar />
       </aside>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer (overflow nav) */}
       {mobileOpen && (
         <>
           <div className="bl-mobile-overlay lg:hidden" onClick={() => setMobileOpen(false)} />
@@ -97,9 +111,9 @@ export default function AppShell({ children }) {
 
       {/* Main */}
       <main className="flex-1 min-w-0 flex flex-col">
-        {/* Mobile top bar */}
+        {/* Mobile top bar — slim, app-like */}
         <header className="lg:hidden sticky top-0 z-30 bg-[#FDFBF7]/95 backdrop-blur border-b border-[#EAE6D7] px-4 py-3 flex items-center justify-between">
-          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-[#F3F1EB]" data-testid="mobile-menu-button">
+          <button onClick={() => setMobileOpen(true)} className="p-2 -ml-2 rounded-lg active:bg-[#F3F1EB]" data-testid="mobile-menu-button" aria-label="Menu">
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
@@ -112,10 +126,90 @@ export default function AppShell({ children }) {
             )}
             <div className="font-display text-base text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
           </div>
-          <div className="w-9" />
+          <button onClick={() => setProfileOpen(true)} className="p-1 -mr-1 rounded-full" data-testid="mobile-profile-button" aria-label="Profile">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold" style={{ background: "var(--bl-primary)" }}>
+              {user?.name?.charAt(0)?.toUpperCase() || "U"}
+            </div>
+          </button>
         </header>
 
-        <div className="flex-1">{children}</div>
+        <div className="flex-1 pb-24 lg:pb-0">{children}</div>
+
+        {/* Mobile bottom navigation */}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#EAE6D7] safe-area-pb" data-testid="bottom-nav">
+          <div className="flex items-stretch justify-around">
+            {bottomItems.map((n) => {
+              const active = n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to);
+              const Icon = n.icon;
+              return (
+                <Link
+                  key={n.to}
+                  to={n.to}
+                  className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 active:bg-[#FBF8EF] transition"
+                  data-testid={`bottom-nav-${n.label.toLowerCase().replace(/\s+/g,"-")}`}
+                >
+                  <Icon className="w-5 h-5" strokeWidth={active ? 2.2 : 1.6} style={{ color: active ? "var(--bl-primary)" : "#5C6C62" }} />
+                  <span className="text-[10px] font-medium" style={{ color: active ? "var(--bl-text)" : "#5C6C62" }}>{n.shortLabel || n.label}</span>
+                </Link>
+              );
+            })}
+            <button
+              onClick={() => setProfileOpen(true)}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 active:bg-[#FBF8EF] transition"
+              data-testid="bottom-nav-more"
+            >
+              <UserIcon className="w-5 h-5 text-[#5C6C62]" strokeWidth={1.6} />
+              <span className="text-[10px] font-medium text-[#5C6C62]">More</span>
+            </button>
+          </div>
+        </nav>
+
+        {/* Mobile profile sheet */}
+        {profileOpen && (
+          <>
+            <div className="bl-mobile-overlay lg:hidden" onClick={() => setProfileOpen(false)} />
+            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl p-5 pb-8 shadow-2xl animate-slide-up" data-testid="profile-sheet">
+              <div className="w-12 h-1.5 bg-[#EAE6D7] rounded-full mx-auto mb-5" />
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-semibold" style={{ background: "var(--bl-primary)" }}>
+                  {user?.name?.charAt(0)?.toUpperCase() || "U"}
+                </div>
+                <div>
+                  <div className="font-display text-lg text-[#2D3A33]">{user?.name}</div>
+                  <div className="text-xs text-[#5C6C62]">{user?.email} · {ROLE_LABEL[user?.role]}</div>
+                </div>
+              </div>
+
+              {/* Overflow nav (items not in bottom bar) */}
+              {visibleNav.filter(n => !bottomItems.find(b => b.to === n.to)).map(n => {
+                const Icon = n.icon;
+                return (
+                  <Link
+                    key={n.to}
+                    to={n.to}
+                    onClick={() => setProfileOpen(false)}
+                    className="flex items-center justify-between py-3 border-b border-[#EAE6D7] last:border-b-0"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Icon className="w-5 h-5 text-[#5C6C62]" strokeWidth={1.6} />
+                      <span className="text-[#2D3A33]">{n.label}</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-[#5C6C62]" />
+                  </Link>
+                );
+              })}
+
+              <button
+                onClick={async () => { setProfileOpen(false); await logout(); }}
+                className="mt-5 w-full py-3 rounded-xl flex items-center justify-center gap-2 font-medium"
+                style={{ background: "#FBE7DF", color: "#B14A2C" }}
+                data-testid="mobile-logout"
+              >
+                <LogOut className="w-4 h-4" /> Logout
+              </button>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

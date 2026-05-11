@@ -119,9 +119,9 @@ export default function TherapistForm({ visit, onSaved }) {
       </div>
 
       {editable && (
-        <div className="flex gap-3 pt-2 sticky bottom-0 bg-[#FDFBF7] py-3 border-t border-[#EAE6D7]">
-          <button onClick={()=>save(false)} className="bl-btn-ghost" disabled={busy} data-testid="therapist-save">Save draft</button>
-          <button onClick={()=>save(true)} className="bl-btn-primary" disabled={busy} data-testid="therapist-submit">Submit & lock</button>
+        <div className="flex flex-col sm:flex-row gap-3 pt-2 sticky bottom-16 lg:bottom-0 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 bg-[#FDFBF7] py-3 border-t border-[#EAE6D7] z-10">
+          <button onClick={()=>save(false)} className="bl-btn-ghost flex-1 sm:flex-none" disabled={busy} data-testid="therapist-save">Save draft</button>
+          <button onClick={()=>save(true)} className="bl-btn-primary flex-1 sm:flex-none" disabled={busy} data-testid="therapist-submit">Submit & lock</button>
         </div>
       )}
     </div>

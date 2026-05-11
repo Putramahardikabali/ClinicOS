@@ -12,15 +12,37 @@ export default function VisitsPage() {
       <div className="label-eyebrow">All visits</div>
       <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Visits</h1>
 
-      <div className="mt-6 flex gap-2">
+      <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
         {["", "in_progress", "submitted", "billed"].map((s) => (
-          <button key={s||"all"} onClick={()=>setFilter(s)} className={`bl-chip ${filter===s ? "info" : ""}`} data-testid={`filter-${s||"all"}`}>
+          <button key={s||"all"} onClick={()=>setFilter(s)} className={`bl-chip whitespace-nowrap ${filter===s ? "info" : ""}`} data-testid={`filter-${s||"all"}`}>
             {s === "" ? "All" : s.replace("_"," ")}
           </button>
         ))}
       </div>
 
-      <div className="mt-6 bl-card overflow-hidden">
+      {/* Mobile: card list */}
+      <div className="mt-6 space-y-3 lg:hidden">
+        {filtered.length === 0 && <div className="bl-card p-8 text-center text-[#5C6C62]">No visits</div>}
+        {filtered.map(v => (
+          <Link key={v.id} to={`/visits/${v.id}`} className="bl-card p-4 flex items-center gap-3 active:bg-[#FBF8EF]">
+            <div className="w-11 h-11 rounded-2xl bg-[#F3F1EB] flex flex-col items-center justify-center shrink-0">
+              <span className="font-display text-base text-[#2D3A33] leading-none">{new Date(v.visit_date || v.created_at).getDate()}</span>
+              <span className="text-[9px] uppercase tracking-widest text-[#5C6C62] mt-0.5">{new Date(v.visit_date || v.created_at).toLocaleString("en-US",{month:"short"})}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-[#2D3A33] truncate">{v.patient_name}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-[#5C6C62] capitalize">{v.visit_type}</span>
+                <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${v.status === "submitted" ? "warning" : v.status === "billed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
+              </div>
+            </div>
+            <div className="text-[#5C6C62]">›</div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="mt-6 bl-card overflow-hidden hidden lg:block">
         <div className="overflow-x-auto">
         <table className="w-full min-w-[640px]">
           <thead className="bg-[#F8F5EC]">

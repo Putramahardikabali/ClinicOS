@@ -56,7 +56,27 @@ export default function PatientsPage() {
         />
       </div>
 
-      <div className="mt-6 bl-card overflow-hidden" data-testid="patients-table">
+      {/* Mobile: card list */}
+      <div className="mt-6 space-y-3 lg:hidden" data-testid="patients-cards">
+        {items.length === 0 && <div className="bl-card p-8 text-center text-[#5C6C62]">No patients yet</div>}
+        {items.map((p) => (
+          <Link key={p.id} to={`/patients/${p.id}`} className="bl-card p-4 flex items-center gap-3 active:bg-[#FBF8EF]" data-testid={`patient-open-${p.id}`}>
+            <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0" style={{ background: "var(--bl-primary)" }}>
+              {p.full_name.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-[#2D3A33] truncate">{p.full_name}</div>
+              <div className="text-xs text-[#5C6C62] truncate">
+                <span className="capitalize">{p.gender || "—"}</span> · {p.phone || "no phone"}
+              </div>
+            </div>
+            <div className="text-[#5C6C62]">›</div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="mt-6 bl-card overflow-hidden hidden lg:block" data-testid="patients-table">
         <div className="overflow-x-auto">
         <table className="w-full min-w-[700px]">
           <thead className="bg-[#F8F5EC]">

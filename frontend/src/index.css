@@ -152,3 +152,41 @@ h1, h2, h3, h4, h5, .font-display {
   position: fixed; inset: 0; background: rgba(45, 58, 51, 0.45);
   z-index: 40; backdrop-filter: blur(2px);
 }
+
+/* iOS / Android safe area padding for bottom nav */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Bottom sheet slide-up animation */
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.22s cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* Horizontal scrollable tabs with snap */
+.bl-tab-scroller {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid #EAE6D7;
+}
+.bl-tab-scroller::-webkit-scrollbar { display: none; }
+.bl-tab-scroller > * { scroll-snap-align: start; flex-shrink: 0; }
+
+/* App-like sticky page header on mobile */
+.bl-page-header {
+  position: sticky;
+  top: 56px; /* below mobile top bar */
+  z-index: 20;
+  background: var(--bl-background);
+}
+@media (min-width: 1024px) {
+  .bl-page-header { position: static; }
+}
