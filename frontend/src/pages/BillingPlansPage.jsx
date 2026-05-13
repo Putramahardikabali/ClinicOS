@@ -13,11 +13,11 @@ export default function BillingPlansPage() {
       <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Plans & billing</h1>
       <p className="mt-2 text-[#5C6C62]">Choose the plan that fits your clinic. You can change or cancel any time.</p>
 
-      <div className="mt-6 bl-card p-5 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+      <div className="mt-6 bl-card p-5 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between" data-testid="current-plan-badge">
         <div>
           <div className="label-eyebrow">Current plan</div>
-          <div className="font-display text-2xl text-[#2D3A33] mt-1 capitalize">{sub.plan}</div>
-          <div className="text-sm text-[#5C6C62] mt-1">
+          <div className="font-display text-2xl text-[#2D3A33] mt-1 capitalize" data-testid="current-plan-name">{sub.plan}</div>
+          <div className="text-sm text-[#5C6C62] mt-1" data-testid="current-plan-status">
             {sub.status === "trial" && days !== null && <span>Trial · ends in {days} day{days !== 1 ? "s" : ""}</span>}
             {sub.status === "active" && sub.expiry_date && <span>Renews on {new Date(sub.expiry_date).toLocaleDateString()}</span>}
             {sub.status === "expired" && <span className="text-[#B14A2C]">Expired — read-only mode</span>}

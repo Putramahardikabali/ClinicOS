@@ -435,10 +435,12 @@ async def register_clinic(payload: ClinicRegisterIn, response: Response):
         "created_at": iso(now_utc()),
     }
     await db.users.insert_one(user_doc)
-    # Seed default settings for the clinic
+    # Seed default settings for the clinic, with the clinic's actual name in branding
+    seeded_settings = {**DEFAULT_SETTINGS, "id": "global", "clinic_id": clinic["id"]}
+    seeded_settings["branding"] = {**DEFAULT_SETTINGS["branding"], "clinic_name": clinic["name"], "tagline": "Aesthetic Clinic"}
     await db.settings.update_one(
         {"id": "global", "clinic_id": clinic["id"]},
-        {"$setOnInsert": {**DEFAULT_SETTINGS, "id": "global", "clinic_id": clinic["id"]}},
+        {"$setOnInsert": seeded_settings},
         upsert=True,
     )
     token = create_token(user_id, email, "super_admin", clinic_id=clinic["id"])

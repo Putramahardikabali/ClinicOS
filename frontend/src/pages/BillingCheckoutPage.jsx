@@ -23,7 +23,7 @@ export default function BillingCheckoutPage() {
       <div className="label-eyebrow mt-4">Checkout · {plan.name} plan</div>
       <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Transfer instructions</h1>
 
-      <div className="mt-6 bl-card p-5">
+      <div className="mt-6 bl-card p-5" data-testid="bank-info">
         <div className="label-eyebrow mb-3">Bank accounts</div>
         {[
           { bank: "BCA", number: "1234567890" },
@@ -72,7 +72,7 @@ export default function BillingCheckoutPage() {
         ) : (
           <>
             <input type="file" accept="image/*" className="block text-sm" data-testid="proof-input" />
-            <button onClick={() => { setSubmitted(true); toast.success("Proof submitted — we'll verify shortly"); }} className="bl-btn-primary mt-4 w-full sm:w-auto" data-testid="proof-submit">Submit proof</button>
+            <button onClick={() => { setSubmitted(true); toast.success("Proof submitted — we'll verify shortly"); }} className="bl-btn-primary mt-4 w-full sm:w-auto" data-testid="payment-submit">Submit proof</button>
             <p className="text-xs text-[#5C6C62] mt-2">For the MVP, payment proof storage isn't wired up yet — but a Super Admin will manually verify and activate your plan.</p>
           </>
         )}

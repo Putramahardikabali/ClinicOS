@@ -56,7 +56,7 @@ export default function AppShell({ children }) {
             </div>
           )}
           <div>
-            <div className="font-display text-lg leading-tight text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
+            <div className="font-display text-lg leading-tight text-[#2D3A33]">{branding?.clinic_name || clinic?.name || "ClinicOS"}</div>
             <div className="font-display text-sm -mt-0.5" style={{ color: "var(--bl-accent)" }}>{branding?.tagline?.includes("·") ? branding.tagline.split("·")[1].trim() : "EMR"}</div>
           </div>
         </button>
@@ -134,7 +134,7 @@ export default function AppShell({ children }) {
                 <Sparkles className="w-4 h-4 text-white" />
               </div>
             )}
-            <div className="font-display text-base text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
+            <div className="font-display text-base text-[#2D3A33]">{branding?.clinic_name || clinic?.name || "ClinicOS"}</div>
           </div>
           <button onClick={() => setProfileOpen(true)} className="p-1 -mr-1 rounded-full" data-testid="mobile-profile-button" aria-label="Profile">
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold" style={{ background: "var(--bl-primary)" }}>
