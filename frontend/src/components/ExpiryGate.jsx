@@ -29,16 +29,22 @@ export default function ExpiryGate() {
   );
 }
 
-export function PlansGrid({ onSelect }) {
+export function PlansGrid({ onSelect, recommended }) {
   const { plans, clinic } = useClinic();
   return (
     <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-5" data-testid="plans-grid">
       {plans.map((p) => {
         const popular = p.most_popular;
+        const isRecommended = recommended && recommended === p.key;
         const current = clinic?.subscription?.plan === p.key && clinic?.subscription?.status === "active";
         return (
-          <div key={p.key} className={`bl-card p-6 relative ${popular ? "ring-2" : ""}`} style={popular ? { boxShadow: "0 0 0 2px var(--bl-primary)" } : {}} data-testid={`plan-card-${p.key}`}>
-            {popular && (
+          <div key={p.key} className={`bl-card p-6 relative ${isRecommended ? "ring-2" : popular ? "ring-2" : ""}`} style={isRecommended ? { boxShadow: "0 0 0 2px var(--bl-accent)" } : popular ? { boxShadow: "0 0 0 2px var(--bl-primary)" } : {}} data-testid={`plan-card-${p.key}`}>
+            {isRecommended && (
+              <div className="absolute -top-3 left-6 px-3 py-0.5 rounded-full text-xs font-semibold text-white flex items-center gap-1" style={{ background: "var(--bl-accent)" }} data-testid={`plan-recommended-${p.key}`}>
+                <Sparkles className="w-3 h-3" /> Recommended for you
+              </div>
+            )}
+            {!isRecommended && popular && (
               <div className="absolute -top-3 left-6 px-3 py-0.5 rounded-full text-xs font-semibold text-white flex items-center gap-1" style={{ background: "var(--bl-primary)" }}>
                 <Sparkles className="w-3 h-3" /> Most popular
               </div>

@@ -8,10 +8,12 @@ import ExpiryGate from "@/components/ExpiryGate";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
   Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, CreditCard, Lock,
+  CalendarCheck,
 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin","doctor","therapist","fo","manager"] },
+  { to: "/bookings", label: "Bookings", icon: CalendarCheck, roles: ["super_admin","fo","manager"], feature: "online_booking" },
   { to: "/patients", label: "Patients", icon: Users, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/visits", label: "Visits", icon: Stethoscope, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit", feature: "audit_log" },
@@ -21,11 +23,11 @@ const NAV = [
 
 // Bottom nav: only the 4 most relevant per role, plus "More" if extras exist
 const BOTTOM_NAV_BY_ROLE = {
-  super_admin: ["/", "/patients", "/visits", "/admin"],
+  super_admin: ["/", "/bookings", "/patients", "/visits"],
   doctor: ["/", "/patients", "/visits"],
   therapist: ["/", "/patients", "/visits"],
-  fo: ["/", "/patients", "/visits"],
-  manager: ["/", "/patients", "/visits", "/audit"],
+  fo: ["/", "/bookings", "/patients", "/visits"],
+  manager: ["/", "/bookings", "/patients", "/audit"],
 };
 
 export default function AppShell({ children }) {

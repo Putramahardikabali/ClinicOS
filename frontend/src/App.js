@@ -18,6 +18,8 @@ import PrintVisitPage from "@/pages/PrintVisitPage";
 import AdminPage from "@/pages/AdminPage";
 import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
+import BookingsPage from "@/pages/BookingsPage";
+import PublicBookingPage from "@/pages/PublicBookingPage";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -50,6 +52,7 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/book/:slug" element={<PublicBookingPage />} />
               <Route path="/onboarding" element={<Protected><OnboardingPage /></Protected>} />
               <Route path="/print/visit/:vid" element={<Protected><PrintVisitPage /></Protected>} />
               <Route path="/" element={<Protected><OnboardingRedirect><Shell><DashboardPage /></Shell></OnboardingRedirect></Protected>} />
@@ -57,6 +60,7 @@ export default function App() {
               <Route path="/patients/:pid" element={<Protected><OnboardingRedirect><Shell><PatientDetailPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/visits" element={<Protected><OnboardingRedirect><Shell><VisitsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/visits/:vid" element={<Protected><OnboardingRedirect><Shell><VisitDetailPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/bookings" element={<Protected><OnboardingRedirect><Shell><BookingsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/audit" element={<Protected><OnboardingRedirect><Shell><AuditPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/admin" element={<Protected roles={["super_admin"]}><OnboardingRedirect><Shell><AdminPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/billing/plans" element={<Protected><OnboardingRedirect><Shell><BillingPlansPage /></Shell></OnboardingRedirect></Protected>} />

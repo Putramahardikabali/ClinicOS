@@ -1,8 +1,116 @@
+import { useMemo, useState } from "react";
 import { useClinic, formatIdr, trialDaysLeft } from "@/lib/clinic";
 import { PlansGrid } from "@/components/ExpiryGate";
+import { Sparkles, Users, Stethoscope, BarChart3, RefreshCw, Check } from "lucide-react";
+
+const QUESTIONS = [
+  {
+    key: "staff",
+    icon: Users,
+    title: "How many staff will use the system?",
+    options: [
+      { value: "small", label: "1–3 people" },
+      { value: "medium", label: "4–7 people" },
+      { value: "large", label: "8 or more" },
+    ],
+  },
+  {
+    key: "emr",
+    icon: Stethoscope,
+    title: "Do you perform injectables or need full EMR?",
+    options: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No, just basic records" },
+    ],
+  },
+  {
+    key: "reports",
+    icon: BarChart3,
+    title: "Do you need advanced reports & multi-location?",
+    options: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
+  },
+];
+
+function recommend(answers) {
+  if (answers.reports === "yes" || answers.staff === "large") return "complete";
+  if (answers.emr === "yes" || answers.staff === "medium") return "clinic";
+  return "starter";
+}
+
+function PlanQuiz({ onResult, recommended }) {
+  const [answers, setAnswers] = useState({});
+  const done = QUESTIONS.every(q => answers[q.key]);
+
+  const pick = (qkey, val) => {
+    const next = { ...answers, [qkey]: val };
+    setAnswers(next);
+    if (QUESTIONS.every(q => next[q.key])) onResult(recommend(next));
+  };
+  const reset = () => { setAnswers({}); onResult(null); };
+
+  return (
+    <div className="mt-8 bl-card p-6 sm:p-7" data-testid="plan-quiz">
+      <div className="flex items-center gap-2 mb-1">
+        <Sparkles className="w-4 h-4" style={{ color: "var(--bl-accent)" }} />
+        <div className="label-eyebrow">Find your fit</div>
+      </div>
+      <h2 className="font-display text-2xl text-[#2D3A33]">Answer 3 quick questions — we'll suggest a plan.</h2>
+
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-5">
+        {QUESTIONS.map((q, i) => {
+          const Icon = q.icon;
+          return (
+            <div key={q.key} className="space-y-3">
+              <div className="flex items-center gap-2 text-[#2D3A33]">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-semibold" style={{ background: "#F3F1EB", color: "var(--bl-primary)" }}>{i + 1}</div>
+                <Icon className="w-4 h-4 text-[#5C6C62]" />
+                <span className="text-sm font-medium">{q.title}</span>
+              </div>
+              <div className="space-y-1.5">
+                {q.options.map(o => {
+                  const sel = answers[q.key] === o.value;
+                  return (
+                    <button
+                      key={o.value}
+                      onClick={() => pick(q.key, o.value)}
+                      className="w-full text-left px-3 py-2 rounded-lg border text-sm transition flex items-center justify-between"
+                      style={sel
+                        ? { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }
+                        : { borderColor: "#EAE6D7", background: "white", color: "#5C6C62" }}
+                      data-testid={`quiz-${q.key}-${o.value}`}
+                    >
+                      <span>{o.label}</span>
+                      {sel && <Check className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {done && recommended && (
+        <div className="mt-6 pt-5 border-t border-[#EAE6D7] flex items-center justify-between gap-3 flex-wrap" data-testid="quiz-result">
+          <div className="text-sm text-[#2D3A33]">
+            Based on your answers, we recommend the <strong className="capitalize" style={{ color: "var(--bl-primary)" }}>{recommended}</strong> plan.
+          </div>
+          <button onClick={reset} className="text-sm inline-flex items-center gap-1 text-[#5C6C62] hover:text-[#2D3A33]" data-testid="quiz-reset">
+            <RefreshCw className="w-3.5 h-3.5" /> Reset
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function BillingPlansPage() {
   const { clinic } = useClinic();
+  const [recommended, setRecommended] = useState(null);
+
   if (!clinic) return <div className="p-10 text-[#5C6C62]">Loading…</div>;
   const sub = clinic.subscription || {};
   const days = trialDaysLeft(clinic);
@@ -25,7 +133,9 @@ export default function BillingPlansPage() {
         </div>
       </div>
 
-      <PlansGrid />
+      <PlanQuiz onResult={setRecommended} recommended={recommended} />
+
+      <PlansGrid recommended={recommended} />
 
       <div className="mt-10 bl-card p-6">
         <div className="label-eyebrow">How payments work</div>

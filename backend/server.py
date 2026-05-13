@@ -38,6 +38,7 @@ from saas import (
     get_clinic_features, clinic_is_readonly, clinic_login_blocked,
     public_clinic_view, new_clinic_doc, now_utc, iso, slugify,
 )
+from bookings import register_bookings, DEFAULT_TREATMENTS, DEFAULT_WA_TEMPLATES
 
 app = FastAPI(title="Body Lab Bali EMR")
 api = APIRouter(prefix="/api")
@@ -939,6 +940,20 @@ async def stats(user: dict = Depends(get_current_user)):
         "visits_today": visits_today,
     }
 
+# Register booking & dashboard endpoints onto /api router before mounting
+register_bookings(
+    api=api,
+    db=db,
+    get_current_user=get_current_user,
+    assert_writeable=assert_writeable,
+    assert_feature=assert_feature,
+    audit=audit,
+    scope=scope,
+    get_active_clinic=get_active_clinic,
+    public_clinic_view=public_clinic_view,
+    DEFAULT_SETTINGS=DEFAULT_SETTINGS,
+)
+
 app.include_router(api)
 
 app.add_middleware(
@@ -966,6 +981,8 @@ async def startup():
     await db.patients.create_index([("clinic_id", 1), ("full_name", 1)])
     await db.visits.create_index([("clinic_id", 1), ("patient_id", 1)])
     await db.audit_logs.create_index([("clinic_id", 1), ("created_at", -1)])
+    await db.bookings.create_index([("clinic_id", 1), ("scheduled_at", 1)])
+    await db.bookings.create_index([("clinic_id", 1), ("status", 1)])
 
     # Ensure default "Body Lab Bali" clinic exists for existing data
     default_clinic = await db.clinics.find_one({"slug": "bodylabbali"})
