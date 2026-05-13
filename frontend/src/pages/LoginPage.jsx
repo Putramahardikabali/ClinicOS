@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useSettings, logoUrl } from "@/lib/settings";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
@@ -118,7 +118,10 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="mt-8 text-xs text-[#5C6C62] text-center">
+          <p className="mt-8 text-sm text-center text-[#5C6C62]">
+            New to ClinicOS? <Link to="/register" className="font-medium" style={{ color: "var(--bl-primary)" }} data-testid="login-register-link">Start your free trial →</Link>
+          </p>
+          <p className="mt-3 text-xs text-[#5C6C62] text-center">
             Lost access? Contact your clinic Super Admin.
           </p>
         </div>

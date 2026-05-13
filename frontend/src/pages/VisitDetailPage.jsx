@@ -9,19 +9,22 @@ import TherapistForm from "@/components/visit/TherapistForm";
 import TreatmentItems from "@/components/visit/TreatmentItems";
 import Photos from "@/components/visit/Photos";
 import MappingCanvas from "@/components/visit/MappingCanvas";
+import FeatureGate, { FeatureBadge } from "@/components/FeatureGate";
+import { useClinic, hasFeature } from "@/lib/clinic";
 
 const TAB_DEFS = [
   { key: "overview", label: "Overview", icon: FileText },
-  { key: "clinical", label: "Doctor (Clinical)", icon: Stethoscope, restrict: ["super_admin","doctor","fo","manager"] },
-  { key: "therapist", label: "Therapist", icon: Heart, restrict: ["super_admin","therapist","fo","manager"] },
-  { key: "treatments", label: "Treatments", icon: Pill },
-  { key: "photos", label: "Photos", icon: ImageIcon },
-  { key: "mapping", label: "Mapping", icon: MapPin },
+  { key: "clinical", label: "Doctor (Clinical)", icon: Stethoscope, restrict: ["super_admin","doctor","fo","manager"], feature: "emr" },
+  { key: "therapist", label: "Therapist", icon: Heart, restrict: ["super_admin","therapist","fo","manager"], feature: "emr" },
+  { key: "treatments", label: "Treatments", icon: Pill, feature: "treatments" },
+  { key: "photos", label: "Photos", icon: ImageIcon, feature: "photos" },
+  { key: "mapping", label: "Mapping", icon: MapPin, feature: "mapping" },
 ];
 
 export default function VisitDetailPage() {
   const { vid } = useParams();
   const { user } = useAuth();
+  const { clinic } = useClinic();
   const nav = useNavigate();
   const [visit, setVisit] = useState(null);
   const [tab, setTab] = useState("overview");
@@ -98,6 +101,7 @@ export default function VisitDetailPage() {
         {tabs.map(t => {
           const Icon = t.icon;
           const active = tab === t.key;
+          const locked = t.feature && clinic && !hasFeature(clinic, t.feature);
           return (
             <button
               key={t.key}
@@ -107,6 +111,7 @@ export default function VisitDetailPage() {
               data-testid={`tab-${t.key}`}
             >
               <Icon className="w-4 h-4" strokeWidth={1.6} /> {t.label}
+              {locked && <FeatureBadge feature={t.feature} />}
             </button>
           );
         })}
@@ -115,11 +120,11 @@ export default function VisitDetailPage() {
 
       <div className="mt-7">
         {tab === "overview" && <Overview visit={visit} />}
-        {tab === "clinical" && <DoctorForm visit={visit} onSaved={load} />}
-        {tab === "therapist" && <TherapistForm visit={visit} onSaved={load} />}
-        {tab === "treatments" && <TreatmentItems visit={visit} onSaved={load} />}
-        {tab === "photos" && <Photos visit={visit} onSaved={load} />}
-        {tab === "mapping" && <MappingCanvas visit={visit} onSaved={load} />}
+        {tab === "clinical" && <FeatureGate feature="emr"><DoctorForm visit={visit} onSaved={load} /></FeatureGate>}
+        {tab === "therapist" && <FeatureGate feature="emr"><TherapistForm visit={visit} onSaved={load} /></FeatureGate>}
+        {tab === "treatments" && <FeatureGate feature="treatments"><TreatmentItems visit={visit} onSaved={load} /></FeatureGate>}
+        {tab === "photos" && <FeatureGate feature="photos"><Photos visit={visit} onSaved={load} /></FeatureGate>}
+        {tab === "mapping" && <FeatureGate feature="mapping"><MappingCanvas visit={visit} onSaved={load} /></FeatureGate>}
       </div>
     </div>
   );

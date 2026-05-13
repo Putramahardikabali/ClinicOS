@@ -2,17 +2,21 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABEL } from "@/lib/auth";
 import { useSettings, logoUrl } from "@/lib/settings";
+import { useClinic, hasFeature } from "@/lib/clinic";
+import SubscriptionBanner from "@/components/SubscriptionBanner";
+import ExpiryGate from "@/components/ExpiryGate";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
-  Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight,
+  Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, CreditCard, Lock,
 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/patients", label: "Patients", icon: Users, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/visits", label: "Visits", icon: Stethoscope, roles: ["super_admin","doctor","therapist","fo","manager"] },
-  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit" },
+  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit", feature: "audit_log" },
   { to: "/admin", label: "Admin Settings", icon: SettingsIcon, roles: ["super_admin"], shortLabel: "Admin" },
+  { to: "/billing/plans", label: "Billing & Plan", icon: CreditCard, roles: ["super_admin"], shortLabel: "Billing" },
 ];
 
 // Bottom nav: only the 4 most relevant per role, plus "More" if extras exist
@@ -27,12 +31,16 @@ const BOTTOM_NAV_BY_ROLE = {
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
   const { branding } = useSettings();
+  const { clinic } = useClinic();
   const loc = useLocation();
   const nav = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const visibleNav = NAV.filter(n => n.roles.includes(user?.role));
+  const visibleNav = NAV.filter(n => n.roles.includes(user?.role)).map(n => ({
+    ...n,
+    locked: n.feature && clinic && !hasFeature(clinic, n.feature),
+  }));
   const bottomKeys = BOTTOM_NAV_BY_ROLE[user?.role] || ["/", "/patients", "/visits"];
   const bottomItems = bottomKeys.map(k => visibleNav.find(n => n.to === k)).filter(Boolean);
 
@@ -72,7 +80,8 @@ export default function AppShell({ children }) {
               data-testid={`nav-${n.label.toLowerCase().replace(/\s+/g,"-")}`}
             >
               <Icon className="w-4 h-4" strokeWidth={1.6} />
-              <span>{n.label}</span>
+              <span className="flex-1">{n.label}</span>
+              {n.locked && <Lock className="w-3 h-3 text-[#5C6C62]" />}
             </Link>
           );
         })}
@@ -93,6 +102,7 @@ export default function AppShell({ children }) {
 
   return (
     <div className="min-h-screen flex" style={{ background: "var(--bl-background)" }}>
+      <ExpiryGate />
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex" data-testid="app-sidebar">
         <Sidebar />
@@ -110,6 +120,7 @@ export default function AppShell({ children }) {
 
       {/* Main */}
       <main className="flex-1 min-w-0 flex flex-col">
+        <SubscriptionBanner />
         {/* Mobile top bar — slim, app-like */}
         <header className="lg:hidden sticky top-0 z-30 bg-[#FDFBF7]/95 backdrop-blur border-b border-[#EAE6D7] px-4 py-3 flex items-center justify-between">
           <button onClick={() => setMobileOpen(true)} className="p-2 -ml-2 rounded-lg active:bg-[#F3F1EB]" data-testid="mobile-menu-button" aria-label="Menu">
