@@ -72,12 +72,24 @@ export default function VisitDetailPage() {
           <div className="mt-1.5 flex items-center gap-2 flex-wrap text-sm text-[#5C6C62]">
             <span>{new Date(visit.visit_date || visit.created_at).toLocaleString()}</span>
             {visit.assigned_user && <span>· {visit.assigned_user.name} ({ROLE_LABEL[visit.assigned_user.role]})</span>}
-            <span className={`bl-chip ml-2 ${visit.status === "submitted" ? "warning" : visit.status === "billed" ? "success" : "info"}`}>{visit.status.replace("_"," ")}</span>
+            <span className={`bl-chip ml-2 ${visit.status === "completed" ? "success" : "info"}`}>{visit.status.replace("_"," ")}</span>
           </div>
         </div>
-        <Link to={`/print/visit/${visit.id}`} target="_blank" className="bl-btn-ghost inline-flex items-center gap-2" data-testid="visit-print-button">
-          <Printer className="w-4 h-4" /> Print / PDF
-        </Link>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {canClose && !isCompleted && (
+            <button onClick={()=>changeStatus("completed")} disabled={statusBusy} className="bl-btn-primary inline-flex items-center justify-center gap-2 flex-1 sm:flex-none" data-testid="mark-completed-button">
+              <CheckCircle2 className="w-4 h-4" /> Mark as completed
+            </button>
+          )}
+          {canClose && isCompleted && (
+            <button onClick={()=>changeStatus("in_progress")} disabled={statusBusy} className="bl-btn-ghost inline-flex items-center justify-center gap-2" data-testid="reopen-visit-button">
+              <RotateCcw className="w-4 h-4" /> Reopen visit
+            </button>
+          )}
+          <Link to={`/print/visit/${visit.id}`} target="_blank" className="bl-btn-ghost inline-flex items-center justify-center gap-2" data-testid="visit-print-button">
+            <Printer className="w-4 h-4" /> Print / PDF
+          </Link>
+        </div>
       </div>
 
       {/* Tabs — sticky on mobile, snap scroll */}

@@ -26,9 +26,18 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 APP_NAME = os.environ.get("APP_NAME", "bodylabbali")
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "platform@clinicos.id")
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "ChangeMe123!")
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 
 ROLES = ["super_admin", "doctor", "therapist", "fo", "manager"]
+
+from saas import (
+    PLAN_CATALOG, TRIAL_DAYS, TRIAL_FEATURES,
+    ClinicRegisterIn, ClinicUpdateIn,
+    get_clinic_features, clinic_is_readonly, clinic_login_blocked,
+    public_clinic_view, new_clinic_doc, now_utc, iso, slugify,
+)
 
 app = FastAPI(title="Body Lab Bali EMR")
 api = APIRouter(prefix="/api")
@@ -43,9 +52,10 @@ def hash_password(p: str) -> str:
 def verify_password(p: str, h: str) -> bool:
     return bcrypt.checkpw(p.encode(), h.encode())
 
-def create_token(user_id: str, email: str, role: str) -> str:
+def create_token(user_id: str, email: str, role: str, clinic_id: Optional[str] = None, platform_admin: bool = False) -> str:
     payload = {
         "sub": user_id, "email": email, "role": role,
+        "clinic_id": clinic_id, "platform_admin": platform_admin,
         "exp": datetime.now(timezone.utc) + timedelta(hours=12),
         "type": "access",
     }
@@ -66,10 +76,57 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    # Platform super admin path
+    if payload.get("platform_admin"):
+        return {
+            "id": payload["sub"], "email": payload["email"], "name": "Platform Admin",
+            "role": "platform_admin", "clinic_id": None, "platform_admin": True,
+        }
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    user["clinic_id"] = user.get("clinic_id") or payload.get("clinic_id")
     return user
+
+# ---------------- Tenant Scoping Helpers ----------------
+def scope(user: dict, filt: Optional[dict] = None) -> dict:
+    f = dict(filt or {})
+    if user.get("clinic_id"):
+        f["clinic_id"] = user["clinic_id"]
+    return f
+
+def with_clinic(user: dict, doc: dict) -> dict:
+    if user.get("clinic_id") and "clinic_id" not in doc:
+        doc["clinic_id"] = user["clinic_id"]
+    return doc
+
+async def get_active_clinic(user: dict) -> dict:
+    if not user.get("clinic_id"):
+        raise HTTPException(status_code=400, detail="User is not associated with a clinic")
+    c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    return c
+
+async def assert_writeable(user: dict):
+    """Block writes if clinic is in read-only mode (expired/suspended)."""
+    if user.get("platform_admin"):
+        return
+    if not user.get("clinic_id"):
+        return
+    c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0, "subscription": 1})
+    if c and clinic_is_readonly(c):
+        raise HTTPException(status_code=402, detail="Your subscription has expired. Please choose a plan to continue.")
+
+async def assert_feature(user: dict, feature: str):
+    if user.get("platform_admin"):
+        return
+    c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0, "subscription": 1})
+    if not c:
+        return
+    feats = get_clinic_features(c)
+    if feature not in feats:
+        raise HTTPException(status_code=403, detail=f"Feature '{feature}' is not included in your current plan. Upgrade to unlock.")
 
 def require_roles(*allowed: str):
     async def checker(user: dict = Depends(get_current_user)):
@@ -82,6 +139,7 @@ def require_roles(*allowed: str):
 async def audit(user: dict, action: str, entity: str, entity_id: str = "", meta: Optional[dict] = None):
     await db.audit_logs.insert_one({
         "id": str(uuid.uuid4()),
+        "clinic_id": user.get("clinic_id"),
         "user_id": user["id"],
         "user_email": user["email"],
         "user_role": user["role"],
@@ -331,15 +389,105 @@ DEFAULT_SETTINGS = {
 @api.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
+    # Platform super admin path (env-var credentials)
+    if email == SUPER_ADMIN_EMAIL.lower() and payload.password == SUPER_ADMIN_PASSWORD:
+        token = create_token("platform-admin", email, "platform_admin", clinic_id=None, platform_admin=True)
+        response.set_cookie("access_token", token, httponly=True, secure=False, samesite="lax", max_age=43200, path="/")
+        return {
+            "token": token,
+            "user": {"id": "platform-admin", "email": email, "name": "Platform Admin", "role": "platform_admin", "platform_admin": True},
+        }
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_token(user["id"], user["email"], user["role"])
+    # Check clinic suspension
+    if user.get("clinic_id"):
+        clinic = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0})
+        if clinic:
+            blocked = clinic_login_blocked(clinic)
+            if blocked:
+                raise HTTPException(status_code=403, detail=blocked)
+    token = create_token(user["id"], user["email"], user["role"], clinic_id=user.get("clinic_id"))
     response.set_cookie("access_token", token, httponly=True, secure=False, samesite="lax", max_age=43200, path="/")
     await audit(user, "login", "auth")
     return {
         "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]},
+        "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"], "clinic_id": user.get("clinic_id")},
+    }
+
+# ---------------- SaaS: Registration & Clinic Management ----------------
+@api.post("/auth/register-clinic")
+async def register_clinic(payload: ClinicRegisterIn, response: Response):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    existing_slugs = [c["slug"] async for c in db.clinics.find({}, {"_id": 0, "slug": 1})]
+    clinic = new_clinic_doc(payload, existing_slugs)
+    await db.clinics.insert_one(clinic)
+    user_id = str(uuid.uuid4())
+    user_doc = {
+        "id": user_id,
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "name": payload.owner_name,
+        "role": "super_admin",  # clinic-level admin
+        "clinic_id": clinic["id"],
+        "created_at": iso(now_utc()),
+    }
+    await db.users.insert_one(user_doc)
+    # Seed default settings for the clinic
+    await db.settings.update_one(
+        {"id": "global", "clinic_id": clinic["id"]},
+        {"$setOnInsert": {**DEFAULT_SETTINGS, "id": "global", "clinic_id": clinic["id"]}},
+        upsert=True,
+    )
+    token = create_token(user_id, email, "super_admin", clinic_id=clinic["id"])
+    response.set_cookie("access_token", token, httponly=True, secure=False, samesite="lax", max_age=43200, path="/")
+    return {
+        "token": token,
+        "user": {"id": user_id, "email": email, "name": payload.owner_name, "role": "super_admin", "clinic_id": clinic["id"]},
+        "clinic": public_clinic_view(clinic),
+    }
+
+@api.get("/clinics/me")
+async def my_clinic(user: dict = Depends(get_current_user)):
+    if user.get("platform_admin"):
+        return {"platform_admin": True}
+    c = await get_active_clinic(user)
+    return public_clinic_view(c)
+
+@api.put("/clinics/me")
+async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_current_user)):
+    if user.get("platform_admin"):
+        raise HTTPException(status_code=400, detail="Platform admin has no clinic")
+    if user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Only clinic owner can update")
+    await assert_writeable(user)
+    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    await db.clinics.update_one({"id": user["clinic_id"]}, {"$set": upd})
+    await audit(user, "update", "clinic", user["clinic_id"])
+    c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0})
+    return public_clinic_view(c)
+
+@api.get("/plans")
+async def list_plans():
+    return list(PLAN_CATALOG.values())
+
+@api.get("/clinics/by-slug/{slug}")
+async def public_clinic_by_slug(slug: str):
+    c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    sub = c.get("subscription", {})
+    return {
+        "id": c["id"],
+        "name": c["name"],
+        "slug": c["slug"],
+        "logo_path": c.get("logo_path", ""),
+        "address": c.get("address", ""),
+        "city": c.get("city", ""),
+        "phone": c.get("phone", ""),
+        "active": sub.get("status") in ("trial", "active"),
     }
 
 @api.get("/auth/me")
@@ -355,7 +503,7 @@ async def logout(response: Response, user: dict = Depends(get_current_user)):
 # ---------------- Users ----------------
 @api.get("/users")
 async def list_users(user: dict = Depends(require_roles("super_admin", "fo", "manager"))):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
+    users = await db.users.find(scope(user), {"_id": 0, "password_hash": 0}).to_list(500)
     return users
 
 @api.post("/admin/users")
@@ -367,12 +515,14 @@ async def admin_create_user(payload: UserIn, user: dict = Depends(require_roles(
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Email already exists")
+    await assert_writeable(user)
     new_user = {
         "id": str(uuid.uuid4()),
         "email": email,
         "password_hash": hash_password(payload.password),
         "name": payload.name,
         "role": payload.role,
+        "clinic_id": user.get("clinic_id"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(new_user)
@@ -384,20 +534,22 @@ async def admin_create_user(payload: UserIn, user: dict = Depends(require_roles(
 async def admin_update_user(uid: str, payload: UserIn, user: dict = Depends(require_roles("super_admin"))):
     if payload.role not in ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
+    await assert_writeable(user)
     upd = {"email": payload.email.lower(), "name": payload.name, "role": payload.role}
     if payload.password:
         upd["password_hash"] = hash_password(payload.password)
-    r = await db.users.update_one({"id": uid}, {"$set": upd})
+    r = await db.users.update_one(scope(user, {"id": uid}), {"$set": upd})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     await audit(user, "update", "user", uid)
-    return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    return await db.users.find_one(scope(user, {"id": uid}), {"_id": 0, "password_hash": 0})
 
 @api.delete("/admin/users/{uid}")
 async def admin_delete_user(uid: str, user: dict = Depends(require_roles("super_admin"))):
     if uid == user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
-    r = await db.users.delete_one({"id": uid})
+    await assert_writeable(user)
+    r = await db.users.delete_one(scope(user, {"id": uid}))
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     await audit(user, "delete", "user", uid)
@@ -406,19 +558,22 @@ async def admin_delete_user(uid: str, user: dict = Depends(require_roles("super_
 # ---------------- Settings ----------------
 @api.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
-    s = await db.settings.find_one({"id": "global"}, {"_id": 0})
+    s = await db.settings.find_one(scope(user, {"id": "global"}), {"_id": 0})
     if not s:
-        s = {"id": "global", **DEFAULT_SETTINGS}
+        s = {"id": "global", "clinic_id": user.get("clinic_id"), **DEFAULT_SETTINGS}
         await db.settings.insert_one(s)
         s.pop("_id", None)
     return s
 
 @api.put("/admin/settings")
 async def update_settings(payload: SettingsIn, user: dict = Depends(require_roles("super_admin"))):
+    await assert_writeable(user)
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
-    await db.settings.update_one({"id": "global"}, {"$set": upd}, upsert=True)
+    await db.settings.update_one(scope(user, {"id": "global"}), {"$set": upd}, upsert=True)
+    # Ensure clinic_id is set on upsert
+    await db.settings.update_one(scope(user, {"id": "global"}), {"$set": {"clinic_id": user.get("clinic_id")}})
     await audit(user, "update", "settings", "global")
-    return await db.settings.find_one({"id": "global"}, {"_id": 0})
+    return await db.settings.find_one(scope(user, {"id": "global"}), {"_id": 0})
 
 @api.post("/admin/template-image")
 async def upload_template_image(file: UploadFile = File(...), user: dict = Depends(require_roles("super_admin"))):
@@ -468,8 +623,10 @@ async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require
 # ---------------- Patients ----------------
 @api.post("/patients")
 async def create_patient(payload: PatientIn, user: dict = Depends(require_roles("super_admin", "fo"))):
+    await assert_writeable(user)
     p = payload.model_dump()
     p["id"] = str(uuid.uuid4())
+    p["clinic_id"] = user.get("clinic_id")
     p["created_at"] = datetime.now(timezone.utc).isoformat()
     p["created_by"] = user["id"]
     await db.patients.insert_one(p)
@@ -479,37 +636,40 @@ async def create_patient(payload: PatientIn, user: dict = Depends(require_roles(
 
 @api.get("/patients")
 async def list_patients(q: Optional[str] = None, user: dict = Depends(get_current_user)):
-    flt = {}
+    flt = scope(user)
     if q:
-        flt = {"$or": [
+        flt["$or"] = [
             {"full_name": {"$regex": q, "$options": "i"}},
             {"phone": {"$regex": q, "$options": "i"}},
             {"email": {"$regex": q, "$options": "i"}},
-        ]}
+        ]
     items = await db.patients.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
     return items
 
 @api.get("/patients/{pid}")
 async def get_patient(pid: str, user: dict = Depends(get_current_user)):
-    p = await db.patients.find_one({"id": pid}, {"_id": 0})
+    p = await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
     return p
 
 @api.put("/patients/{pid}")
 async def update_patient(pid: str, payload: PatientIn, user: dict = Depends(require_roles("super_admin", "fo"))):
+    await assert_writeable(user)
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
-    r = await db.patients.update_one({"id": pid}, {"$set": upd})
+    r = await db.patients.update_one(scope(user, {"id": pid}), {"$set": upd})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     await audit(user, "update", "patient", pid)
-    return await db.patients.find_one({"id": pid}, {"_id": 0})
+    return await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0})
 
 # ---------------- Visits ----------------
 @api.post("/visits")
 async def create_visit(payload: VisitIn, user: dict = Depends(require_roles("super_admin", "fo"))):
+    await assert_writeable(user)
     v = payload.model_dump()
     v["id"] = str(uuid.uuid4())
+    v["clinic_id"] = user.get("clinic_id")
     v["status"] = "in_progress"  # in_progress | completed
     v["created_at"] = datetime.now(timezone.utc).isoformat()
     v["created_by"] = user["id"]
@@ -522,12 +682,11 @@ async def create_visit(payload: VisitIn, user: dict = Depends(require_roles("sup
 
 @api.get("/visits")
 async def list_visits(patient_id: Optional[str] = None, status: Optional[str] = None, assigned_to: Optional[str] = None, user: dict = Depends(get_current_user)):
-    flt = {}
+    flt = scope(user)
     if patient_id: flt["patient_id"] = patient_id
     if status: flt["status"] = status
     if assigned_to: flt["assigned_to"] = assigned_to
     items = await db.visits.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # enrich with patient name
     for v in items:
         p = await db.patients.find_one({"id": v["patient_id"]}, {"_id": 0, "full_name": 1})
         v["patient_name"] = p["full_name"] if p else "Unknown"
@@ -535,7 +694,7 @@ async def list_visits(patient_id: Optional[str] = None, status: Optional[str] = 
 
 @api.get("/visits/{vid}")
 async def get_visit(vid: str, user: dict = Depends(get_current_user)):
-    v = await db.visits.find_one({"id": vid}, {"_id": 0})
+    v = await db.visits.find_one(scope(user, {"id": vid}), {"_id": 0})
     if not v:
         raise HTTPException(status_code=404, detail="Visit not found")
     p = await db.patients.find_one({"id": v["patient_id"]}, {"_id": 0})
@@ -554,29 +713,32 @@ async def get_visit(vid: str, user: dict = Depends(get_current_user)):
 async def update_visit_status(vid: str, payload: VisitStatusIn, user: dict = Depends(require_roles("super_admin", "fo"))):
     if payload.status not in ("in_progress", "completed"):
         raise HTTPException(status_code=400, detail="Invalid status")
-    visit = await db.visits.find_one({"id": vid})
+    await assert_writeable(user)
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     upd = {"status": payload.status}
     if payload.status == "completed":
         upd["completed_at"] = datetime.now(timezone.utc).isoformat()
         upd["completed_by"] = user["id"]
-    await db.visits.update_one({"id": vid}, {"$set": upd})
+    await db.visits.update_one(scope(user, {"id": vid}), {"$set": upd})
     await audit(user, "status_change", "visit", vid, {"to": payload.status})
-    return await db.visits.find_one({"id": vid}, {"_id": 0})
+    return await db.visits.find_one(scope(user, {"id": vid}), {"_id": 0})
 
 # ---------------- Clinical Record (Doctor) ----------------
 @api.put("/visits/{vid}/clinical")
 async def upsert_clinical(vid: str, payload: ClinicalRecordIn, user: dict = Depends(require_roles("super_admin", "doctor"))):
-    visit = await db.visits.find_one({"id": vid})
+    await assert_writeable(user)
+    await assert_feature(user, "emr")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
-    # If already submitted, only super_admin can edit
     existing = await db.clinical_records.find_one({"visit_id": vid})
     if existing and existing.get("submitted") and user["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Clinical record already submitted")
     data = payload.model_dump()
     data["visit_id"] = vid
+    data["clinic_id"] = user.get("clinic_id")
     data["doctor_id"] = user["id"]
     data["doctor_name"] = user["name"]
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -591,7 +753,9 @@ async def upsert_clinical(vid: str, payload: ClinicalRecordIn, user: dict = Depe
 # ---------------- Therapist Record ----------------
 @api.put("/visits/{vid}/therapist")
 async def upsert_therapist(vid: str, payload: TherapistRecordIn, user: dict = Depends(require_roles("super_admin", "therapist"))):
-    visit = await db.visits.find_one({"id": vid})
+    await assert_writeable(user)
+    await assert_feature(user, "emr")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     existing = await db.therapist_records.find_one({"visit_id": vid})
@@ -599,6 +763,7 @@ async def upsert_therapist(vid: str, payload: TherapistRecordIn, user: dict = De
         raise HTTPException(status_code=403, detail="Therapist record already submitted")
     data = payload.model_dump()
     data["visit_id"] = vid
+    data["clinic_id"] = user.get("clinic_id")
     data["therapist_id"] = user["id"]
     data["therapist_name"] = user["name"]
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -613,9 +778,14 @@ async def upsert_therapist(vid: str, payload: TherapistRecordIn, user: dict = De
 # ---------------- Treatment Items ----------------
 @api.post("/visits/{vid}/treatments")
 async def add_treatment(vid: str, payload: TreatmentItemIn, user: dict = Depends(require_roles("super_admin", "doctor", "therapist"))):
+    await assert_writeable(user)
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
     item = payload.model_dump()
     item["id"] = str(uuid.uuid4())
     item["visit_id"] = vid
+    item["clinic_id"] = user.get("clinic_id")
     item["created_by"] = user["id"]
     item["created_at"] = datetime.now(timezone.utc).isoformat()
     await db.treatment_items.insert_one(item)
@@ -625,7 +795,8 @@ async def add_treatment(vid: str, payload: TreatmentItemIn, user: dict = Depends
 
 @api.delete("/visits/{vid}/treatments/{iid}")
 async def delete_treatment(vid: str, iid: str, user: dict = Depends(require_roles("super_admin", "doctor", "therapist"))):
-    await db.treatment_items.delete_one({"id": iid, "visit_id": vid})
+    await assert_writeable(user)
+    await db.treatment_items.delete_one(scope(user, {"id": iid, "visit_id": vid}))
     await audit(user, "delete", "treatment_item", iid)
     return {"ok": True}
 
@@ -639,7 +810,9 @@ async def upload_photo(
     notes: str = Form(""),
     user: dict = Depends(require_roles("super_admin", "doctor", "therapist", "fo")),
 ):
-    visit = await db.visits.find_one({"id": vid})
+    await assert_writeable(user)
+    await assert_feature(user, "photos")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() or "jpg"
@@ -652,6 +825,7 @@ async def upload_photo(
     rec = {
         "id": pid,
         "visit_id": vid,
+        "clinic_id": user.get("clinic_id"),
         "patient_id": visit["patient_id"],
         "storage_path": result["path"],
         "photo_type": photo_type,
@@ -668,7 +842,8 @@ async def upload_photo(
 
 @api.delete("/visits/{vid}/photos/{pid}")
 async def delete_photo(vid: str, pid: str, user: dict = Depends(require_roles("super_admin", "doctor", "therapist", "fo"))):
-    await db.photos.delete_one({"id": pid, "visit_id": vid})
+    await assert_writeable(user)
+    await db.photos.delete_one(scope(user, {"id": pid, "visit_id": vid}))
     await audit(user, "delete", "photo", pid)
     return {"ok": True}
 
@@ -701,9 +876,15 @@ async def public_branding():
 # ---------------- Mappings ----------------
 @api.post("/visits/{vid}/mappings")
 async def upsert_mapping(vid: str, payload: MappingIn, user: dict = Depends(require_roles("super_admin", "doctor", "therapist"))):
+    await assert_writeable(user)
+    await assert_feature(user, "mapping")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
     rec = payload.model_dump()
     rec["id"] = str(uuid.uuid4())
     rec["visit_id"] = vid
+    rec["clinic_id"] = user.get("clinic_id")
     rec["created_by"] = user["id"]
     rec["created_at"] = datetime.now(timezone.utc).isoformat()
     await db.mappings.insert_one(rec)
@@ -713,13 +894,18 @@ async def upsert_mapping(vid: str, payload: MappingIn, user: dict = Depends(requ
 
 @api.delete("/visits/{vid}/mappings/{mid}")
 async def delete_mapping(vid: str, mid: str, user: dict = Depends(require_roles("super_admin", "doctor", "therapist"))):
-    await db.mappings.delete_one({"id": mid, "visit_id": vid})
+    await assert_writeable(user)
+    await db.mappings.delete_one(scope(user, {"id": mid, "visit_id": vid}))
     return {"ok": True}
 
 # ---------------- History Timeline ----------------
 @api.get("/patients/{pid}/timeline")
 async def patient_timeline(pid: str, user: dict = Depends(get_current_user)):
-    visits = await db.visits.find({"patient_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # confirm patient belongs to clinic
+    p = await db.patients.find_one(scope(user, {"id": pid}))
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    visits = await db.visits.find(scope(user, {"patient_id": pid}), {"_id": 0}).sort("created_at", -1).to_list(500)
     for v in visits:
         v["clinical_record"] = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0})
         v["therapist_record"] = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0})
@@ -730,18 +916,19 @@ async def patient_timeline(pid: str, user: dict = Depends(get_current_user)):
 # ---------------- Audit Log ----------------
 @api.get("/audit-logs")
 async def list_audit(limit: int = 200, user: dict = Depends(require_roles("super_admin", "manager"))):
-    logs = await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    logs = await db.audit_logs.find(scope(user), {"_id": 0}).sort("created_at", -1).to_list(limit)
     return logs
 
 # ---------------- Stats ----------------
 @api.get("/stats")
 async def stats(user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    total_patients = await db.patients.count_documents({})
-    total_visits = await db.visits.count_documents({})
-    in_progress = await db.visits.count_documents({"status": "in_progress"})
-    completed = await db.visits.count_documents({"status": "completed"})
-    visits_today = await db.visits.count_documents({"visit_date": {"$regex": f"^{today}"}})
+    flt = scope(user)
+    total_patients = await db.patients.count_documents(flt)
+    total_visits = await db.visits.count_documents(flt)
+    in_progress = await db.visits.count_documents({**flt, "status": "in_progress"})
+    completed = await db.visits.count_documents({**flt, "status": "completed"})
+    visits_today = await db.visits.count_documents({**flt, "visit_date": {"$regex": f"^{today}"}})
     return {
         "total_patients": total_patients,
         "total_visits": total_visits,
@@ -773,9 +960,42 @@ DEMO_USERS = [
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
-    await db.patients.create_index("full_name")
-    await db.visits.create_index("patient_id")
-    await db.audit_logs.create_index("created_at")
+    await db.clinics.create_index("slug", unique=True)
+    await db.patients.create_index([("clinic_id", 1), ("full_name", 1)])
+    await db.visits.create_index([("clinic_id", 1), ("patient_id", 1)])
+    await db.audit_logs.create_index([("clinic_id", 1), ("created_at", -1)])
+
+    # Ensure default "Body Lab Bali" clinic exists for existing data
+    default_clinic = await db.clinics.find_one({"slug": "bodylabbali"})
+    if not default_clinic:
+        default_clinic = {
+            "id": str(uuid.uuid4()),
+            "name": "Body Lab Bali",
+            "slug": "bodylabbali",
+            "logo_path": "",
+            "address": "",
+            "city": "Bali",
+            "phone": "",
+            "email": "admin@bodylab.id",
+            "owner_name": "Super Admin",
+            "owner_email": "admin@bodylab.id",
+            "timezone": "Asia/Makassar",
+            "currency": "IDR",
+            "operating_hours": {},
+            "subscription": {
+                "plan": "complete",
+                "status": "active",
+                "trial_end": None,
+                "expiry_date": iso(now_utc() + timedelta(days=365 * 100)),
+                "started_at": iso(now_utc()),
+            },
+            "onboarded": True,
+            "created_at": iso(now_utc()),
+        }
+        await db.clinics.insert_one(default_clinic)
+    default_cid = default_clinic["id"]
+
+    # Seed 5 demo accounts (only if missing) — all under default clinic
     for u in DEMO_USERS:
         existing = await db.users.find_one({"email": u["email"]})
         if not existing:
@@ -785,16 +1005,24 @@ async def startup():
                 "password_hash": hash_password(u["password"]),
                 "name": u["name"],
                 "role": u["role"],
+                "clinic_id": default_cid,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
+
+    # Backfill clinic_id on legacy records that pre-date multi-tenant
+    for coll in ("users", "patients", "visits", "clinical_records", "therapist_records",
+                 "treatment_items", "photos", "mappings", "audit_logs", "settings"):
+        await db[coll].update_many({"clinic_id": {"$exists": False}}, {"$set": {"clinic_id": default_cid}})
+        await db[coll].update_many({"clinic_id": None}, {"$set": {"clinic_id": default_cid}})
+
     init_storage()
-    # Seed default settings
-    if not await db.settings.find_one({"id": "global"}):
-        await db.settings.insert_one({"id": "global", **DEFAULT_SETTINGS})
-    # Migrate legacy visit statuses → new simplified flow
+    # Seed default settings for default clinic
+    if not await db.settings.find_one({"id": "global", "clinic_id": default_cid}):
+        await db.settings.insert_one({"id": "global", "clinic_id": default_cid, **DEFAULT_SETTINGS})
+    # Legacy status migration
     await db.visits.update_many({"status": "submitted"}, {"$set": {"status": "in_progress"}})
     await db.visits.update_many({"status": "billed"}, {"$set": {"status": "completed"}})
-    log.info("Body Lab Bali EMR ready")
+    log.info("ClinicOS multi-tenant ready")
 
 @app.on_event("shutdown")
 async def shutdown():

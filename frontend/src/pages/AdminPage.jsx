@@ -9,7 +9,7 @@ const TABS = [
   { key: "users", label: "Users", icon: UsersIcon },
   { key: "doctor", label: "Doctor Form", icon: Stethoscope },
   { key: "therapist", label: "Therapist Form", icon: Heart },
-  { key: "treatment", label: "Treatment / Billing", icon: Pill },
+  { key: "treatment", label: "Treatments", icon: Pill },
   { key: "mapping", label: "Mapping Templates", icon: MapPin },
 ];
 
