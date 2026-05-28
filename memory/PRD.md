@@ -65,8 +65,20 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
   - Green WhatsApp CTA button → `wa.me/{number}?text=...` deep link.
   - **Scannable QR code** (qrcode.react) for desktop → mobile handoff.
   - Copy support number to clipboard.
-- Backend: new public endpoint `GET /api/platform/support` returns `{whatsapp, hours}` from env (`SUPPORT_WHATSAPP`, `SUPPORT_HOURS`).
-- Cuts payment-verify turnaround from ~24h to minutes; increases trial-to-paid conversion trust signal.
+- Backend: new public endpoint `GET /api/platform/support` returns `{whatsapp, hours}` from env.
+- Cuts payment-verify turnaround from ~24h to minutes.
+
+### Iteration 9 (Platform Settings module + Payment Proof viewer, Feb 2026)
+- **New `/superadmin/settings` page** with 3 tabs:
+  - **General**: platform name, support WhatsApp, business hours, support email.
+  - **Bank accounts**: full CRUD with active/inactive toggle; checkout shows only active.
+  - **Plan pricing**: edit `price_idr`, `max_staff`, `storage_gb` per plan (3 existing tiers only — features stay code-defined).
+- New `/app/backend/platform_settings.py` module with `platform_settings` mongo collection (single doc id="platform"). Auto-seeds defaults on first read.
+- New public endpoint `GET /api/platform/public-config` → `{platform_name, support, banks: [active]}`. `/api/plans` now merges `plan_overrides` into the catalog. `/api/platform/support` reads from settings (env is now fallback).
+- **Payment proof viewer modal** in `/superadmin/payments`: "View proof" button on each row with a `proof_path`; opens image inline or iframes a PDF (uses `?auth=<token>` for JWT-protected file URL).
+- `/billing/checkout` fetches bank accounts dynamically from `/api/platform/public-config` (no more hardcoded BCA/Mandiri).
+- Safety nets: rejects empty active bank set (at least one bank must stay active), rejects unknown plan override keys.
+- Backend 100% (12/12 new tests, all regression green) / Frontend 100%.
 
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |

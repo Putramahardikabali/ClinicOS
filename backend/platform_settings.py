@@ -104,11 +104,19 @@ def register_platform_settings(api: APIRouter, db, get_current_user, audit, PLAN
     @api.put("/superadmin/platform-settings")
     async def sa_update_settings(payload: PlatformSettingsIn, user: dict = Depends(admin_dep)):
         upd = {k: v for k, v in payload.model_dump().items() if v is not None}
-        # If banks updated, ensure each item has an id
+        # Banks: ensure id, and refuse zero active banks (always keep at least one)
         if "banks" in upd:
             for b in upd["banks"]:
                 if not b.get("id"):
                     b["id"] = str(uuid.uuid4())
+            if upd["banks"] and not any(b.get("active") for b in upd["banks"]):
+                raise HTTPException(status_code=400, detail="At least one bank account must remain active")
+        # Plan overrides: only accept known plan keys
+        if "plan_overrides" in upd:
+            valid_keys = set(PLAN_CATALOG.keys())
+            for k in list(upd["plan_overrides"].keys()):
+                if k not in valid_keys:
+                    raise HTTPException(status_code=400, detail=f"Unknown plan key '{k}'")
         await db.platform_settings.update_one(
             {"id": "platform"},
             {"$set": upd},
