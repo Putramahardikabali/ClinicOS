@@ -199,7 +199,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         }
 
     @api.get("/public/clinics/{slug}/availability")
-    async def public_availability(slug: str, date: str = Query(...), duration: int = 30, treatment: Optional[str] = None):
+    async def public_availability(slug: str, date: str = Query(...), duration: int = 30, treatment: Optional[str] = None, performer_id: Optional[str] = None):
+        """Performer-based availability.
+        Rule: a slot is available if at least one eligible performer (matching treatment.performer_type)
+        is free at that time. If performer_id is given, check only that staff member.
+        """
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
@@ -217,45 +221,65 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if open_min is None or close_min is None or open_min >= close_min:
             return {"date": date, "slots": [], "closed": True}
         base = _gen_slots(open_min, close_min, step_min=30)
-        # Capacity for the requested treatment (default 1 = single-room booking)
-        capacity = 1
+
+        # Resolve eligible performer pool
+        performer_type = "either"
         if treatment:
-            t = await db.treatments.find_one({"clinic_id": c["id"], "name": treatment, "active": True}, {"_id": 0, "slots_per_session": 1})
-            if t and t.get("slots_per_session"):
-                capacity = max(1, int(t["slots_per_session"]))
-        # Fetch existing bookings for this day for this clinic
+            t = await db.treatments.find_one({"clinic_id": c["id"], "name": treatment, "active": True}, {"_id": 0, "performer_type": 1})
+            if t:
+                performer_type = t.get("performer_type", "either")
+        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        staff = await db.users.find({"clinic_id": c["id"], "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "name": 1, "role": 1}).to_list(200)
+        eligible_ids = {s["id"] for s in staff}
+        eligible_count = len(eligible_ids)
+
+        # Fetch ALL active bookings for this day (we'll compute occupancy per slot)
         day_start = datetime(d.year, d.month, d.day, 0, 0, 0).isoformat()
         day_end = datetime(d.year, d.month, d.day, 23, 59, 59).isoformat()
         booked = await db.bookings.find(
             {"clinic_id": c["id"], "scheduled_at": {"$gte": day_start, "$lte": day_end}, "status": {"$in": ["booked", "confirmed", "checked_in"]}},
-            {"_id": 0, "scheduled_at": 1, "duration_min": 1, "treatment": 1},
+            {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1},
         ).to_list(500)
-        # Build "busy" minute ranges, separating same-treatment from different-treatment
-        busy_same: List[tuple] = []
-        busy_other: List[tuple] = []
+        # Pre-parse bookings into minute ranges
+        ranges = []
         for b in booked:
             try:
                 bt = _parse_iso(b["scheduled_at"])
                 start = bt.hour * 60 + bt.minute
                 end = start + int(b.get("duration_min", 30))
-                if treatment and b.get("treatment") == treatment:
-                    busy_same.append((start, end))
-                else:
-                    busy_other.append((start, end))
+                ranges.append((start, end, b.get("performer_id")))
             except Exception:
                 continue
+
         slots: List[Dict[str, Any]] = []
         for s_min in base:
             s_end = s_min + duration
             if s_end > close_min:
                 continue
-            # A slot is unavailable if any OTHER-treatment booking overlaps (single resource)
-            # OR if same-treatment overlaps reach capacity (per slots_per_session)
-            overlap_other = any(not (s_end <= bs or s_min >= be) for bs, be in busy_other)
-            overlap_same_count = sum(1 for bs, be in busy_same if not (s_end <= bs or s_min >= be))
-            available = not overlap_other and overlap_same_count < capacity
+            # Overlapping bookings
+            busy_assigned = set()
+            unassigned = 0
+            for bs, be, pid in ranges:
+                if s_end <= bs or s_min >= be:
+                    continue
+                if pid:
+                    busy_assigned.add(pid)
+                else:
+                    unassigned += 1
+            if performer_id:
+                available = performer_id in eligible_ids and performer_id not in busy_assigned
+            else:
+                # Headroom = eligible_count - busy among eligible - generic unassigned bookings
+                remaining = eligible_count - len(busy_assigned & eligible_ids) - unassigned
+                available = remaining > 0 if eligible_count > 0 else True  # if clinic has no staff, fall back to "open"
             slots.append({"time": _format_slot(date, s_min), "label": f"{s_min // 60:02d}:{s_min % 60:02d}", "available": available})
-        return {"date": date, "slots": slots, "closed": False, "capacity": capacity}
+        return {
+            "date": date,
+            "slots": slots,
+            "closed": False,
+            "eligible_count": eligible_count,
+            "performer_type": performer_type,
+        }
 
     @api.post("/public/clinics/{slug}/bookings")
     async def public_create_booking(slug: str, payload: PublicBookingIn):
@@ -323,28 +347,37 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         items = await db.bookings.find(flt, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
         return items
 
-    async def _has_slot_conflict(cid: str, treatment_name: str, scheduled_at: str, duration_min: int) -> bool:
-        """Return True if booking this slot would exceed capacity.
-        - Capacity for the treatment = slots_per_session (default 1).
-        - A different-treatment overlap always counts as conflict (single resource room).
+    async def _has_slot_conflict(cid: str, treatment_name: str, scheduled_at: str, duration_min: int, performer_id: Optional[str] = None) -> bool:
+        """Return True if no eligible performer is free at this slot.
+        Rule:
+          - If performer_id is provided: that specific staff member must be free.
+          - Otherwise: at least ONE eligible performer (matching treatment.performer_type) must be free.
+          - Unassigned bookings consume one generic eligible slot each.
         """
-        # Lookup capacity
-        t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "slots_per_session": 1})
-        capacity = max(1, int((t or {}).get("slots_per_session") or 1))
+        # Resolve treatment performer_type
+        t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "performer_type": 1})
+        performer_type = (t or {}).get("performer_type", "either")
+        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        staff = await db.users.find({"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1}).to_list(200)
+        eligible_ids = {s["id"] for s in staff}
+        # If clinic has no eligible staff, allow booking (open-clinic fallback) — except if performer_id specified, must exist.
+        if performer_id and performer_id not in {*eligible_ids, *await _all_clinic_user_ids(cid)}:
+            # performer not in clinic; caller will hit 400 elsewhere. treat as conflict to be safe.
+            return True
         try:
             sched = _parse_iso(scheduled_at)
         except Exception:
             return False
         s_start = sched.hour * 60 + sched.minute
         s_end = s_start + int(duration_min or 30)
-        # Pull active bookings on same date
         day_str = sched.strftime("%Y-%m-%d")
         existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
             "status": {"$in": ["booked", "confirmed", "checked_in"]},
-        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "treatment": 1}).to_list(500)
-        same_count = 0
+        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
+        busy_assigned = set()
+        unassigned = 0
         for b in existing:
             try:
                 bs_dt = _parse_iso(b["scheduled_at"])
@@ -354,11 +387,22 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             be = bs + int(b.get("duration_min", 30))
             if s_end <= bs or s_start >= be:
                 continue
-            if b.get("treatment") == treatment_name:
-                same_count += 1
+            pid = b.get("performer_id")
+            if pid:
+                busy_assigned.add(pid)
             else:
-                return True  # different-treatment overlap blocks the resource
-        return same_count >= capacity
+                unassigned += 1
+        if performer_id:
+            return performer_id in busy_assigned
+        if not eligible_ids:
+            # No eligible staff configured — slot is "open" (legacy/setup-incomplete clinic)
+            return False
+        remaining = len(eligible_ids) - len(busy_assigned & eligible_ids) - unassigned
+        return remaining <= 0
+
+    async def _all_clinic_user_ids(cid: str) -> set:
+        ids = await db.users.find({"clinic_id": cid}, {"_id": 0, "id": 1}).to_list(500)
+        return {u["id"] for u in ids}
 
     @api.post("/bookings")
     async def create_booking(payload: BookingIn, user: dict = Depends(get_current_user)):
@@ -371,9 +415,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             p = await db.users.find_one({"id": payload.performer_id, "clinic_id": cid}, {"_id": 0, "role": 1, "name": 1})
             if not p:
                 raise HTTPException(status_code=400, detail="Performer not found in clinic")
-        # Capacity-aware slot check
-        if await _has_slot_conflict(cid, payload.treatment, payload.scheduled_at, payload.duration_min):
-            raise HTTPException(status_code=409, detail="Slot unavailable — capacity reached or overlapping booking")
+        # Performer-availability check
+        if await _has_slot_conflict(cid, payload.treatment, payload.scheduled_at, payload.duration_min, payload.performer_id):
+            if payload.performer_id:
+                raise HTTPException(status_code=409, detail="Selected performer is already booked at this time")
+            raise HTTPException(status_code=409, detail="No available performer for this slot")
         b = payload.model_dump()
         b["id"] = str(uuid.uuid4())
         b["clinic_id"] = cid

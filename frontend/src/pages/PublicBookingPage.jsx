@@ -44,7 +44,7 @@ export default function PublicBookingPage() {
   useEffect(() => {
     if (step !== 1 || !selTreat) return;
     setLoadingSlots(true); setSlots([]); setSelSlot(null);
-    api.get(`/public/clinics/${slug}/availability`, { params: { date, duration: selTreat.duration_min } })
+    api.get(`/public/clinics/${slug}/availability`, { params: { date, duration: selTreat.duration_min, treatment: selTreat.name } })
       .then(r => setSlots(r.data.slots || []))
       .finally(() => setLoadingSlots(false));
   }, [step, date, selTreat, slug]);

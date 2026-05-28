@@ -78,15 +78,10 @@ function EditorModal({ initial, onClose, onSaved }) {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label-eyebrow block mb-1.5">Duration (min)</label>
-                <input type="number" min="5" step="5" className="bl-input" value={form.duration_min} onChange={e => setForm({...form, duration_min: Number(e.target.value)})} required data-testid="treatment-duration" />
-              </div>
-              <div>
-                <label className="label-eyebrow block mb-1.5">Concurrent slots</label>
-                <input type="number" min="1" max="10" className="bl-input" value={form.slots_per_session} onChange={e => setForm({...form, slots_per_session: Number(e.target.value)})} data-testid="treatment-slots" />
-              </div>
+            <div>
+              <label className="label-eyebrow block mb-1.5">Duration (min)</label>
+              <input type="number" min="5" step="5" className="bl-input" value={form.duration_min} onChange={e => setForm({...form, duration_min: Number(e.target.value)})} required data-testid="treatment-duration" />
+              <div className="text-xs text-[#5C6C62] mt-1">Time blocked from the assigned performer's schedule.</div>
             </div>
             <div>
               <label className="label-eyebrow block mb-1.5">Price (IDR)</label>
@@ -161,14 +156,13 @@ export default function TreatmentsPage() {
                 <th className="px-5 py-3">Category</th>
                 <th className="px-5 py-3">Performed by</th>
                 <th className="px-5 py-3 text-right">Duration</th>
-                <th className="px-5 py-3 text-right">Slots</th>
                 <th className="px-5 py-3 text-right">Price</th>
                 <th className="px-5 py-3">Active</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-[#5C6C62] text-sm">No treatments in this category yet.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-[#5C6C62] text-sm">No treatments in this category yet.</td></tr>}
               {filtered.map(t => {
                 const cc = CAT_COLORS[t.category] || CAT_COLORS.general;
                 const perf = PERFORMER_LABEL[t.performer_type] || PERFORMER_LABEL.therapist;
@@ -190,7 +184,6 @@ export default function TreatmentsPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right text-sm text-[#2D3A33] whitespace-nowrap">{t.duration_min} min</td>
-                    <td className="px-5 py-3 text-right text-sm text-[#2D3A33]">{t.slots_per_session}×</td>
                     <td className="px-5 py-3 text-right text-sm font-medium text-[#2D3A33] whitespace-nowrap">{fmtIDR(t.price_idr)}</td>
                     <td className="px-5 py-3">
                       {canManage ? (

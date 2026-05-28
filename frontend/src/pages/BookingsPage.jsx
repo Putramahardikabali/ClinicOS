@@ -164,21 +164,17 @@ function NewBookingModal({ onClose, onCreated }) {
     return ["doctor", "therapist"].includes(s.role);
   });
 
-  // Reload slots whenever date or treatment changes
+  // Reload slots whenever date, treatment, or performer changes
   useEffect(() => {
     if (!form.scheduled_date || !form.treatment) { setSlots([]); return; }
     setLoadingSlots(true);
-    // Use the public availability endpoint; we have a slug via clinic context — but easier:
-    // use api wrapper but the endpoint is public — pass with treatment & duration.
-    const slug = (window.location.pathname.includes("/book/") ? window.location.pathname.split("/book/")[1] : "");
-    // For staff use, derive slug from `/api/clinics/me` cache (clinic context isn't passed here, but the bookings page calls api with auth which is fine)
-    // We'll call the auth-equivalent endpoint we already have: GET /api/bookings, scheduled_at on a date
-    // Simpler: call /api/clinics/me to get slug.
     api.get("/clinics/me").then(rc => {
       const cslug = rc.data?.slug;
-      return api.get(`/public/clinics/${cslug}/availability`, { params: { date: form.scheduled_date, duration: form.duration_min, treatment: form.treatment } });
+      const params = { date: form.scheduled_date, duration: form.duration_min, treatment: form.treatment };
+      if (form.performer_id) params.performer_id = form.performer_id;
+      return api.get(`/public/clinics/${cslug}/availability`, { params });
     }).then(r => setSlots(r.data?.slots || [])).finally(() => setLoadingSlots(false));
-  }, [form.scheduled_date, form.treatment, form.duration_min]);
+  }, [form.scheduled_date, form.treatment, form.duration_min, form.performer_id]);
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
