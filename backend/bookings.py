@@ -506,6 +506,94 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         ids = await db.users.find({"clinic_id": cid}, {"_id": 0, "id": 1}).to_list(500)
         return {u["id"] for u in ids}
 
+    @api.get("/bookings/available-performers")
+    async def available_performers(
+        date: str = Query(..., description="YYYY-MM-DD"),
+        time: str = Query(..., description="HH:MM"),
+        duration: int = Query(30, ge=5, le=480),
+        treatment: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        """Return staff members who are eligible for this treatment AND on duty AND free at this slot.
+        Used by the FO 'New Booking' modal to filter the performer dropdown.
+        """
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Only FO, owner, or manager can view performer availability")
+        cid = user.get("clinic_id")
+        scheduled_at = f"{date}T{time}:00"
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid date/time")
+
+        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1, "closed_dates": 1})
+        c_hours = (c or {}).get("operating_hours") or {}
+        # Block if clinic-closed date
+        if any(cd.get("date") == date for cd in ((c or {}).get("closed_dates") or [])):
+            return {"performers": [], "closed": True, "reason": "Clinic closed on this date"}
+        # Resolve treatment performer_type
+        performer_type = "either"
+        if treatment:
+            t = await db.treatments.find_one({"clinic_id": cid, "name": treatment, "active": True}, {"_id": 0, "performer_type": 1})
+            if t:
+                performer_type = t.get("performer_type", "either")
+        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        staff = await db.users.find(
+            {"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}},
+            {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1},
+        ).to_list(200)
+
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration or 30)
+        day_key = _day_key(sched)
+        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
+        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
+        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
+
+        # Existing bookings on this date to compute per-performer busy
+        day_existing = await db.bookings.find({
+            "clinic_id": cid,
+            "scheduled_at": {"$gte": f"{date}T00:00:00", "$lte": f"{date}T23:59:59"},
+            "status": {"$in": ["booked", "confirmed", "checked_in"]},
+        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
+        busy_pids = set()
+        for b in day_existing:
+            try:
+                bs_dt = _parse_iso(b["scheduled_at"])
+            except Exception:
+                continue
+            bs = bs_dt.hour * 60 + bs_dt.minute
+            be = bs + int(b.get("duration_min", 30))
+            if s_end <= bs or s_start >= be:
+                continue
+            pid = b.get("performer_id")
+            if pid:
+                busy_pids.add(pid)
+
+        out = []
+        for s in staff:
+            doff = s.get("days_off") or []
+            if any(d.get("date") == date for d in doff):
+                continue
+            wh = s.get("working_hours") or {}
+            if not wh:
+                # inherit clinic window
+                w_open, w_close = c_open, c_close
+            else:
+                day_h = wh.get(day_key) or {}
+                if not (day_h.get("open") and day_h.get("close")):
+                    continue  # day explicitly off
+                w_open = _hhmm_to_minutes(day_h["open"]) or 0
+                w_close = _hhmm_to_minutes(day_h["close"]) or 0
+                if w_open >= w_close:
+                    continue
+            if not (w_open <= s_start and s_end <= w_close):
+                continue  # outside their working window
+            if s["id"] in busy_pids:
+                continue  # already booked at this slot
+            out.append({"id": s["id"], "name": s["name"], "role": s["role"]})
+        return {"performers": out, "closed": False, "performer_type": performer_type}
+
     @api.post("/bookings")
     async def create_booking(payload: BookingIn, user: dict = Depends(get_current_user)):
         if user.get("role") not in ("super_admin", "fo", "manager"):

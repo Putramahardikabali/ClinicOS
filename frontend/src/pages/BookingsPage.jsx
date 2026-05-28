@@ -146,6 +146,8 @@ function NewBookingModal({ onClose, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [newPatient, setNewPatient] = useState(false);
   const [customTime, setCustomTime] = useState(false);
+  const [availablePerformers, setAvailablePerformers] = useState(null);
+  const [loadingPerformers, setLoadingPerformers] = useState(false);
 
   useEffect(() => {
     api.get("/treatments-catalog", { params: { active_only: true } }).then(r => setTreatments(r.data || []));
@@ -176,6 +178,26 @@ function NewBookingModal({ onClose, onCreated }) {
       return api.get(`/public/clinics/${cslug}/availability`, { params });
     }).then(r => setSlots(r.data?.slots || [])).finally(() => setLoadingSlots(false));
   }, [form.scheduled_date, form.treatment, form.duration_min, form.performer_id]);
+
+  // Fetch available performers for the chosen slot (filters off-duty/on-leave/already booked)
+  useEffect(() => {
+    if (!form.scheduled_date || !form.treatment || !form.scheduled_time) {
+      setAvailablePerformers(null);
+      return;
+    }
+    setLoadingPerformers(true);
+    api.get("/bookings/available-performers", {
+      params: {
+        date: form.scheduled_date,
+        time: form.scheduled_time,
+        duration: form.duration_min,
+        treatment: form.treatment,
+      },
+    })
+      .then(r => setAvailablePerformers(r.data?.performers || []))
+      .catch(() => setAvailablePerformers([]))
+      .finally(() => setLoadingPerformers(false));
+  }, [form.scheduled_date, form.scheduled_time, form.treatment, form.duration_min]);
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
@@ -339,11 +361,49 @@ function NewBookingModal({ onClose, onCreated }) {
                 Performer
                 {selectedTreatment && <span className="text-[#A89F8B] normal-case ml-1">· {selectedTreatment.performer_type}</span>}
               </label>
-              <select className="bl-input" value={form.performer_id} onChange={e => setForm({...form, performer_id: e.target.value})} disabled={!form.treatment} data-testid="nb-performer">
-                <option value="">Unassigned</option>
-                {eligibleStaff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role})</option>)}
-              </select>
-              {form.treatment && eligibleStaff.length === 0 && <div className="text-xs mt-1 text-[#B14A2C]">No {selectedTreatment?.performer_type} on staff. Booking can still be saved unassigned.</div>}
+              {(() => {
+                const slotChosen = !!(form.scheduled_date && form.scheduled_time);
+                // When time chosen: only show actually-available performers
+                const list = slotChosen && availablePerformers !== null
+                  ? eligibleStaff.filter(s => availablePerformers.some(ap => ap.id === s.id))
+                  : eligibleStaff;
+                const disabled = !form.treatment || !slotChosen || loadingPerformers;
+                const hint = !form.treatment
+                  ? "Pick a treatment first"
+                  : !slotChosen
+                    ? "Pick date & time first"
+                    : loadingPerformers
+                      ? "Checking availability…"
+                      : (list.length === 0
+                          ? `No ${selectedTreatment?.performer_type || "performer"} available at this slot`
+                          : null);
+                return (
+                  <>
+                    <select
+                      className="bl-input"
+                      value={form.performer_id}
+                      onChange={e => setForm({ ...form, performer_id: e.target.value })}
+                      disabled={disabled}
+                      data-testid="nb-performer"
+                    >
+                      <option value="">Unassigned</option>
+                      {list.map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                      ))}
+                    </select>
+                    {hint && (
+                      <div className="text-xs mt-1.5" style={{ color: list.length === 0 && slotChosen ? "#B14A2C" : "#A89F8B" }} data-testid="nb-performer-hint">
+                        {hint}
+                      </div>
+                    )}
+                    {slotChosen && !loadingPerformers && eligibleStaff.length > 0 && availablePerformers !== null && availablePerformers.length < eligibleStaff.length && (
+                      <div className="text-[11px] text-[#A89F8B] mt-1">
+                        {eligibleStaff.length - availablePerformers.length} {selectedTreatment?.performer_type || "performer"}(s) hidden — off-duty or already booked.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             <div>

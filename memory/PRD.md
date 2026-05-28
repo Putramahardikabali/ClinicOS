@@ -115,6 +115,17 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - Verified overlap detection on 5-min interval: doctor booked 14:00–14:45 → all slots 13:50–14:40 marked BUSY, 14:45+ AVAIL.
 
 ### Iteration 14 (Phase 6 — Schedule + Staff + Loyalty + Reports, Feb 28 2026)
+**6a — Operating Hours + Closed Days**: per-day editor, closed-dates list. Owner/Manager/FO can edit schedule fields; FO blocked from name/branding; Manager can also edit loyalty.
+**6b — Staff Scheduling**: per-user `working_hours` (mon-sun) and `days_off`. Availability now respects each performer's window.
+**6c — Loyalty Tiers**: defaults Silver/Gold/Platinum (10M/15M/30M). Owner+Manager editable. Patient stats return `loyalty_tier`/`next_tier`/`next_tier_progress`. Profile shows gradient badge.
+**6d — Reports & Analytics**: `/reports` page (owner/manager) with revenue chart + KPIs + table. Endpoint `GET /api/reports/revenue-monthly?months=N`.
+
+### Iteration 15 (Performer dropdown filtering, Feb 28 2026)
+- New endpoint `GET /api/bookings/available-performers?date=…&time=…&duration=…&treatment=…` returning only staff who are eligible (role match) + on-duty (within working hours, not on day-off) + free (no overlapping booking) at that exact slot. Returns `{closed:true,reason:...}` when clinic is closed.
+- FO "New Booking" modal now hides off-duty / on-leave / double-booked doctors and therapists from the **Performer** dropdown once the user has picked date + time. Disabled state with helpful messaging ("Pick date & time first", "Checking availability…", "No doctor available at this slot"). Counter under the dropdown reads e.g. "2 doctor(s) hidden — off-duty or already booked."
+- Verified live: 3 doctors total → 1 on vacation 2026-03-10, 1 evening-only → at 10:00 dropdown shows only Doctor 3 (2 hidden); at 17:30 shows Doctor 2 + Doctor 3 (1 hidden).
+
+
 **6a — Operating Hours + Closed Days**
 - New clinic fields `operating_hours` (per-day editor) and `closed_dates` (list of `{date, reason}`).
 - Owner edits everything; **Manager** can edit schedule + loyalty; **FO** can edit only `operating_hours`, `booking_slot_interval`, `closed_dates` (RBAC enforced in `PUT /api/clinics/me`).
