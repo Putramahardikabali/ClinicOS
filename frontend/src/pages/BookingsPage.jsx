@@ -145,6 +145,7 @@ function NewBookingModal({ onClose, onCreated }) {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [busy, setBusy] = useState(false);
   const [newPatient, setNewPatient] = useState(false);
+  const [customTime, setCustomTime] = useState(false);
 
   useEffect(() => {
     api.get("/treatments-catalog", { params: { active_only: true } }).then(r => setTreatments(r.data || []));
@@ -297,13 +298,39 @@ function NewBookingModal({ onClose, onCreated }) {
                 <input type="date" className="bl-input" value={form.scheduled_date} onChange={e => setForm({...form, scheduled_date: e.target.value})} required data-testid="nb-date" />
               </div>
               <div>
-                <label className="label-eyebrow block mb-1.5">Time</label>
-                <select className="bl-input" value={form.scheduled_time} onChange={e => setForm({...form, scheduled_time: e.target.value})} disabled={!form.treatment || !form.scheduled_date} required data-testid="nb-time">
-                  <option value="">{loadingSlots ? "Loading slots…" : (form.treatment && form.scheduled_date ? "Pick a time…" : "Pick treatment & date first")}</option>
-                  {slots.map(s => (
-                    <option key={s.time} value={s.label} disabled={!s.available}>{s.label} {s.available ? "" : "— full"}</option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="label-eyebrow">Time</label>
+                  <button
+                    type="button"
+                    onClick={() => { setCustomTime(v => !v); setForm(f => ({ ...f, scheduled_time: "" })); }}
+                    className="text-xs underline text-[#5C6C62] hover:text-[#2D3A33]"
+                    data-testid="nb-custom-time-toggle"
+                  >
+                    {customTime ? "Use clinic slots" : "Custom time"}
+                  </button>
+                </div>
+                {customTime ? (
+                  <input
+                    type="time"
+                    step="60"
+                    className="bl-input"
+                    value={form.scheduled_time}
+                    onChange={e => setForm({ ...form, scheduled_time: e.target.value })}
+                    disabled={!form.treatment || !form.scheduled_date}
+                    required
+                    data-testid="nb-time-custom"
+                  />
+                ) : (
+                  <select className="bl-input" value={form.scheduled_time} onChange={e => setForm({...form, scheduled_time: e.target.value})} disabled={!form.treatment || !form.scheduled_date} required data-testid="nb-time">
+                    <option value="">{loadingSlots ? "Loading slots…" : (form.treatment && form.scheduled_date ? "Pick a time…" : "Pick treatment & date first")}</option>
+                    {slots.map(s => (
+                      <option key={s.time} value={s.label} disabled={!s.available}>{s.label} {s.available ? "" : "— full"}</option>
+                    ))}
+                  </select>
+                )}
+                {customTime && (
+                  <p className="text-xs text-[#A89F8B] mt-1">Performer availability is still enforced on save.</p>
+                )}
               </div>
             </div>
 

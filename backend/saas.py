@@ -149,6 +149,7 @@ def public_clinic_view(clinic: dict) -> dict:
         "timezone": clinic.get("timezone", "Asia/Makassar"),
         "currency": clinic.get("currency", "IDR"),
         "operating_hours": clinic.get("operating_hours", {}),
+        "booking_slot_interval": int(clinic.get("booking_slot_interval") or 30),
         "onboarded": clinic.get("onboarded", False),
         "subscription": {
             "plan": sub.get("plan", "trial"),
@@ -183,6 +184,7 @@ class ClinicUpdateIn(BaseModel):
     timezone: Optional[str] = None
     currency: Optional[str] = None
     operating_hours: Optional[Dict[str, Any]] = None
+    booking_slot_interval: Optional[int] = None
     onboarded: Optional[bool] = None
     logo_path: Optional[str] = None
 
@@ -217,6 +219,7 @@ def new_clinic_doc(reg: ClinicRegisterIn, existing_slugs: List[str]) -> dict:
             "sat": {"open": "10:00", "close": "18:00"},
             "sun": {"open": "", "close": ""},
         },
+        "booking_slot_interval": 30,
         "subscription": {
             "plan": "trial",
             "status": "trial",

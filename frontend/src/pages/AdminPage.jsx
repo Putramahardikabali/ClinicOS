@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import api, { API_BASE } from "@/lib/api";
 import { useSettings, logoUrl } from "@/lib/settings";
+import { useClinic } from "@/lib/clinic";
 import { toast } from "sonner";
-import { Settings, Users as UsersIcon, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw } from "lucide-react";
+import { Settings, Users as UsersIcon, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock } from "lucide-react";
 
 const TABS = [
   { key: "branding", label: "Branding", icon: Settings },
+  { key: "schedule", label: "Schedule", icon: CalendarClock },
   { key: "users", label: "Users", icon: UsersIcon },
   { key: "doctor", label: "Doctor Form", icon: Stethoscope },
   { key: "therapist", label: "Therapist Form", icon: Heart },
@@ -35,6 +37,7 @@ export default function AdminPage() {
 
       <div className="mt-7">
         {tab === "branding" && <BrandingTab />}
+        {tab === "schedule" && <ScheduleTab />}
         {tab === "users" && <UsersTab />}
         {tab === "doctor" && <DoctorFormTab />}
         {tab === "therapist" && <TherapistFormTab />}
@@ -484,6 +487,104 @@ function ListEditor({ title, items, setItems, placeholder, testid }) {
         <input className="bl-input flex-1" value={draft} onChange={(e)=>setDraft(e.target.value)} placeholder={placeholder} data-testid={`${testid}-input`} />
         <button type="submit" className="bl-btn-ghost inline-flex items-center gap-2" data-testid={`${testid}-add`}><Plus className="w-4 h-4" /> Add</button>
       </form>
+    </div>
+  );
+}
+
+/* ---------------- Schedule (booking slot interval) ---------------- */
+
+const SLOT_PRESETS = [5, 10, 15, 20, 30, 45, 60];
+
+function ScheduleTab() {
+  const { clinic, refresh } = useClinic();
+  const [interval, setInterval] = useState(30);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (clinic?.booking_slot_interval) setInterval(clinic.booking_slot_interval);
+  }, [clinic?.booking_slot_interval]);
+
+  if (!clinic) return <div className="text-[#5C6C62]">Loading…</div>;
+
+  const isCustom = !SLOT_PRESETS.includes(Number(interval));
+
+  const save = async () => {
+    const n = Number(interval);
+    if (!Number.isFinite(n) || n < 5 || n > 240) {
+      toast.error("Interval must be between 5 and 240 minutes");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.put("/clinics/me", { booking_slot_interval: n });
+      toast.success("Schedule updated");
+      await refresh();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to update");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl" data-testid="schedule-form">
+      <div className="bl-card p-5">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Booking slot interval</div>
+        <p className="text-sm text-[#5C6C62] mb-4">
+          Time grid shown on the public booking page and the FO &quot;New booking&quot; modal.
+          Front office staff can still pick any non-standard time via the &quot;Custom time&quot; toggle.
+        </p>
+
+        <div className="flex flex-wrap gap-2" data-testid="slot-interval-presets">
+          {SLOT_PRESETS.map(n => {
+            const active = Number(interval) === n;
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setInterval(n)}
+                className="px-4 py-2 rounded-xl border text-sm font-medium transition"
+                style={active
+                  ? { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }
+                  : { borderColor: "#EAE6D7", color: "#5C6C62", background: "white" }}
+                data-testid={`slot-interval-${n}`}
+              >
+                {n} min
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4">
+          <label className="label-eyebrow block mb-2">Custom interval (minutes)</label>
+          <input
+            type="number"
+            min={5}
+            max={240}
+            step={1}
+            className="bl-input max-w-[180px]"
+            value={interval}
+            onChange={(e) => setInterval(e.target.value)}
+            data-testid="slot-interval-custom"
+          />
+          <p className="text-xs text-[#5C6C62] mt-1">
+            {isCustom ? "Using a custom interval — between 5 and 240 minutes." : "Tip: enter any number from 5–240 if a preset doesn't fit."}
+          </p>
+        </div>
+
+        <div className="mt-5">
+          <button onClick={save} disabled={busy} className="bl-btn-primary disabled:opacity-50" data-testid="schedule-save">
+            {busy ? "Saving…" : "Save schedule"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bl-card p-5 bg-[#F8F5EC]">
+        <div className="font-display text-base text-[#2D3A33]">How this works</div>
+        <ul className="mt-2 space-y-1 text-sm text-[#5C6C62] list-disc pl-5">
+          <li>Slots are generated from your clinic operating hours using this step.</li>
+          <li>Performer-based availability still applies — same doctor can&apos;t be double-booked.</li>
+          <li>For one-off cases (e.g. <span className="font-medium text-[#2D3A33]">14:05–14:50</span>), staff can toggle &quot;Custom time&quot; in the booking modal.</li>
+        </ul>
+      </div>
     </div>
   );
 }

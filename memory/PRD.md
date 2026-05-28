@@ -101,6 +101,14 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - Safety nets: rejects empty active bank set (at least one bank must stay active), rejects unknown plan override keys.
 - Backend 100% (12/12 new tests, all regression green) / Frontend 100%.
 
+### Iteration 12 (Configurable booking slot interval, Feb 28 2026)
+- New clinic field `booking_slot_interval` (default 30, validated 5–240 min).
+- `PUT /api/clinics/me` accepts and validates the interval.
+- `_gen_slots()` in `bookings.py` now uses the clinic's interval — `/public/clinics/{slug}/availability` returns slots on the chosen grid (5/10/15/20/30/45/60 or custom).
+- Frontend: new **Schedule** tab in `/admin` (clinic owner) with preset chips + custom number input.
+- Frontend: **Custom time** toggle in the FO "New booking" modal — swaps the slot dropdown for a `<input type="time">` so staff can book ad-hoc times like 14:05. Performer-based conflict check still enforced server-side.
+- Verified via curl: 15 min → 09:00, 09:15, 09:30…; 20 min → 09:00, 09:20, 09:40…; invalid 3 min rejected (400); custom booking at 14:05 saved successfully.
+
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |
 |------|---------------|-------|---------|----------|

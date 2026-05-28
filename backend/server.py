@@ -471,6 +471,14 @@ async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_cur
         raise HTTPException(status_code=403, detail="Only clinic owner can update")
     await assert_writeable(user)
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "booking_slot_interval" in upd:
+        try:
+            iv = int(upd["booking_slot_interval"])
+        except Exception:
+            raise HTTPException(status_code=400, detail="booking_slot_interval must be an integer")
+        if iv < 5 or iv > 240:
+            raise HTTPException(status_code=400, detail="booking_slot_interval must be between 5 and 240 minutes")
+        upd["booking_slot_interval"] = iv
     await db.clinics.update_one({"id": user["clinic_id"]}, {"$set": upd})
     await audit(user, "update", "clinic", user["clinic_id"])
     c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0})

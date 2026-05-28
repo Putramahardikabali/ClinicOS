@@ -194,7 +194,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         await _seed_default_treatments(c["id"])
         treatments = await db.treatments.find({"clinic_id": c["id"], "active": True}, {"_id": 0}).sort("name", 1).to_list(200)
         return {
-            "clinic": {"name": c["name"], "slug": c["slug"], "city": c.get("city", ""), "phone": c.get("phone", ""), "logo_path": c.get("logo_path", "")},
+            "clinic": {"name": c["name"], "slug": c["slug"], "city": c.get("city", ""), "phone": c.get("phone", ""), "logo_path": c.get("logo_path", ""), "booking_slot_interval": int(c.get("booking_slot_interval") or 30)},
             "treatments": treatments,
         }
 
@@ -220,7 +220,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         close_min = _hhmm_to_minutes(day_hours.get("close", ""))
         if open_min is None or close_min is None or open_min >= close_min:
             return {"date": date, "slots": [], "closed": True}
-        base = _gen_slots(open_min, close_min, step_min=30)
+        base = _gen_slots(open_min, close_min, step_min=int(c.get("booking_slot_interval") or 30))
 
         # Resolve eligible performer pool
         performer_type = "either"
