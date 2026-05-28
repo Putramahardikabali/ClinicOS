@@ -373,10 +373,48 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise HTTPException(status_code=409, detail="Slot just got taken — please pick another")
         # Auto-pick the least-busy on-duty performer (silent — guest doesn't choose)
         auto_performer_id = await _auto_pick_performer(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min)
+        # Match-or-create patient by phone (primary) or email
+        normalized_phone = "".join(ch for ch in (payload.patient_phone or "") if ch.isdigit() or ch == "+").strip()
+        normalized_email = (payload.patient_email or "").strip().lower()
+        existing_patient = None
+        if normalized_phone:
+            existing_patient = await db.patients.find_one(
+                {"clinic_id": c["id"], "phone": normalized_phone}, {"_id": 0, "id": 1, "full_name": 1, "phone": 1, "email": 1},
+            )
+        if not existing_patient and normalized_email:
+            existing_patient = await db.patients.find_one(
+                {"clinic_id": c["id"], "email": normalized_email}, {"_id": 0, "id": 1, "full_name": 1, "phone": 1, "email": 1},
+            )
+        patient_id = None
+        patient_matched = False
+        if existing_patient:
+            patient_id = existing_patient["id"]
+            patient_matched = True
+            # Backfill missing email or phone if guest provided one and existing didn't
+            backfill: Dict[str, Any] = {}
+            if normalized_email and not (existing_patient.get("email") or "").strip():
+                backfill["email"] = normalized_email
+            if normalized_phone and not (existing_patient.get("phone") or "").strip():
+                backfill["phone"] = normalized_phone
+            if backfill:
+                await db.patients.update_one({"id": patient_id, "clinic_id": c["id"]}, {"$set": backfill})
+        else:
+            # Create a new patient record for this guest
+            new_patient = {
+                "id": str(uuid.uuid4()),
+                "clinic_id": c["id"],
+                "full_name": payload.patient_name.strip(),
+                "phone": normalized_phone or None,
+                "email": normalized_email or None,
+                "source": "public_booking",
+                "created_at": iso(now_utc()),
+            }
+            await db.patients.insert_one(new_patient)
+            patient_id = new_patient["id"]
         booking = {
             "id": str(uuid.uuid4()),
             "clinic_id": c["id"],
-            "patient_id": None,
+            "patient_id": patient_id,
             "patient_name": payload.patient_name,
             "patient_phone": payload.patient_phone,
             "patient_email": (payload.patient_email or "").lower(),
@@ -385,6 +423,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "scheduled_at": payload.scheduled_at,
             "performer_id": auto_performer_id,
             "performer_auto_assigned": bool(auto_performer_id),
+            "patient_matched": patient_matched,
             "notes": payload.notes or "",
             "status": "booked",
             "source": "public",

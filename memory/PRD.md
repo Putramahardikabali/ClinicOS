@@ -130,6 +130,17 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - Public guest booking silently auto-assigns least-busy available performer (`performer_auto_assigned: true`).
 
 ### Iteration 17 (Slot grid + mandatory performer, Feb 28 2026)
+- Public booking slots redesigned into compact responsive grid (3/4/5/6 cols).
+- FO dropdown: "Unassigned" removed, suggested performer auto-selected, FO can still change.
+- `POST /api/bookings` auto-picks performer when payload omits `performer_id` (or 409 if none free).
+
+### Iteration 18 (Patient dedupe on public bookings, Feb 28 2026)
+- Public guest booking now matches against existing patients by **phone first**, falls back to **email**. Phone is normalized (digits + leading `+` only) before matching.
+- If a match exists → booking attached to existing `patient_id` (`patient_matched: true`); missing email/phone on the patient record is backfilled silently.
+- If no match → a new patient record is created automatically with `source: "public_booking"` and the booking attached to it.
+- Verified: existing patient phone → reused; new phone → new patient created; second booking with same new phone → matches that just-created patient (no duplicates).
+
+
 - Public booking time-slot UI redesigned from hour-band rows into a responsive compact grid (3/4/5/6 columns by screen size). All slots visible at once with full `HH:MM` labels.
 - FO dropdown: "Unassigned" option removed. The suggested performer is auto-selected by default; user can still override with any other available staff. When dropdown has zero candidates, shows "— No performer available —" and blocks save.
 - Backend: `POST /api/bookings` now auto-picks a performer when payload omits `performer_id` (if staff exist for the treatment). Returns 409 if no on-duty performer is free.
