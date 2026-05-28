@@ -110,9 +110,35 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 
 ### Iteration 13 (Slot UI polish + past filter, Feb 28 2026)
 - Backend marks slots with `past: true` for today's slots before the clinic's local "now" (uses `clinic.timezone` via `zoneinfo`).
-- Public booking page redesigned: slots grouped by hour bands (`09:00 ─── :00 :05 :10 …`) with running counter ("8 of 8 slots available"). Past slots hidden entirely; busy slots line-through and `cursor: not-allowed`.
+- Public booking page redesigned: slots grouped by hour bands with running counter. Past slots hidden; busy slots line-through.
 - FO modal `<select>` also filters out past slots; disabled slots labeled "— booked".
 - Verified overlap detection on 5-min interval: doctor booked 14:00–14:45 → all slots 13:50–14:40 marked BUSY, 14:45+ AVAIL.
+
+### Iteration 14 (Phase 6 — Schedule + Staff + Loyalty + Reports, Feb 28 2026)
+**6a — Operating Hours + Closed Days**
+- New clinic fields `operating_hours` (per-day editor) and `closed_dates` (list of `{date, reason}`).
+- Owner edits everything; **Manager** can edit schedule + loyalty; **FO** can edit only `operating_hours`, `booking_slot_interval`, `closed_dates` (RBAC enforced in `PUT /api/clinics/me`).
+- Public availability returns `{closed: true, closed_reason}` when date is in `closed_dates`; bookings on that date return 409.
+- New Schedule tab in `/admin` with per-day toggle (Open/Closed), time inputs, closed-dates list.
+
+**6b — Staff Scheduling**
+- New per-user fields `working_hours` (mon-sun) and `days_off` (list of `{date, reason}`).
+- New endpoints: `GET /api/users/{uid}/schedule` (owner/manager/fo/self) and `PUT /api/users/{uid}/schedule` (owner/manager/self).
+- Public + FO availability now respects each performer's window: doctor booked 9-13 Mon → only 09:00–12:30 slots show; doctor on day-off → 0 slots for doctor treatments; therapist treatments unaffected.
+- New "Staff Hours" tab in `/admin` with per-staff selector + weekly hours + days-off list.
+
+**6c — Loyalty Tiers**
+- Defaults: Silver ≥ Rp 10M, Gold ≥ Rp 15M, Platinum ≥ Rp 30M (each with name, min_spend_idr, benefit text, color).
+- Owner + Manager can edit via `PUT /api/clinics/me` (`loyalty_tiers` field); FO blocked.
+- `GET /api/patients/{pid}/stats` now returns `loyalty_tier`, `next_tier`, and `next_tier_progress` (current spend + how much more to reach next tier).
+- Patient profile shows a Gold/Silver/Platinum loyalty card with benefit description and progress to next tier.
+
+**6d — Reports & Analytics**
+- New `GET /api/reports/revenue-monthly?months=N` (owner/manager only) returning monthly buckets with `revenue`, `items`, plus `total_revenue` + `average_monthly`.
+- New `/reports` page (sidebar nav for owner/manager only) with summary KPIs (total, monthly avg, peak month) + Recharts line/bar toggle + detail table.
+- 6/12/24-month range selector; tooltips show exact IDR per month.
+
+**Test results:** 19/19 backend pytest cases pass (closed-day 409, FO 403 on non-schedule fields, staff schedule restricts slots correctly, reports endpoint authz). Frontend RBAC verified (Owner 9 tabs, Manager 3 schedule-related tabs, FO 2 tabs; /reports route gated). Loyalty badge visually validated on patient profile.
 
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |
