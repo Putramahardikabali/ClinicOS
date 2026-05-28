@@ -467,10 +467,22 @@ async def my_clinic(user: dict = Depends(get_current_user)):
 async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_current_user)):
     if user.get("platform_admin"):
         raise HTTPException(status_code=400, detail="Platform admin has no clinic")
-    if user["role"] != "super_admin":
-        raise HTTPException(status_code=403, detail="Only clinic owner can update")
+    role = user.get("role")
+    if role not in ("super_admin", "manager", "fo"):
+        raise HTTPException(status_code=403, detail="Only owner, manager, or FO can update clinic settings")
     await assert_writeable(user)
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # FO + Manager are limited to schedule fields; only Owner can change brand/identity/timezone/currency/onboarded/logo
+    if role == "fo":
+        allowed = {"operating_hours", "booking_slot_interval", "closed_dates"}
+        disallowed = set(upd.keys()) - allowed
+        if disallowed:
+            raise HTTPException(status_code=403, detail=f"FO cannot change: {', '.join(sorted(disallowed))}")
+    elif role == "manager":
+        allowed = {"operating_hours", "booking_slot_interval", "closed_dates", "loyalty_tiers"}
+        disallowed = set(upd.keys()) - allowed
+        if disallowed:
+            raise HTTPException(status_code=403, detail=f"Manager cannot change: {', '.join(sorted(disallowed))}")
     if "booking_slot_interval" in upd:
         try:
             iv = int(upd["booking_slot_interval"])
@@ -479,6 +491,51 @@ async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_cur
         if iv < 5 or iv > 240:
             raise HTTPException(status_code=400, detail="booking_slot_interval must be between 5 and 240 minutes")
         upd["booking_slot_interval"] = iv
+    if "closed_dates" in upd:
+        cd = upd["closed_dates"] or []
+        norm = []
+        seen = set()
+        for item in cd:
+            if isinstance(item, str):
+                item = {"date": item, "reason": ""}
+            if not isinstance(item, dict):
+                raise HTTPException(status_code=400, detail="closed_dates entries must be objects with 'date' and 'reason'")
+            d = (item.get("date") or "").strip()
+            try:
+                datetime.strptime(d, "%Y-%m-%d")
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Invalid closed date '{d}' — use YYYY-MM-DD")
+            if d in seen:
+                continue
+            seen.add(d)
+            norm.append({"date": d, "reason": (item.get("reason") or "").strip()[:100]})
+        norm.sort(key=lambda x: x["date"])
+        upd["closed_dates"] = norm
+    if "loyalty_tiers" in upd:
+        tiers = upd["loyalty_tiers"] or []
+        if not isinstance(tiers, list):
+            raise HTTPException(status_code=400, detail="loyalty_tiers must be a list")
+        norm_t = []
+        for t in tiers:
+            if not isinstance(t, dict):
+                raise HTTPException(status_code=400, detail="Each loyalty tier must be an object")
+            name = (t.get("name") or "").strip()[:30]
+            if not name:
+                raise HTTPException(status_code=400, detail="Tier name is required")
+            try:
+                ms = int(t.get("min_spend_idr", 0))
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Tier '{name}': min_spend_idr must be a number")
+            if ms < 0:
+                raise HTTPException(status_code=400, detail=f"Tier '{name}': min_spend_idr cannot be negative")
+            norm_t.append({
+                "name": name,
+                "min_spend_idr": ms,
+                "benefit": (t.get("benefit") or "").strip()[:200],
+                "color": (t.get("color") or "#9CA3AF").strip()[:20],
+            })
+        norm_t.sort(key=lambda x: x["min_spend_idr"])
+        upd["loyalty_tiers"] = norm_t
     await db.clinics.update_one({"id": user["clinic_id"]}, {"$set": upd})
     await audit(user, "update", "clinic", user["clinic_id"])
     c = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0})
@@ -570,6 +627,76 @@ async def admin_delete_user(uid: str, user: dict = Depends(require_roles("super_
         raise HTTPException(status_code=404, detail="User not found")
     await audit(user, "delete", "user", uid)
     return {"ok": True}
+
+# ---------------- Staff Schedule (working hours + days off) ----------------
+class StaffScheduleIn(BaseModel):
+    working_hours: Optional[Dict[str, Any]] = None
+    days_off: Optional[List[Dict[str, Any]]] = None
+
+@api.get("/users/{uid}/schedule")
+async def get_staff_schedule(uid: str, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("super_admin", "manager", "fo") and uid != user["id"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    u = await db.users.find_one(scope(user, {"id": uid}), {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id": u["id"],
+        "name": u["name"],
+        "role": u["role"],
+        "working_hours": u.get("working_hours") or {},
+        "days_off": u.get("days_off") or [],
+    }
+
+@api.put("/users/{uid}/schedule")
+async def set_staff_schedule(uid: str, payload: StaffScheduleIn, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("super_admin", "manager") and uid != user["id"]:
+        raise HTTPException(status_code=403, detail="Only owner, manager, or self can edit a staff schedule")
+    await assert_writeable(user)
+    upd: Dict[str, Any] = {}
+    if payload.working_hours is not None:
+        # Validate per-day shape
+        clean: Dict[str, Any] = {}
+        for k, v in (payload.working_hours or {}).items():
+            if k not in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+                continue
+            if not isinstance(v, dict):
+                continue
+            o = (v.get("open") or "").strip()
+            c = (v.get("close") or "").strip()
+            if o and c and o >= c:
+                raise HTTPException(status_code=400, detail=f"{k}: opening time must be before closing time")
+            clean[k] = {"open": o, "close": c}
+        upd["working_hours"] = clean
+    if payload.days_off is not None:
+        norm = []
+        seen = set()
+        for item in payload.days_off:
+            if isinstance(item, str):
+                item = {"date": item, "reason": ""}
+            if not isinstance(item, dict):
+                continue
+            d = (item.get("date") or "").strip()
+            try:
+                datetime.strptime(d, "%Y-%m-%d")
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Invalid day-off date '{d}' — use YYYY-MM-DD")
+            if d in seen:
+                continue
+            seen.add(d)
+            norm.append({"date": d, "reason": (item.get("reason") or "").strip()[:100]})
+        norm.sort(key=lambda x: x["date"])
+        upd["days_off"] = norm
+    r = await db.users.update_one(scope(user, {"id": uid}), {"$set": upd})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    await audit(user, "update", "user_schedule", uid)
+    u = await db.users.find_one(scope(user, {"id": uid}), {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1})
+    return {
+        "id": u["id"], "name": u["name"], "role": u["role"],
+        "working_hours": u.get("working_hours") or {},
+        "days_off": u.get("days_off") or [],
+    }
 
 # ---------------- Settings ----------------
 @api.get("/settings")

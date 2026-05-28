@@ -13,6 +13,12 @@ from fastapi import HTTPException, APIRouter, Depends, UploadFile, File, Form
 from pydantic import BaseModel, EmailStr
 
 # ---------------- Plan Catalog ----------------
+DEFAULT_LOYALTY_TIERS: List[Dict[str, Any]] = [
+    {"name": "Silver",   "min_spend_idr": 10_000_000, "benefit": "5% off all treatments", "color": "#9CA3AF"},
+    {"name": "Gold",     "min_spend_idr": 15_000_000, "benefit": "10% off + complimentary consultation", "color": "#F59E0B"},
+    {"name": "Platinum", "min_spend_idr": 30_000_000, "benefit": "15% off + VIP perks + birthday gift", "color": "#7C3AED"},
+]
+
 PLAN_CATALOG: Dict[str, Dict[str, Any]] = {
     "starter": {
         "key": "starter",
@@ -150,6 +156,8 @@ def public_clinic_view(clinic: dict) -> dict:
         "currency": clinic.get("currency", "IDR"),
         "operating_hours": clinic.get("operating_hours", {}),
         "booking_slot_interval": int(clinic.get("booking_slot_interval") or 30),
+        "closed_dates": clinic.get("closed_dates", []),
+        "loyalty_tiers": clinic.get("loyalty_tiers") or DEFAULT_LOYALTY_TIERS,
         "onboarded": clinic.get("onboarded", False),
         "subscription": {
             "plan": sub.get("plan", "trial"),
@@ -185,6 +193,8 @@ class ClinicUpdateIn(BaseModel):
     currency: Optional[str] = None
     operating_hours: Optional[Dict[str, Any]] = None
     booking_slot_interval: Optional[int] = None
+    closed_dates: Optional[List[Dict[str, Any]]] = None
+    loyalty_tiers: Optional[List[Dict[str, Any]]] = None
     onboarded: Optional[bool] = None
     logo_path: Optional[str] = None
 
@@ -220,6 +230,8 @@ def new_clinic_doc(reg: ClinicRegisterIn, existing_slugs: List[str]) -> dict:
             "sun": {"open": "", "close": ""},
         },
         "booking_slot_interval": 30,
+        "closed_dates": [],
+        "loyalty_tiers": list(DEFAULT_LOYALTY_TIERS),
         "subscription": {
             "plan": "trial",
             "status": "trial",

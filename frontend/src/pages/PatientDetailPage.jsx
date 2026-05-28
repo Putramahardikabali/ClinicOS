@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Calendar, Image as ImageIcon, Wallet, Receipt, TrendingUp } from "lucide-react";
+import { ArrowLeft, Plus, Calendar, Image as ImageIcon, Wallet, Receipt, TrendingUp, Award } from "lucide-react";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 
@@ -100,6 +100,34 @@ export default function PatientDetailPage() {
         </div>
 
         <aside className="space-y-4">
+          {stats?.loyalty_tier && (
+            <div className="bl-card p-5 relative overflow-hidden" data-testid="loyalty-badge" style={{ background: `linear-gradient(135deg, ${stats.loyalty_tier.color}22 0%, white 60%)`, borderColor: stats.loyalty_tier.color }}>
+              <div className="label-eyebrow flex items-center gap-1.5" style={{ color: stats.loyalty_tier.color }}>
+                <Award className="w-3.5 h-3.5" /> Loyalty status
+              </div>
+              <div className="font-display text-2xl mt-1.5 tracking-wide" style={{ color: stats.loyalty_tier.color }} data-testid="loyalty-tier-name">{stats.loyalty_tier.name}</div>
+              {stats.loyalty_tier.benefit && (
+                <div className="text-xs text-[#2D3A33] mt-1.5 leading-relaxed">{stats.loyalty_tier.benefit}</div>
+              )}
+              {stats.next_tier && (
+                <div className="mt-3 pt-3 border-t" style={{ borderColor: `${stats.loyalty_tier.color}33` }}>
+                  <div className="text-[10px] uppercase tracking-wider text-[#5C6C62]">Next tier</div>
+                  <div className="text-xs text-[#2D3A33] mt-1">
+                    <span className="font-medium">{stats.next_tier.name}</span> · {fmtIDR(stats.next_tier_progress.needed)} to go
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {stats && !stats.loyalty_tier && stats.next_tier && (
+            <div className="bl-card p-5 bg-[#FDFBF7]" data-testid="loyalty-badge-none">
+              <div className="label-eyebrow flex items-center gap-1.5"><Award className="w-3.5 h-3.5" /> Loyalty status</div>
+              <div className="text-sm text-[#5C6C62] mt-2">Not yet a loyalty member.</div>
+              <div className="text-xs text-[#2D3A33] mt-1.5">
+                {fmtIDR(stats.next_tier_progress.needed)} more spend to reach <span className="font-medium">{stats.next_tier.name}</span>.
+              </div>
+            </div>
+          )}
           {stats && (
             <div className="bl-card p-5" data-testid="patient-spend-summary">
               <div className="label-eyebrow mb-3 flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5" /> Lifetime spend</div>

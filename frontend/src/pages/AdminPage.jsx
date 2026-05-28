@@ -2,26 +2,37 @@ import { useEffect, useState } from "react";
 import api, { API_BASE } from "@/lib/api";
 import { useSettings, logoUrl } from "@/lib/settings";
 import { useClinic } from "@/lib/clinic";
+import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Settings, Users as UsersIcon, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock } from "lucide-react";
+import { Settings, Users as UsersIcon, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock, Calendar as CalendarIcon, Award } from "lucide-react";
 
-const TABS = [
-  { key: "branding", label: "Branding", icon: Settings },
-  { key: "schedule", label: "Schedule", icon: CalendarClock },
-  { key: "users", label: "Users", icon: UsersIcon },
-  { key: "doctor", label: "Doctor Form", icon: Stethoscope },
-  { key: "therapist", label: "Therapist Form", icon: Heart },
-  { key: "treatment", label: "Treatments", icon: Pill },
-  { key: "mapping", label: "Mapping Templates", icon: MapPin },
+const ALL_TABS = [
+  { key: "branding", label: "Branding", icon: Settings, owner_only: true },
+  { key: "schedule", label: "Schedule", icon: CalendarClock, owner_only: false },
+  { key: "staff_schedule", label: "Staff Hours", icon: CalendarIcon, owner_only: false },
+  { key: "loyalty", label: "Loyalty", icon: Award, owner_only: false, managers_only: true },
+  { key: "users", label: "Users", icon: UsersIcon, owner_only: true },
+  { key: "doctor", label: "Doctor Form", icon: Stethoscope, owner_only: true },
+  { key: "therapist", label: "Therapist Form", icon: Heart, owner_only: true },
+  { key: "treatment", label: "Treatments", icon: Pill, owner_only: true },
+  { key: "mapping", label: "Mapping Templates", icon: MapPin, owner_only: true },
 ];
 
 export default function AdminPage() {
-  const [tab, setTab] = useState("branding");
+  const { user } = useAuth();
+  const isOwner = user?.role === "super_admin";
+  const isManager = user?.role === "manager";
+  const TABS = ALL_TABS.filter(t => {
+    if (t.owner_only) return isOwner;
+    if (t.managers_only) return isOwner || isManager;
+    return true;
+  });
+  const [tab, setTab] = useState(TABS[0]?.key || "schedule");
   return (
     <div className="p-6 md:p-8 lg:p-10 max-w-7xl">
       <div className="label-eyebrow">System</div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Admin Settings</h1>
-      <p className="mt-2 text-[#5C6C62]">Manage branding, users, form fields, and mapping templates for the entire clinic.</p>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">{isOwner ? "Admin Settings" : "Clinic Schedule"}</h1>
+      <p className="mt-2 text-[#5C6C62]">{isOwner ? "Manage branding, users, form fields, and mapping templates for the entire clinic." : "Manage operating hours, slot interval, and closed dates."}</p>
 
       <div className="mt-7 border-b border-[#EAE6D7] flex gap-1 overflow-x-auto" data-testid="admin-tabs">
         {TABS.map(t => {
@@ -36,13 +47,15 @@ export default function AdminPage() {
       </div>
 
       <div className="mt-7">
-        {tab === "branding" && <BrandingTab />}
+        {tab === "branding" && isOwner && <BrandingTab />}
         {tab === "schedule" && <ScheduleTab />}
-        {tab === "users" && <UsersTab />}
-        {tab === "doctor" && <DoctorFormTab />}
-        {tab === "therapist" && <TherapistFormTab />}
-        {tab === "treatment" && <TreatmentTab />}
-        {tab === "mapping" && <MappingTab />}
+        {tab === "staff_schedule" && <StaffScheduleTab />}
+        {tab === "loyalty" && (isOwner || isManager) && <LoyaltyTab />}
+        {tab === "users" && isOwner && <UsersTab />}
+        {tab === "doctor" && isOwner && <DoctorFormTab />}
+        {tab === "therapist" && isOwner && <TherapistFormTab />}
+        {tab === "treatment" && isOwner && <TreatmentTab />}
+        {tab === "mapping" && isOwner && <MappingTab />}
       </div>
     </div>
   );
@@ -494,19 +507,57 @@ function ListEditor({ title, items, setItems, placeholder, testid }) {
 /* ---------------- Schedule (booking slot interval) ---------------- */
 
 const SLOT_PRESETS = [5, 10, 15, 20, 30, 45, 60];
+const DAYS = [
+  { key: "mon", label: "Monday" },
+  { key: "tue", label: "Tuesday" },
+  { key: "wed", label: "Wednesday" },
+  { key: "thu", label: "Thursday" },
+  { key: "fri", label: "Friday" },
+  { key: "sat", label: "Saturday" },
+  { key: "sun", label: "Sunday" },
+];
 
 function ScheduleTab() {
   const { clinic, refresh } = useClinic();
   const [interval, setInterval] = useState(30);
+  const [hours, setHours] = useState({});
+  const [closedDates, setClosedDates] = useState([]);
+  const [newDate, setNewDate] = useState("");
+  const [newReason, setNewReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (clinic?.booking_slot_interval) setInterval(clinic.booking_slot_interval);
-  }, [clinic?.booking_slot_interval]);
+    if (!clinic) return;
+    if (clinic.booking_slot_interval) setInterval(clinic.booking_slot_interval);
+    setHours(clinic.operating_hours || {});
+    setClosedDates(clinic.closed_dates || []);
+  }, [clinic?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!clinic) return <div className="text-[#5C6C62]">Loading…</div>;
 
   const isCustom = !SLOT_PRESETS.includes(Number(interval));
+
+  const setDayField = (day, field, value) => {
+    setHours(h => ({ ...h, [day]: { ...(h[day] || {}), [field]: value } }));
+  };
+  const toggleDayClosed = (day) => {
+    const cur = hours[day];
+    if (cur && cur.open) {
+      setHours(h => ({ ...h, [day]: { open: "", close: "" } }));
+    } else {
+      setHours(h => ({ ...h, [day]: { open: "09:00", close: "20:00" } }));
+    }
+  };
+  const addClosedDate = () => {
+    if (!newDate) return;
+    if (closedDates.some(d => d.date === newDate)) {
+      toast.error("Date already in list");
+      return;
+    }
+    setClosedDates([...closedDates, { date: newDate, reason: newReason }].sort((a, b) => a.date.localeCompare(b.date)));
+    setNewDate(""); setNewReason("");
+  };
+  const removeClosedDate = (d) => setClosedDates(closedDates.filter(x => x.date !== d));
 
   const save = async () => {
     const n = Number(interval);
@@ -514,10 +565,22 @@ function ScheduleTab() {
       toast.error("Interval must be between 5 and 240 minutes");
       return;
     }
+    // Validate hours
+    for (const day of DAYS) {
+      const h = hours[day.key];
+      if (h && h.open && h.close && h.open >= h.close) {
+        toast.error(`${day.label}: opening time must be before closing time`);
+        return;
+      }
+    }
     setBusy(true);
     try {
-      await api.put("/clinics/me", { booking_slot_interval: n });
-      toast.success("Schedule updated");
+      await api.put("/clinics/me", {
+        booking_slot_interval: n,
+        operating_hours: hours,
+        closed_dates: closedDates,
+      });
+      toast.success("Schedule saved");
       await refresh();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to update");
@@ -526,11 +589,12 @@ function ScheduleTab() {
 
   return (
     <div className="space-y-6 max-w-3xl" data-testid="schedule-form">
+      {/* --- Slot interval --- */}
       <div className="bl-card p-5">
         <div className="font-display text-lg mb-1 text-[#2D3A33]">Booking slot interval</div>
         <p className="text-sm text-[#5C6C62] mb-4">
           Time grid shown on the public booking page and the FO &quot;New booking&quot; modal.
-          Front office staff can still pick any non-standard time via the &quot;Custom time&quot; toggle.
+          Front office can still pick any non-standard time via the &quot;Custom time&quot; toggle.
         </p>
 
         <div className="flex flex-wrap gap-2" data-testid="slot-interval-presets">
@@ -569,21 +633,396 @@ function ScheduleTab() {
             {isCustom ? "Using a custom interval — between 5 and 240 minutes." : "Tip: enter any number from 5–240 if a preset doesn't fit."}
           </p>
         </div>
+      </div>
 
-        <div className="mt-5">
-          <button onClick={save} disabled={busy} className="bl-btn-primary disabled:opacity-50" data-testid="schedule-save">
-            {busy ? "Saving…" : "Save schedule"}
+      {/* --- Operating hours --- */}
+      <div className="bl-card p-5" data-testid="operating-hours-card">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Operating hours</div>
+        <p className="text-sm text-[#5C6C62] mb-4">
+          Weekly opening and closing times. Toggle off to mark a day as fully closed.
+        </p>
+        <div className="space-y-2.5">
+          {DAYS.map(d => {
+            const h = hours[d.key] || { open: "", close: "" };
+            const isClosed = !h.open || !h.close;
+            return (
+              <div key={d.key} className="flex flex-wrap items-center gap-3 py-1" data-testid={`hours-row-${d.key}`}>
+                <div className="w-28 text-sm font-medium text-[#2D3A33]">{d.label}</div>
+                <button
+                  type="button"
+                  onClick={() => toggleDayClosed(d.key)}
+                  className="text-xs px-3 py-1.5 rounded-lg border font-medium"
+                  style={isClosed
+                    ? { borderColor: "#EAE6D7", background: "#F3F1EB", color: "#A89F8B" }
+                    : { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }}
+                  data-testid={`hours-toggle-${d.key}`}
+                >
+                  {isClosed ? "Closed" : "Open"}
+                </button>
+                {!isClosed && (
+                  <>
+                    <input
+                      type="time"
+                      className="bl-input max-w-[120px]"
+                      value={h.open}
+                      onChange={(e) => setDayField(d.key, "open", e.target.value)}
+                      data-testid={`hours-open-${d.key}`}
+                    />
+                    <span className="text-[#A89F8B]">–</span>
+                    <input
+                      type="time"
+                      className="bl-input max-w-[120px]"
+                      value={h.close}
+                      onChange={(e) => setDayField(d.key, "close", e.target.value)}
+                      data-testid={`hours-close-${d.key}`}
+                    />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* --- Closed dates --- */}
+      <div className="bl-card p-5" data-testid="closed-dates-card">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Closed dates</div>
+        <p className="text-sm text-[#5C6C62] mb-4">
+          Block bookings on specific dates — holidays, staff trainings, renovations, etc.
+        </p>
+
+        {closedDates.length > 0 && (
+          <div className="space-y-2 mb-4" data-testid="closed-dates-list">
+            {closedDates.map(cd => (
+              <div key={cd.date} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-[#EAE6D7] bg-[#FDFBF7]" data-testid={`closed-${cd.date}`}>
+                <div className="flex-1">
+                  <div className="font-mono text-sm text-[#2D3A33]">{cd.date}</div>
+                  {cd.reason && <div className="text-xs text-[#5C6C62] mt-0.5">{cd.reason}</div>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeClosedDate(cd.date)}
+                  className="text-xs text-[#B14A2C] hover:underline"
+                  data-testid={`closed-remove-${cd.date}`}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[150px]">
+            <label className="label-eyebrow block mb-1.5">Date</label>
+            <input
+              type="date"
+              className="bl-input"
+              value={newDate}
+              onChange={(e) => setNewDate(e.target.value)}
+              data-testid="closed-new-date"
+            />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="label-eyebrow block mb-1.5">Reason (optional)</label>
+            <input
+              className="bl-input"
+              value={newReason}
+              onChange={(e) => setNewReason(e.target.value)}
+              placeholder="e.g. Public holiday, staff training…"
+              data-testid="closed-new-reason"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={addClosedDate}
+            disabled={!newDate}
+            className="bl-btn-ghost text-sm disabled:opacity-50 inline-flex items-center gap-1.5"
+            data-testid="closed-add"
+          >
+            <Plus className="w-4 h-4" /> Add
           </button>
         </div>
       </div>
 
-      <div className="bl-card p-5 bg-[#F8F5EC]">
-        <div className="font-display text-base text-[#2D3A33]">How this works</div>
-        <ul className="mt-2 space-y-1 text-sm text-[#5C6C62] list-disc pl-5">
-          <li>Slots are generated from your clinic operating hours using this step.</li>
-          <li>Performer-based availability still applies — same doctor can&apos;t be double-booked.</li>
-          <li>For one-off cases (e.g. <span className="font-medium text-[#2D3A33]">14:05–14:50</span>), staff can toggle &quot;Custom time&quot; in the booking modal.</li>
-        </ul>
+      {/* --- Save --- */}
+      <div className="flex justify-end sticky bottom-4">
+        <button onClick={save} disabled={busy} className="bl-btn-primary disabled:opacity-50 shadow-lg" data-testid="schedule-save">
+          {busy ? "Saving…" : "Save schedule"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Staff Schedule (per-staff hours + days off) ---------------- */
+function StaffScheduleTab() {
+  const [staff, setStaff] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [sched, setSched] = useState({ working_hours: {}, days_off: [] });
+  const [newOff, setNewOff] = useState({ date: "", reason: "" });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/users").then(r => {
+      const list = (r.data || []).filter(u => u.role === "doctor" || u.role === "therapist");
+      setStaff(list);
+      if (list[0]) setSelectedId(list[0].id);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    api.get(`/users/${selectedId}/schedule`).then(r => {
+      setSched({ working_hours: r.data.working_hours || {}, days_off: r.data.days_off || [] });
+    });
+  }, [selectedId]);
+
+  const setDayField = (day, field, value) => {
+    setSched(s => ({ ...s, working_hours: { ...s.working_hours, [day]: { ...(s.working_hours[day] || {}), [field]: value } } }));
+  };
+  const toggleDay = (day) => {
+    const cur = sched.working_hours[day];
+    if (cur && cur.open) {
+      setSched(s => ({ ...s, working_hours: { ...s.working_hours, [day]: { open: "", close: "" } } }));
+    } else {
+      setSched(s => ({ ...s, working_hours: { ...s.working_hours, [day]: { open: "09:00", close: "13:00" } } }));
+    }
+  };
+  const addOff = () => {
+    if (!newOff.date) return;
+    if (sched.days_off.some(x => x.date === newOff.date)) { toast.error("Date already in list"); return; }
+    setSched(s => ({ ...s, days_off: [...s.days_off, { date: newOff.date, reason: newOff.reason }].sort((a, b) => a.date.localeCompare(b.date)) }));
+    setNewOff({ date: "", reason: "" });
+  };
+  const removeOff = (d) => setSched(s => ({ ...s, days_off: s.days_off.filter(x => x.date !== d) }));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/users/${selectedId}/schedule`, sched);
+      toast.success("Staff schedule saved");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to save");
+    } finally { setBusy(false); }
+  };
+
+  if (loading) return <div className="text-[#5C6C62]">Loading…</div>;
+  if (staff.length === 0) return <div className="text-[#5C6C62]" data-testid="no-staff">No doctors or therapists configured yet. Add them under Users (owner only).</div>;
+
+  return (
+    <div className="max-w-3xl space-y-6" data-testid="staff-schedule-form">
+      <div className="bl-card p-5">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Select staff member</div>
+        <p className="text-sm text-[#5C6C62] mb-4">Each doctor or therapist can have personal working hours and days off. Leave a day blank to inherit clinic hours.</p>
+        <select className="bl-input max-w-md" value={selectedId} onChange={e => setSelectedId(e.target.value)} data-testid="staff-select">
+          {staff.map(s => (
+            <option key={s.id} value={s.id}>{s.name} · {s.role}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="bl-card p-5" data-testid="staff-hours-card">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Weekly working hours</div>
+        <p className="text-sm text-[#5C6C62] mb-4">Empty = inherits clinic hours.</p>
+        <div className="space-y-2.5">
+          {DAYS.map(d => {
+            const h = sched.working_hours[d.key] || { open: "", close: "" };
+            const isClosed = !h.open || !h.close;
+            return (
+              <div key={d.key} className="flex flex-wrap items-center gap-3 py-1" data-testid={`staff-hours-row-${d.key}`}>
+                <div className="w-28 text-sm font-medium text-[#2D3A33]">{d.label}</div>
+                <button
+                  type="button"
+                  onClick={() => toggleDay(d.key)}
+                  className="text-xs px-3 py-1.5 rounded-lg border font-medium"
+                  style={isClosed
+                    ? { borderColor: "#EAE6D7", background: "#F3F1EB", color: "#A89F8B" }
+                    : { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }}
+                  data-testid={`staff-hours-toggle-${d.key}`}
+                >
+                  {isClosed ? "Inherit / Off" : "Working"}
+                </button>
+                {!isClosed && (
+                  <>
+                    <input type="time" className="bl-input max-w-[120px]" value={h.open} onChange={(e) => setDayField(d.key, "open", e.target.value)} data-testid={`staff-hours-open-${d.key}`} />
+                    <span className="text-[#A89F8B]">–</span>
+                    <input type="time" className="bl-input max-w-[120px]" value={h.close} onChange={(e) => setDayField(d.key, "close", e.target.value)} data-testid={`staff-hours-close-${d.key}`} />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="bl-card p-5" data-testid="staff-days-off-card">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Days off / vacation</div>
+        <p className="text-sm text-[#5C6C62] mb-4">This staff member is unavailable on these dates.</p>
+        {sched.days_off.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {sched.days_off.map(o => (
+              <div key={o.date} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-[#EAE6D7] bg-[#FDFBF7]" data-testid={`day-off-${o.date}`}>
+                <div className="flex-1">
+                  <div className="font-mono text-sm text-[#2D3A33]">{o.date}</div>
+                  {o.reason && <div className="text-xs text-[#5C6C62] mt-0.5">{o.reason}</div>}
+                </div>
+                <button type="button" onClick={() => removeOff(o.date)} className="text-xs text-[#B14A2C] hover:underline" data-testid={`day-off-remove-${o.date}`}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[150px]">
+            <label className="label-eyebrow block mb-1.5">Date</label>
+            <input type="date" className="bl-input" value={newOff.date} onChange={(e) => setNewOff({ ...newOff, date: e.target.value })} data-testid="day-off-new-date" />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="label-eyebrow block mb-1.5">Reason (optional)</label>
+            <input className="bl-input" value={newOff.reason} onChange={(e) => setNewOff({ ...newOff, reason: e.target.value })} placeholder="e.g. Vacation, training…" data-testid="day-off-new-reason" />
+          </div>
+          <button type="button" onClick={addOff} disabled={!newOff.date} className="bl-btn-ghost text-sm disabled:opacity-50 inline-flex items-center gap-1.5" data-testid="day-off-add">
+            <Plus className="w-4 h-4" /> Add
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-end sticky bottom-4">
+        <button onClick={save} disabled={busy} className="bl-btn-primary disabled:opacity-50 shadow-lg" data-testid="staff-schedule-save">
+          {busy ? "Saving…" : "Save staff schedule"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Loyalty Tiers ---------------- */
+const TIER_COLOR_PRESETS = ["#9CA3AF", "#F59E0B", "#7C3AED", "#06B6D4", "#10B981", "#EF4444", "#EC4899"];
+
+const fmtIDRShort = (n) => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000) return "Rp " + (v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1) + "M";
+  if (v >= 1_000) return "Rp " + (v / 1_000).toFixed(0) + "K";
+  return "Rp " + v.toLocaleString("id-ID");
+};
+
+function LoyaltyTab() {
+  const { clinic, refresh } = useClinic();
+  const [tiers, setTiers] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (clinic?.loyalty_tiers) setTiers([...clinic.loyalty_tiers]);
+  }, [clinic?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!clinic) return <div className="text-[#5C6C62]">Loading…</div>;
+
+  const update = (idx, field, value) => {
+    setTiers(t => t.map((x, i) => i === idx ? { ...x, [field]: value } : x));
+  };
+  const add = () => setTiers(t => [...t, { name: "New tier", min_spend_idr: 0, benefit: "", color: TIER_COLOR_PRESETS[t.length % TIER_COLOR_PRESETS.length] }]);
+  const remove = (idx) => setTiers(t => t.filter((_, i) => i !== idx));
+
+  const save = async () => {
+    for (const t of tiers) {
+      if (!(t.name || "").trim()) { toast.error("All tiers need a name"); return; }
+      const n = Number(t.min_spend_idr);
+      if (!Number.isFinite(n) || n < 0) { toast.error(`${t.name}: minimum spend must be ≥ 0`); return; }
+    }
+    setBusy(true);
+    try {
+      await api.put("/clinics/me", { loyalty_tiers: tiers.map(t => ({ ...t, min_spend_idr: Number(t.min_spend_idr) })) });
+      toast.success("Loyalty tiers saved");
+      await refresh();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    } finally { setBusy(false); }
+  };
+
+  const sortedPreview = [...tiers].sort((a, b) => Number(a.min_spend_idr) - Number(b.min_spend_idr));
+
+  return (
+    <div className="max-w-3xl space-y-6" data-testid="loyalty-form">
+      <div className="bl-card p-5">
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Loyalty tiers</div>
+        <p className="text-sm text-[#5C6C62] mb-4">
+          Tiers are awarded automatically based on a patient&apos;s lifetime spend. A patient receives the highest tier they qualify for.
+        </p>
+
+        <div className="space-y-4" data-testid="tier-list">
+          {tiers.length === 0 && <div className="text-sm text-[#5C6C62]">No tiers yet. Add one to get started.</div>}
+          {tiers.map((t, idx) => (
+            <div key={idx} className="rounded-xl border p-4 space-y-3" style={{ borderColor: t.color || "#EAE6D7", background: `${t.color || "#EAE6D7"}0A` }} data-testid={`tier-card-${idx}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    type="color"
+                    className="w-10 h-10 rounded-lg border border-[#EAE6D7] cursor-pointer flex-shrink-0"
+                    value={t.color || "#9CA3AF"}
+                    onChange={(e) => update(idx, "color", e.target.value)}
+                    data-testid={`tier-color-${idx}`}
+                  />
+                  <input
+                    className="bl-input flex-1 font-display text-lg"
+                    value={t.name}
+                    placeholder="Tier name (e.g. Silver)"
+                    onChange={(e) => update(idx, "name", e.target.value)}
+                    data-testid={`tier-name-${idx}`}
+                  />
+                </div>
+                <button type="button" onClick={() => remove(idx)} className="text-[#B14A2C] p-2 hover:bg-[#FDF3F0] rounded-lg" data-testid={`tier-remove-${idx}`}><Trash2 className="w-4 h-4" /></button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label-eyebrow block mb-1.5">Minimum lifetime spend (IDR)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100000}
+                    className="bl-input"
+                    value={t.min_spend_idr}
+                    onChange={(e) => update(idx, "min_spend_idr", e.target.value)}
+                    data-testid={`tier-spend-${idx}`}
+                  />
+                  <div className="text-xs text-[#5C6C62] mt-1">{fmtIDRShort(t.min_spend_idr)}</div>
+                </div>
+                <div>
+                  <label className="label-eyebrow block mb-1.5">Benefit description</label>
+                  <input
+                    className="bl-input"
+                    value={t.benefit || ""}
+                    placeholder="e.g. 10% off + birthday gift"
+                    onChange={(e) => update(idx, "benefit", e.target.value)}
+                    data-testid={`tier-benefit-${idx}`}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button type="button" onClick={add} className="mt-4 bl-btn-ghost text-sm inline-flex items-center gap-1.5" data-testid="tier-add"><Plus className="w-4 h-4" /> Add tier</button>
+      </div>
+
+      {sortedPreview.length > 0 && (
+        <div className="bl-card p-5 bg-[#FDFBF7]">
+          <div className="font-display text-base text-[#2D3A33] mb-3">Preview (sorted by threshold)</div>
+          <div className="flex flex-wrap gap-2">
+            {sortedPreview.map((t, i) => (
+              <div key={i} className="rounded-full px-3 py-1.5 text-xs font-medium" style={{ background: `${t.color}22`, color: t.color, border: `1px solid ${t.color}` }}>
+                {t.name} <span className="opacity-70">≥ {fmtIDRShort(t.min_spend_idr)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end sticky bottom-4">
+        <button onClick={save} disabled={busy} className="bl-btn-primary disabled:opacity-50 shadow-lg" data-testid="loyalty-save">
+          {busy ? "Saving…" : "Save loyalty tiers"}
+        </button>
       </div>
     </div>
   );

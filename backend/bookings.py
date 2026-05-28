@@ -224,7 +224,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         open_min = _hhmm_to_minutes(day_hours.get("open", ""))
         close_min = _hhmm_to_minutes(day_hours.get("close", ""))
         if open_min is None or close_min is None or open_min >= close_min:
-            return {"date": date, "slots": [], "closed": True}
+            return {"date": date, "slots": [], "closed": True, "closed_reason": "Clinic closed on this weekday"}
+        # Special closed dates (holidays, public closures, etc.)
+        closed_match = next((cd for cd in (c.get("closed_dates") or []) if cd.get("date") == date), None)
+        if closed_match:
+            return {"date": date, "slots": [], "closed": True, "closed_reason": closed_match.get("reason") or "Clinic closed"}
         base = _gen_slots(open_min, close_min, step_min=int(c.get("booking_slot_interval") or 30))
 
         # Resolve eligible performer pool
@@ -234,9 +238,37 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             if t:
                 performer_type = t.get("performer_type", "either")
         role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
-        staff = await db.users.find({"clinic_id": c["id"], "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "name": 1, "role": 1}).to_list(200)
-        eligible_ids = {s["id"] for s in staff}
+        staff = await db.users.find({"clinic_id": c["id"], "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1}).to_list(200)
+        # Pre-compute each staff member's effective availability for this date (open/close minutes + on-leave flag)
+        # Rule:
+        #   - days_off match -> None (off)
+        #   - working_hours empty {} -> inherit clinic hours
+        #   - working_hours set with explicit day open/close -> use that
+        #   - working_hours set but this day missing or empty -> None (explicitly off)
+        staff_window: Dict[str, Optional[tuple]] = {}  # id -> (open_min, close_min) or None if off
+        for s in staff:
+            # Day off?
+            doff = s.get("days_off") or []
+            if any(d.get("date") == date for d in doff):
+                staff_window[s["id"]] = None
+                continue
+            wh = s.get("working_hours") or {}
+            if not wh:
+                # No personal hours set → inherit clinic hours
+                staff_window[s["id"]] = (open_min, close_min)
+                continue
+            day_h = wh.get(day_key) or {}
+            if day_h.get("open") and day_h.get("close"):
+                o = _hhmm_to_minutes(day_h["open"]) or 0
+                cl = _hhmm_to_minutes(day_h["close"]) or 0
+                staff_window[s["id"]] = (o, cl) if o < cl else None
+            else:
+                # Day explicitly off (user took control and left this day blank)
+                staff_window[s["id"]] = None
+        # eligible_ids only includes staff who actually have a window today (i.e. not on leave)
+        eligible_ids = {sid for sid, w in staff_window.items() if w is not None}
         eligible_count = len(eligible_ids)
+        staff_count = len(staff)  # total role-matching staff (even if all off today)
 
         # Fetch ALL active bookings for this day (we'll compute occupancy per slot)
         day_start = datetime(d.year, d.month, d.day, 0, 0, 0).isoformat()
@@ -281,12 +313,23 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     busy_assigned.add(pid)
                 else:
                     unassigned += 1
+            # Per-staff schedule: a performer is only available if (s_min, s_end) fits inside their window
+            in_window_ids = {sid for sid, w in staff_window.items() if w is not None and w[0] <= s_min and s_end <= w[1]}
             if performer_id:
-                available = performer_id in eligible_ids and performer_id not in busy_assigned
+                available = (
+                    performer_id in eligible_ids
+                    and performer_id in in_window_ids
+                    and performer_id not in busy_assigned
+                )
             else:
-                # Headroom = eligible_count - busy among eligible - generic unassigned bookings
-                remaining = eligible_count - len(busy_assigned & eligible_ids) - unassigned
-                available = remaining > 0 if eligible_count > 0 else True  # if clinic has no staff, fall back to "open"
+                # Headroom = (eligible+in-window) - busy among them - generic unassigned bookings
+                window_count = len(in_window_ids)
+                remaining = window_count - len(busy_assigned & in_window_ids) - unassigned
+                if staff_count > 0:
+                    # Clinic has role-matching staff; availability depends on whether any are on duty + free
+                    available = remaining > 0
+                else:
+                    available = True  # no role-matching staff at all (legacy/setup-incomplete) → open
             if past:
                 available = False
             slots.append({
@@ -320,6 +363,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+        # Special closed date check
+        day_str = scheduled.strftime("%Y-%m-%d")
+        cd_match = next((cd for cd in (c.get("closed_dates") or []) if cd.get("date") == day_str), None)
+        if cd_match:
+            raise HTTPException(status_code=409, detail=f"Clinic is closed on {day_str}" + (f" ({cd_match.get('reason')})" if cd_match.get("reason") else ""))
         # Capacity-aware slot check
         if await _has_slot_conflict(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min):
             raise HTTPException(status_code=409, detail="Slot just got taken — please pick another")
@@ -372,20 +420,18 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
     async def _has_slot_conflict(cid: str, treatment_name: str, scheduled_at: str, duration_min: int, performer_id: Optional[str] = None) -> bool:
         """Return True if no eligible performer is free at this slot.
         Rule:
-          - If performer_id is provided: that specific staff member must be free.
-          - Otherwise: at least ONE eligible performer (matching treatment.performer_type) must be free.
+          - If performer_id is provided: that specific staff member must be free AND on duty (not day-off, in working hours).
+          - Otherwise: at least ONE eligible performer (matching treatment.performer_type) must be free + on duty.
           - Unassigned bookings consume one generic eligible slot each.
         """
+        # Get clinic operating hours for day to fall back to
+        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1})
+        c_hours = (c or {}).get("operating_hours") or {}
         # Resolve treatment performer_type
         t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "performer_type": 1})
         performer_type = (t or {}).get("performer_type", "either")
         role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
-        staff = await db.users.find({"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1}).to_list(200)
-        eligible_ids = {s["id"] for s in staff}
-        # If clinic has no eligible staff, allow booking (open-clinic fallback) — except if performer_id specified, must exist.
-        if performer_id and performer_id not in {*eligible_ids, *await _all_clinic_user_ids(cid)}:
-            # performer not in clinic; caller will hit 400 elsewhere. treat as conflict to be safe.
-            return True
+        staff = await db.users.find({"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "working_hours": 1, "days_off": 1}).to_list(200)
         try:
             sched = _parse_iso(scheduled_at)
         except Exception:
@@ -393,6 +439,35 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         s_start = sched.hour * 60 + sched.minute
         s_end = s_start + int(duration_min or 30)
         day_str = sched.strftime("%Y-%m-%d")
+        day_key = _day_key(sched)
+        # Compute clinic window for fallback
+        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
+        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
+        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
+        # Per-staff effective window for today (same rule as public_availability)
+        staff_window: Dict[str, Optional[tuple]] = {}
+        for s in staff:
+            doff = s.get("days_off") or []
+            if any(d.get("date") == day_str for d in doff):
+                staff_window[s["id"]] = None
+                continue
+            wh = s.get("working_hours") or {}
+            if not wh:
+                staff_window[s["id"]] = (c_open, c_close)
+                continue
+            day_h = wh.get(day_key) or {}
+            if day_h.get("open") and day_h.get("close"):
+                o = _hhmm_to_minutes(day_h["open"]) or 0
+                cl = _hhmm_to_minutes(day_h["close"]) or 0
+                staff_window[s["id"]] = (o, cl) if o < cl else None
+            else:
+                staff_window[s["id"]] = None
+        in_window_ids = {sid for sid, w in staff_window.items() if w is not None and w[0] <= s_start and s_end <= w[1]}
+        # If clinic has no eligible staff at all (legacy), allow except for explicit unknown performer
+        if performer_id:
+            all_ids = {*{s["id"] for s in staff}, *await _all_clinic_user_ids(cid)}
+            if performer_id not in all_ids:
+                return True
         existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
@@ -415,11 +490,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             else:
                 unassigned += 1
         if performer_id:
+            if performer_id not in in_window_ids:
+                return True  # performer is off-duty / on leave / outside working hours
             return performer_id in busy_assigned
-        if not eligible_ids:
+        if len(staff) == 0:
             # No eligible staff configured — slot is "open" (legacy/setup-incomplete clinic)
             return False
-        remaining = len(eligible_ids) - len(busy_assigned & eligible_ids) - unassigned
+        window_count = len(in_window_ids)
+        if window_count == 0:
+            return True  # no eligible performer is on duty in this window
+        remaining = window_count - len(busy_assigned & in_window_ids) - unassigned
         return remaining <= 0
 
     async def _all_clinic_user_ids(cid: str) -> set:
@@ -437,6 +517,18 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             p = await db.users.find_one({"id": payload.performer_id, "clinic_id": cid}, {"_id": 0, "role": 1, "name": 1})
             if not p:
                 raise HTTPException(status_code=400, detail="Performer not found in clinic")
+        # Special closed date check
+        try:
+            sched_dt = _parse_iso(payload.scheduled_at)
+            day_str = sched_dt.strftime("%Y-%m-%d")
+            c = await db.clinics.find_one({"id": cid}, {"_id": 0, "closed_dates": 1})
+            cd_match = next((cd for cd in ((c or {}).get("closed_dates") or []) if cd.get("date") == day_str), None)
+            if cd_match:
+                raise HTTPException(status_code=409, detail=f"Clinic is closed on {day_str}" + (f" ({cd_match.get('reason')})" if cd_match.get("reason") else ""))
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         # Performer-availability check
         if await _has_slot_conflict(cid, payload.treatment, payload.scheduled_at, payload.duration_min, payload.performer_id):
             if payload.performer_id:
@@ -672,12 +764,29 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 item_count = int(r.get("n", 0) or 0)
         visits_total = len(visit_ids)
         last_visit = await db.visits.find_one({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0, "visit_date": 1, "created_at": 1}, sort=[("created_at", -1)])
+        # Compute loyalty tier from clinic config
+        clinic = await db.clinics.find_one({"id": user.get("clinic_id")}, {"_id": 0, "loyalty_tiers": 1})
+        tiers = (clinic or {}).get("loyalty_tiers") or []
+        loyalty = None
+        next_tier = None
+        for t in sorted(tiers, key=lambda x: x.get("min_spend_idr", 0)):
+            if total_spent >= float(t.get("min_spend_idr", 0)):
+                loyalty = t
+            else:
+                if next_tier is None:
+                    next_tier = t
         return {
             "total_spent_idr": total_spent,
             "visits_total": visits_total,
             "treatment_items_total": item_count,
             "last_visit_at": (last_visit or {}).get("visit_date") or (last_visit or {}).get("created_at"),
             "avg_per_visit_idr": (total_spent / visits_total) if visits_total else 0,
+            "loyalty_tier": loyalty,
+            "next_tier": next_tier,
+            "next_tier_progress": (
+                {"current": total_spent, "needed": float(next_tier.get("min_spend_idr", 0)) - total_spent}
+                if next_tier else None
+            ),
         }
 
     @api.get("/patients/{pid}/transactions")
@@ -758,6 +867,59 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "visits_today": visits_today,
             "total_visits": total_visits,
             "in_progress": in_progress,
+        }
+
+    @api.get("/reports/revenue-monthly")
+    async def reports_revenue_monthly(
+        months: int = Query(12, ge=1, le=36),
+        user: dict = Depends(get_current_user),
+    ):
+        """Revenue by month for the last N months (default 12).
+        Only clinic owner or manager can view financial reports.
+        """
+        if user.get("role") not in ("super_admin", "manager"):
+            raise HTTPException(status_code=403, detail="Only owner or manager can view reports")
+        c = await get_active_clinic(user)
+        now = now_utc()
+        # Compute first day of month, then back N months
+        anchor = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        boundaries: List[tuple] = []  # (label, start_iso, end_iso)
+        cur = anchor
+        for _ in range(months):
+            # next month start
+            if cur.month == 12:
+                nm = cur.replace(year=cur.year + 1, month=1)
+            else:
+                nm = cur.replace(month=cur.month + 1)
+            boundaries.append((cur.strftime("%Y-%m"), iso(cur), iso(nm - timedelta(seconds=1))))
+            # step back one month
+            if cur.month == 1:
+                cur = cur.replace(year=cur.year - 1, month=12)
+            else:
+                cur = cur.replace(month=cur.month - 1)
+        boundaries.reverse()
+        results = []
+        total_revenue = 0.0
+        total_items = 0
+        for label, start_iso, end_iso in boundaries:
+            pipe = [
+                {"$match": {"clinic_id": c["id"], "created_at": {"$gte": start_iso, "$lte": end_iso}}},
+                {"$group": {"_id": None, "total": {"$sum": {"$multiply": [{"$ifNull": ["$price", 0]}, {"$ifNull": ["$quantity", 1]}]}}, "n": {"$sum": 1}}},
+            ]
+            month_total = 0.0
+            month_items = 0
+            async for row in db.treatment_items.aggregate(pipe):
+                month_total = float(row.get("total", 0) or 0)
+                month_items = int(row.get("n", 0) or 0)
+            total_revenue += month_total
+            total_items += month_items
+            results.append({"month": label, "revenue": month_total, "items": month_items})
+        avg = (total_revenue / len(results)) if results else 0
+        return {
+            "months": results,
+            "total_revenue": total_revenue,
+            "total_items": total_items,
+            "average_monthly": avg,
         }
 
     return api

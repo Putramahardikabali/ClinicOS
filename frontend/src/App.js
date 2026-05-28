@@ -16,6 +16,7 @@ import VisitsPage from "@/pages/VisitsPage";
 import AuditPage from "@/pages/AuditPage";
 import PrintVisitPage from "@/pages/PrintVisitPage";
 import AdminPage from "@/pages/AdminPage";
+import ReportsPage from "@/pages/ReportsPage";
 import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
 import BookingsPage from "@/pages/BookingsPage";
@@ -66,7 +67,8 @@ export default function App() {
               <Route path="/bookings" element={<Protected><OnboardingRedirect><Shell><BookingsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/treatments" element={<Protected><OnboardingRedirect><Shell><TreatmentsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/audit" element={<Protected><OnboardingRedirect><Shell><AuditPage /></Shell></OnboardingRedirect></Protected>} />
-              <Route path="/admin" element={<Protected roles={["super_admin"]}><OnboardingRedirect><Shell><AdminPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/admin" element={<Protected roles={["super_admin", "manager", "fo"]}><OnboardingRedirect><Shell><AdminPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/reports" element={<Protected roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><ReportsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/billing/plans" element={<Protected><OnboardingRedirect><Shell><BillingPlansPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/billing/checkout" element={<Protected><OnboardingRedirect><Shell><BillingCheckoutPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />

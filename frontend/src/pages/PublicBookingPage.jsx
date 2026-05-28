@@ -27,6 +27,7 @@ export default function PublicBookingPage() {
   const [selTreat, setSelTreat] = useState(null);
   const [date, setDate] = useState(toDateString(new Date()));
   const [slots, setSlots] = useState([]);
+  const [closedReason, setClosedReason] = useState("");
   const [selSlot, setSelSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [form, setForm] = useState({ patient_name: "", patient_phone: "", patient_email: "", notes: "" });
@@ -43,9 +44,9 @@ export default function PublicBookingPage() {
 
   useEffect(() => {
     if (step !== 1 || !selTreat) return;
-    setLoadingSlots(true); setSlots([]); setSelSlot(null);
+    setLoadingSlots(true); setSlots([]); setSelSlot(null); setClosedReason("");
     api.get(`/public/clinics/${slug}/availability`, { params: { date, duration: selTreat.duration_min, treatment: selTreat.name } })
-      .then(r => setSlots(r.data.slots || []))
+      .then(r => { setSlots(r.data.slots || []); setClosedReason(r.data.closed ? (r.data.closed_reason || "Clinic closed on this day") : ""); })
       .finally(() => setLoadingSlots(false));
   }, [step, date, selTreat, slug]);
 
@@ -152,6 +153,10 @@ export default function PublicBookingPage() {
                 <div className="mt-5 label-eyebrow">Available time slots</div>
                 {loadingSlots ? (
                   <div className="text-sm text-[#5C6C62] mt-3">Loading slots…</div>
+                ) : closedReason ? (
+                  <div className="mt-3 bl-card p-4 text-sm text-[#5C6C62] bg-[#F8F5EC]" data-testid="closed-banner">
+                    🚫 {closedReason}. Please pick another date.
+                  </div>
                 ) : (() => {
                   const visibleSlots = slots.filter(s => !s.past);
                   if (visibleSlots.length === 0) {
