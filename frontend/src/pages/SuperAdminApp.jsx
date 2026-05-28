@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import {
   Shield, Building2, CreditCard, Megaphone, LogOut, Search,
   Activity, TrendingUp, Users, ExternalLink, CheckCircle2, XCircle, Clock,
-  Sparkles, ChevronRight,
+  Sparkles, ChevronRight, Settings as SettingsIcon, FileText, X, Eye,
 } from "lucide-react";
+import SaSettingsPage from "@/pages/SaSettingsPage";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 
@@ -17,6 +18,7 @@ const NAV = [
   { to: "/superadmin/clinics", label: "Clinics", icon: Building2 },
   { to: "/superadmin/payments", label: "Payments", icon: CreditCard },
   { to: "/superadmin/announcements", label: "Announcements", icon: Megaphone },
+  { to: "/superadmin/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 function SuperAdminShell({ children }) {
@@ -365,9 +367,40 @@ function BtnAction({ children, ...rest }) {
 }
 
 // ------------- Payments queue -------------
+function ProofViewer({ payment, onClose }) {
+  const token = localStorage.getItem("bl_token");
+  const apiBase = process.env.REACT_APP_BACKEND_URL;
+  const url = payment.proof_path ? `${apiBase}/api/files/${payment.proof_path}?auth=${token}` : null;
+  const isPdf = (payment.proof_content_type || "").includes("pdf");
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0F1419]/80 backdrop-blur-sm flex items-center justify-center p-4" data-testid="sa-proof-viewer">
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl flex flex-col" style={{ background: "#141B22", border: "1px solid #1F2A30" }}>
+        <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: "#1F2A30" }}>
+          <div>
+            <div className="text-xs uppercase tracking-widest" style={{ color: "#8FA89E" }}>Payment proof</div>
+            <div className="font-display text-xl mt-0.5" style={{ color: "#F5F2EA" }}>{payment.clinic_name}</div>
+            <div className="text-xs mt-0.5" style={{ color: "#8FA89E" }}>{payment.plan} · {fmtIDR(payment.amount_idr)} · code <span className="font-mono">{payment.unique_code}</span></div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#1A242B]" style={{ color: "#E6E8E6" }} data-testid="sa-proof-close"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="flex-1 overflow-auto p-5" style={{ background: "#0F1419" }}>
+          {!url ? (
+            <div className="py-16 text-center text-sm" style={{ color: "#8FA89E" }}>No proof file uploaded for this payment.</div>
+          ) : isPdf ? (
+            <iframe src={url} className="w-full h-[60vh] rounded-lg" title="proof" data-testid="sa-proof-pdf" />
+          ) : (
+            <img src={url} alt="payment proof" className="w-full rounded-lg" data-testid="sa-proof-image" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SaPaymentsPage() {
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState("submitted");
+  const [viewing, setViewing] = useState(null);
   const load = () => api.get("/superadmin/payments", { params: { status: status || undefined } }).then(r => setRows(r.data || []));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [status]);
 
@@ -426,22 +459,30 @@ function SaPaymentsPage() {
                   </span>
                 </td>
                 <td className="px-5 py-3 text-right">
-                  {p.status === "submitted" && (
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => act(p.id, "verify")} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "#3F5A52", color: "#fff" }} data-testid={`sa-verify-${p.id}`}>
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Verify
+                  <div className="flex justify-end gap-2">
+                    {p.proof_path && (
+                      <button onClick={() => setViewing(p)} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "#1A242B", color: "#E6E8E6", border: "1px solid #2A3942" }} data-testid={`sa-view-proof-${p.id}`}>
+                        <Eye className="w-3.5 h-3.5" /> View proof
                       </button>
-                      <button onClick={() => act(p.id, "reject")} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "#5C2E1F", color: "#fff" }} data-testid={`sa-reject-${p.id}`}>
-                        <XCircle className="w-3.5 h-3.5" /> Reject
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    {p.status === "submitted" && (
+                      <>
+                        <button onClick={() => act(p.id, "verify")} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "#3F5A52", color: "#fff" }} data-testid={`sa-verify-${p.id}`}>
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verify
+                        </button>
+                        <button onClick={() => act(p.id, "reject")} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1" style={{ background: "#5C2E1F", color: "#fff" }} data-testid={`sa-reject-${p.id}`}>
+                          <XCircle className="w-3.5 h-3.5" /> Reject
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {viewing && <ProofViewer payment={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -516,6 +557,7 @@ export default function SuperAdminApp() {
         <Route path="clinics/:cid" element={<RequireSuperAdmin><SaClinicDetailPage /></RequireSuperAdmin>} />
         <Route path="payments" element={<RequireSuperAdmin><SaPaymentsPage /></RequireSuperAdmin>} />
         <Route path="announcements" element={<RequireSuperAdmin><SaAnnouncementsPage /></RequireSuperAdmin>} />
+        <Route path="settings" element={<RequireSuperAdmin><SaSettingsPage /></RequireSuperAdmin>} />
       </Routes>
     </SuperAdminAuthProvider>
   );

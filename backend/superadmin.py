@@ -172,13 +172,17 @@ def register_superadmin(api: APIRouter, db, get_current_user, audit, public_clin
         if status:
             flt["status"] = status
         rows = await db.payment_requests.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
-        # Augment with clinic name
+        # Augment with clinic name + proof URL (auth-required, served by /api/files)
         for r in rows:
             c = await db.clinics.find_one({"id": r.get("clinic_id")}, {"_id": 0, "name": 1, "slug": 1, "owner_email": 1})
             if c:
                 r["clinic_name"] = c["name"]
                 r["clinic_slug"] = c["slug"]
                 r["owner_email"] = c.get("owner_email")
+            # proof url + content type for SA preview
+            if r.get("proof_path"):
+                photo = await db.photos.find_one({"storage_path": r["proof_path"]}, {"_id": 0, "content_type": 1})
+                r["proof_content_type"] = (photo or {}).get("content_type", "image/jpeg")
         return rows
 
     @api.post("/superadmin/payments/{pid}/verify")

@@ -42,6 +42,7 @@ from saas import (
 )
 from bookings import register_bookings, DEFAULT_TREATMENTS, DEFAULT_WA_TEMPLATES
 from superadmin import register_superadmin
+from platform_settings import register_platform_settings, get_platform_settings, merged_plans
 
 app = FastAPI(title="Body Lab Bali EMR")
 api = APIRouter(prefix="/api")
@@ -477,7 +478,8 @@ async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_cur
 
 @api.get("/plans")
 async def list_plans():
-    return list(PLAN_CATALOG.values())
+    s = await get_platform_settings(db, SUPPORT_WHATSAPP, SUPPORT_HOURS)
+    return merged_plans(PLAN_CATALOG, s.get("plan_overrides") or {})
 
 @api.get("/clinics/by-slug/{slug}")
 async def public_clinic_by_slug(slug: str):
@@ -882,9 +884,11 @@ async def public_branding():
 @api.get("/platform/support")
 async def platform_support():
     """Public — returns platform support contact info (WhatsApp number, hours)."""
+    s = await get_platform_settings(db, SUPPORT_WHATSAPP, SUPPORT_HOURS)
     return {
-        "whatsapp": SUPPORT_WHATSAPP,
-        "hours": SUPPORT_HOURS,
+        "whatsapp": s.get("support_whatsapp", ""),
+        "hours": s.get("support_hours", ""),
+        "email": s.get("support_email", ""),
     }
 
 # ---------------- Mappings ----------------
@@ -978,6 +982,17 @@ register_superadmin(
     put_object=put_object,
     APP_NAME=APP_NAME,
     scope=scope,
+)
+
+# Platform-wide settings (Super Admin managed)
+register_platform_settings(
+    api=api,
+    db=db,
+    get_current_user=get_current_user,
+    audit=audit,
+    PLAN_CATALOG=PLAN_CATALOG,
+    SUPPORT_WHATSAPP=SUPPORT_WHATSAPP,
+    SUPPORT_HOURS=SUPPORT_HOURS,
 )
 
 app.include_router(api)

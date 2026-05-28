@@ -17,9 +17,13 @@ export default function BillingCheckoutPage() {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [support, setSupport] = useState({ whatsapp: "", hours: "" });
+  const [banks, setBanks] = useState([]);
 
   useEffect(() => {
-    api.get("/platform/support").then(r => setSupport(r.data || {})).catch(() => {});
+    api.get("/platform/public-config").then(r => {
+      setSupport(r.data?.support || {});
+      setBanks(r.data?.banks || []);
+    }).catch(() => {});
   }, []);
 
   const copy = (text) => { navigator.clipboard.writeText(text); toast.success("Copied"); };
@@ -62,17 +66,16 @@ Please verify and activate. Thank you!`;
 
       <div className="mt-6 bl-card p-5" data-testid="bank-info">
         <div className="label-eyebrow mb-3">Bank accounts</div>
-        {[
-          { bank: "BCA", number: "1234567890" },
-          { bank: "Mandiri", number: "0987654321" },
-        ].map((b) => (
-          <div key={b.bank} className="flex items-center justify-between py-3 border-t border-[#EAE6D7] first:border-t-0">
+        {banks.length === 0 ? (
+          <div className="text-sm text-[#5C6C62] py-3">No bank accounts available right now. Please contact support.</div>
+        ) : banks.map((b) => (
+          <div key={b.id || b.bank} className="flex items-center justify-between py-3 border-t border-[#EAE6D7] first:border-t-0">
             <div>
               <div className="font-medium text-[#2D3A33]">{b.bank}</div>
-              <div className="text-sm text-[#5C6C62]">PT ClinicOS Indonesia</div>
+              <div className="text-sm text-[#5C6C62]">{b.account_holder}</div>
             </div>
-            <button onClick={()=>copy(b.number)} className="inline-flex items-center gap-2 font-mono text-[#2D3A33] hover:text-[#5C6C62]">
-              {b.number} <Copy className="w-3.5 h-3.5" />
+            <button onClick={()=>copy(b.account_number)} className="inline-flex items-center gap-2 font-mono text-[#2D3A33] hover:text-[#5C6C62]" data-testid={`bank-${b.bank.toLowerCase()}`}>
+              {b.account_number} <Copy className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}

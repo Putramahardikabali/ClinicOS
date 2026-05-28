@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 8 (Platform Settings + Payment Proof Viewer + Dynamic Banks). 12/12 backend tests pass (test_platform_settings.py). Frontend SA Settings page (3 tabs: General/Banks/Plans) verified end-to-end: editing platform_name, support_whatsapp, plan_overrides, and banks all persist; /api/platform/public-config reflects changes; inactive banks disappear from public-config and from /billing/checkout after refresh. SA Payments proof viewer modal opens with sa-proof-viewer, renders sa-proof-image with ?auth=<token> in URL; real PNG renders (naturalWidth>0); close button works. Full E2E: cantikbeauty owner submits payment with image proof → SA sees View proof button → modal renders the actual image inline. All platform_settings restored to defaults after testing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_platform_settings.py",
+    "/app/test_reports/pytest/iter8_platform_settings.xml"
+  ],
+  "action_items": [
+    "Old seeded payment_requests in DB still reference fake 23-byte 'PNG' stubs (\\x89PNG header + 'FAKE_PRO...'). Not a frontend bug — image modal works correctly with real images. Optional cleanup task: delete legacy fake-proof payment rows or replace with real test images."
+  ],
+  "critical_code_review_comments": [
+    "platform_settings.py is well-scoped (separate module) and uses merged_plans pattern correctly — clean.",
+    "PUT /api/superadmin/platform-settings allows arbitrary plan_overrides JSON; consider validating that override keys are valid plan ids ('starter','clinic','complete') to avoid garbage data being merged into /api/plans response (currently any key passes silently).",
+    "ProofViewer modal correctly appends ?auth=<token> to the file URL — relies on /api/files accepting JWT query param for non-branding files. Document this dependency for future devs.",
+    "Banks normalization adds id; on toggle inactive, the SA tab persists correctly. Consider preventing deletion of the LAST active bank (currently no guard — could result in zero banks in checkout)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_platform_settings.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "Platform: platform@clinicos.id / ClinicOS@2026. Owner: owner@cantikbeauty.id / password123 (Starter plan, restored).",
+  "seed_data_creation": "One real-image payment request created via /api/billing/payment-request as cantikbeauty owner (id=c3c549fb-78b4-4434-973f-f5ce65a52ea5, plan=clinic, amount=1200555, status=submitted) to validate proof viewer with a real PNG. Left in DB as a valid E2E artifact (does not block downstream tests).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Platform_settings is a separate module wired in server.py. Default settings auto-created on first GET. After ANY test that mutates platform-settings (especially plan_overrides), reset via PUT to: {plan_overrides:{}, banks:[BCA active, Mandiri active], platform_name:'ClinicOS'} — downstream E2E tests depend on default catalog (clinic=1200000 IDR, max_staff=7, storage_gb=5). Reset already done at end of iteration 8.",
+  "rca of the issue": "N/A — no bugs found. The only visible 'broken image' icon in initial proof viewer test was due to legacy seed test data being a 23-byte fake PNG stub, not a frontend or backend bug. Validated by creating a fresh payment with a real 1x1 PNG which rendered correctly (naturalWidth=1, naturalHeight=1)."
+}
