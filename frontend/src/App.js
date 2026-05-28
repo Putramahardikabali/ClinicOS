@@ -20,6 +20,7 @@ import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
 import BookingsPage from "@/pages/BookingsPage";
 import PublicBookingPage from "@/pages/PublicBookingPage";
+import TreatmentsPage from "@/pages/TreatmentsPage";
 import SuperAdminApp from "@/pages/SuperAdminApp";
 
 function Protected({ children, roles }) {
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="/visits" element={<Protected><OnboardingRedirect><Shell><VisitsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/visits/:vid" element={<Protected><OnboardingRedirect><Shell><VisitDetailPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/bookings" element={<Protected><OnboardingRedirect><Shell><BookingsPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/treatments" element={<Protected><OnboardingRedirect><Shell><TreatmentsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/audit" element={<Protected><OnboardingRedirect><Shell><AuditPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/admin" element={<Protected roles={["super_admin"]}><OnboardingRedirect><Shell><AdminPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/billing/plans" element={<Protected><OnboardingRedirect><Shell><BillingPlansPage /></Shell></OnboardingRedirect></Protected>} />

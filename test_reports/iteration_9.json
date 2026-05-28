@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 9 — Tested ClinicOS 3 new features: Role-aware today's queue (/dashboard/me-queue), Treatments catalog CRUD with auto-seed + slots_per_session capacity, Patient lifetime spend + transactions. 17/17 backend tests passed. Frontend testing across Owner/Doctor/FO/Therapist/Manager dashboards + /treatments + /patients/:id verified all data-testids and role-aware headers.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_clinicos_features.py",
+    "/app/test_reports/pytest/iter9_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bookings.py is 651 lines and growing — consider splitting into treatments_catalog.py, dashboard_queue.py, patient_finance.py modules for maintainability (threshold >700 lines per guideline).",
+    "Key derivation in PUT /treatments-catalog uses lower().replace(' ','_')[:32] — for names with diacritics or punctuation this may produce inconsistent keys; consider slugify or unicode-normalize. Currently NOT blocking.",
+    "Owner dashboard summary cards have data-testid='queue-item' on the Link, but during fast page loads automation can sometimes miss them — fine for production but slightly flaky for tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_clinicos_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17)",
+    "frontend": "100% (all data-testids present, role-aware headers verified)"
+  },
+  "test_credentials": "Used all from /app/memory/test_credentials.md (Glow team: owner/doctor/therapist/fo/manager@glowclinic.id and owner@cantikbeauty.id, all password123).",
+  "seed_data_creation": "Only ephemeral TEST_ prefixed treatments + bookings during capacity test, all cleaned up via try/finally delete.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 9 features all verified working:\n  - /api/dashboard/me-queue role-aware: doctor→visit_clinical, therapist→visit_therapist+booking, fo→booking+visit_fo, manager/super_admin→3 summary cards (kind='summary').\n  - /api/treatments-catalog: GET auto-seeds 8 DEFAULT_TREATMENTS on first read, supports ?active_only=true, sorted by name. POST/PUT/DELETE allowed only for super_admin/fo/manager (doctor & therapist get 403). PUT renames name → key auto-updates. Tenant isolation via scope(user) — Cantik cannot read or mutate Glow rows (404).\n  - /api/public/clinics/glowclinic/treatments now reads from db.treatments (8 rows seeded). Note: the /treatments URL in the prompt uses slug 'glowclinic' not 'aesthetic-records'.\n  - Availability slots_per_session=2 → 1 booking still available, 2 bookings blocked, different-treatment overlap always blocks. Verified by creating 2 same-treatment bookings at 13:00.\n  - /api/patients/{pid}/stats and /transactions: scoped by clinic_id, return 404 cross-tenant. Subtotal = sum(price * quantity); transactions DESC by date. Seeded Glow patients have non-zero spend (validated against at least one patient).\n  - Frontend treatments page (Owner): 8 cards, all 8 filter chips (filter-all/facial/injectable/laser/peel/body/consult/general), add button opens editor modal with all 8 fields (name/category/duration/slots/price/active/description/save).\n  - Patient detail page: patient-spend-summary, patient-total-spent, patient-transactions, tx-row-{visit_id} all render. Sinta Halim had a visit with no treatment_items so showed Rp 0 — this is correct behavior (subtotal computed from items only).\n  - Dashboard role-aware headers verified: Doctor→'Patients awaiting your clinical notes'; FO→'Bookings to handle today'; Owner/Manager→'Operations snapshot' with 3 links.\n\nFor next iteration: backend stable, no auth changes needed. test_credentials.md is accurate.",
+  "rca_of_the_issue": "N/A — all tests passed. One initial test scaffolding issue: availability slot 'time' field returns full ISO timestamp (e.g. '2026-02-04T13:00:00') not 'HH:MM'; fixed in test helper find_slot()."
+}

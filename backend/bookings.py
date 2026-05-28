@@ -68,16 +68,36 @@ class WaSentIn(BaseModel):
     template_key: str  # "confirmation" | "reminder" | "follow_up" | "custom"
 
 
+class TreatmentCatalogIn(BaseModel):
+    name: str
+    category: str = "general"          # facial | injectable | laser | body | peel | consult | general
+    duration_min: int = 30
+    price_idr: int = 0
+    slots_per_session: int = 1          # concurrent capacity (e.g., 2 chairs = 2)
+    active: bool = True
+    description: Optional[str] = ""
+
+
+class TreatmentCatalogUpdateIn(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    duration_min: Optional[int] = None
+    price_idr: Optional[int] = None
+    slots_per_session: Optional[int] = None
+    active: Optional[bool] = None
+    description: Optional[str] = None
+
+
 # ---------------- Defaults ----------------
 DEFAULT_TREATMENTS = [
-    {"key": "consult",     "name": "Consultation",            "duration_min": 30, "price_idr": 200_000},
-    {"key": "facial",      "name": "Signature Facial",        "duration_min": 60, "price_idr": 450_000},
-    {"key": "peel",        "name": "Chemical Peel",           "duration_min": 45, "price_idr": 600_000},
-    {"key": "microneedle", "name": "Microneedling",           "duration_min": 60, "price_idr": 850_000},
-    {"key": "laser",       "name": "Laser Treatment",         "duration_min": 45, "price_idr": 1_200_000},
-    {"key": "filler",      "name": "Dermal Filler",           "duration_min": 45, "price_idr": 3_500_000},
-    {"key": "toxin",       "name": "Anti-wrinkle (Toxin)",    "duration_min": 30, "price_idr": 2_800_000},
-    {"key": "body",        "name": "Body Treatment / RF",     "duration_min": 75, "price_idr": 1_500_000},
+    {"key": "consult",     "name": "Consultation",            "category": "consult",    "duration_min": 30, "price_idr": 200_000},
+    {"key": "facial",      "name": "Signature Facial",        "category": "facial",     "duration_min": 60, "price_idr": 450_000},
+    {"key": "peel",        "name": "Chemical Peel",           "category": "peel",       "duration_min": 45, "price_idr": 600_000},
+    {"key": "microneedle", "name": "Microneedling",           "category": "facial",     "duration_min": 60, "price_idr": 850_000},
+    {"key": "laser",       "name": "Laser Treatment",         "category": "laser",      "duration_min": 45, "price_idr": 1_200_000},
+    {"key": "filler",      "name": "Dermal Filler",           "category": "injectable", "duration_min": 45, "price_idr": 3_500_000},
+    {"key": "toxin",       "name": "Anti-wrinkle (Toxin)",    "category": "injectable", "duration_min": 30, "price_idr": 2_800_000},
+    {"key": "body",        "name": "Body Treatment / RF",     "category": "body",       "duration_min": 75, "price_idr": 1_500_000},
 ]
 
 DEFAULT_WA_TEMPLATES = [
@@ -167,12 +187,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
-        s = await db.settings.find_one({"id": "global", "clinic_id": c["id"]}, {"_id": 0})
-        treatments = ((s or {}).get("treatments_catalog")) or DEFAULT_TREATMENTS
-        return {"clinic": {"name": c["name"], "slug": c["slug"], "city": c.get("city", ""), "phone": c.get("phone", ""), "logo_path": c.get("logo_path", "")}, "treatments": treatments}
+        # Auto-seed collection if empty for this clinic
+        await _seed_default_treatments(c["id"])
+        treatments = await db.treatments.find({"clinic_id": c["id"], "active": True}, {"_id": 0}).sort("name", 1).to_list(200)
+        return {
+            "clinic": {"name": c["name"], "slug": c["slug"], "city": c.get("city", ""), "phone": c.get("phone", ""), "logo_path": c.get("logo_path", "")},
+            "treatments": treatments,
+        }
 
     @api.get("/public/clinics/{slug}/availability")
-    async def public_availability(slug: str, date: str = Query(...), duration: int = 30):
+    async def public_availability(slug: str, date: str = Query(...), duration: int = 30, treatment: Optional[str] = None):
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
@@ -190,21 +214,31 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if open_min is None or close_min is None or open_min >= close_min:
             return {"date": date, "slots": [], "closed": True}
         base = _gen_slots(open_min, close_min, step_min=30)
+        # Capacity for the requested treatment (default 1 = single-room booking)
+        capacity = 1
+        if treatment:
+            t = await db.treatments.find_one({"clinic_id": c["id"], "name": treatment, "active": True}, {"_id": 0, "slots_per_session": 1})
+            if t and t.get("slots_per_session"):
+                capacity = max(1, int(t["slots_per_session"]))
         # Fetch existing bookings for this day for this clinic
         day_start = datetime(d.year, d.month, d.day, 0, 0, 0).isoformat()
         day_end = datetime(d.year, d.month, d.day, 23, 59, 59).isoformat()
         booked = await db.bookings.find(
             {"clinic_id": c["id"], "scheduled_at": {"$gte": day_start, "$lte": day_end}, "status": {"$in": ["booked", "confirmed", "checked_in"]}},
-            {"_id": 0, "scheduled_at": 1, "duration_min": 1},
+            {"_id": 0, "scheduled_at": 1, "duration_min": 1, "treatment": 1},
         ).to_list(500)
-        # Build "busy" minute ranges
-        busy: List[tuple] = []
+        # Build "busy" minute ranges, separating same-treatment from different-treatment
+        busy_same: List[tuple] = []
+        busy_other: List[tuple] = []
         for b in booked:
             try:
                 bt = _parse_iso(b["scheduled_at"])
                 start = bt.hour * 60 + bt.minute
                 end = start + int(b.get("duration_min", 30))
-                busy.append((start, end))
+                if treatment and b.get("treatment") == treatment:
+                    busy_same.append((start, end))
+                else:
+                    busy_other.append((start, end))
             except Exception:
                 continue
         slots: List[Dict[str, Any]] = []
@@ -212,9 +246,13 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             s_end = s_min + duration
             if s_end > close_min:
                 continue
-            overlap = any(not (s_end <= bs or s_min >= be) for bs, be in busy)
-            slots.append({"time": _format_slot(date, s_min), "label": f"{s_min // 60:02d}:{s_min % 60:02d}", "available": not overlap})
-        return {"date": date, "slots": slots, "closed": False}
+            # A slot is unavailable if any OTHER-treatment booking overlaps (single resource)
+            # OR if same-treatment overlaps reach capacity (per slots_per_session)
+            overlap_other = any(not (s_end <= bs or s_min >= be) for bs, be in busy_other)
+            overlap_same_count = sum(1 for bs, be in busy_same if not (s_end <= bs or s_min >= be))
+            available = not overlap_other and overlap_same_count < capacity
+            slots.append({"time": _format_slot(date, s_min), "label": f"{s_min // 60:02d}:{s_min % 60:02d}", "available": available})
+        return {"date": date, "slots": slots, "closed": False, "capacity": capacity}
 
     @api.post("/public/clinics/{slug}/bookings")
     async def public_create_booking(slug: str, payload: PublicBookingIn):
@@ -374,12 +412,181 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         templates = ((s or {}).get("wa_templates")) or DEFAULT_WA_TEMPLATES
         return templates
 
-    # ---------- Treatments Catalog (auth, for FO booking form) ----------
+    # ---------- Treatments Catalog (CRUD per clinic, owner/FO/manager) ----------
+    async def _seed_default_treatments(cid: str):
+        """Auto-seed the default treatments for a clinic if its catalog is empty."""
+        existing = await db.treatments.count_documents({"clinic_id": cid})
+        if existing:
+            return
+        for t in DEFAULT_TREATMENTS:
+            await db.treatments.insert_one({
+                "id": str(uuid.uuid4()),
+                "clinic_id": cid,
+                "key": t["key"],
+                "name": t["name"],
+                "category": t.get("category", "general"),
+                "duration_min": t["duration_min"],
+                "price_idr": t["price_idr"],
+                "slots_per_session": 1,
+                "active": True,
+                "description": "",
+                "created_at": iso(now_utc()),
+            })
+
     @api.get("/treatments-catalog")
-    async def treatments_catalog(user: dict = Depends(get_current_user)):
+    async def treatments_catalog(user: dict = Depends(get_current_user), active_only: bool = False):
         c = await get_active_clinic(user)
-        s = await db.settings.find_one({"id": "global", "clinic_id": c["id"]}, {"_id": 0})
-        return ((s or {}).get("treatments_catalog")) or DEFAULT_TREATMENTS
+        cid = c["id"]
+        await _seed_default_treatments(cid)
+        flt = {"clinic_id": cid}
+        if active_only:
+            flt["active"] = True
+        rows = await db.treatments.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
+        return rows
+
+    @api.post("/treatments-catalog")
+    async def create_treatment(payload: TreatmentCatalogIn, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        await assert_writeable(user)
+        cid = user.get("clinic_id")
+        t = payload.model_dump()
+        t["id"] = str(uuid.uuid4())
+        t["clinic_id"] = cid
+        t["key"] = t["name"].lower().replace(" ", "_")[:32]
+        t["created_at"] = iso(now_utc())
+        t["created_by"] = user["id"]
+        await db.treatments.insert_one(t)
+        t.pop("_id", None)
+        await audit(user, "create", "treatment", t["id"], {"name": t["name"]})
+        return t
+
+    @api.put("/treatments-catalog/{tid}")
+    async def update_treatment(tid: str, payload: TreatmentCatalogUpdateIn, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        await assert_writeable(user)
+        upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if "name" in upd:
+            upd["key"] = upd["name"].lower().replace(" ", "_")[:32]
+        r = await db.treatments.update_one(scope(user, {"id": tid}), {"$set": upd})
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Treatment not found")
+        await audit(user, "update", "treatment", tid, upd)
+        return await db.treatments.find_one(scope(user, {"id": tid}), {"_id": 0})
+
+    @api.delete("/treatments-catalog/{tid}")
+    async def delete_treatment(tid: str, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        await assert_writeable(user)
+        r = await db.treatments.delete_one(scope(user, {"id": tid}))
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Treatment not found")
+        await audit(user, "delete", "treatment", tid)
+        return {"ok": True}
+
+    # ---------- Dashboard (Owner / FO KPIs) ----------
+    @api.get("/dashboard/me-queue")
+    async def me_queue(user: dict = Depends(get_current_user)):
+        """Role-aware 'what should I do next' queue."""
+        cid = user.get("clinic_id")
+        if not cid:
+            return {"role": user.get("role"), "items": []}
+        today = now_utc().strftime("%Y-%m-%d")
+        role = user.get("role")
+        items: List[Dict[str, Any]] = []
+
+        if role in ("doctor",):
+            # Pending clinical work: in_progress visits with no doctor signature
+            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+            for v in visits:
+                rec = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "signature": 1})
+                needs_doctor = not (rec and rec.get("signature"))
+                if needs_doctor:
+                    items.append({"kind": "visit_clinical", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Awaiting clinical form", "sub": v.get("chief_complaint") or "—"})
+        elif role == "therapist":
+            # Visits in progress with no therapist record yet
+            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+            for v in visits:
+                rec = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "signature": 1})
+                needs = not (rec and rec.get("signature"))
+                if needs:
+                    items.append({"kind": "visit_therapist", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Awaiting therapist form", "sub": v.get("visit_type") or "—"})
+            # Plus today's confirmed/checked_in bookings
+            bks = await db.bookings.find({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$in": ["confirmed", "checked_in"]}}, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
+            for b in bks:
+                items.append({"kind": "booking", "booking_id": b["id"], "patient_name": b["patient_name"], "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}", "sub": b["status"].replace("_", " ")})
+        elif role == "fo":
+            # Today's bookings that need confirmation or check-in
+            bks = await db.bookings.find({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$in": ["booked", "confirmed"]}}, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
+            for b in bks:
+                next_label = "Confirm" if b["status"] == "booked" else "Check in"
+                items.append({"kind": "booking", "booking_id": b["id"], "patient_name": b["patient_name"], "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}", "sub": next_label})
+            # Plus completed-doctor visits ready for FO completion
+            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+            for v in visits:
+                items.append({"kind": "visit_fo", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Visit in progress", "sub": "Mark complete after care"})
+        elif role in ("manager", "super_admin"):
+            # Manager / Owner overview — show all pending items lightly
+            pending_bk = await db.bookings.count_documents({"clinic_id": cid, "status": "booked"})
+            in_progress = await db.visits.count_documents({"clinic_id": cid, "status": "in_progress"})
+            today_bk = await db.bookings.count_documents({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$ne": "cancelled"}})
+            items.append({"kind": "summary", "label": f"{today_bk} bookings today", "sub": "View bookings page", "link": "/bookings"})
+            items.append({"kind": "summary", "label": f"{pending_bk} pending confirmations", "sub": "FO needs to confirm", "link": "/bookings"})
+            items.append({"kind": "summary", "label": f"{in_progress} visits in progress", "sub": "Doctor/therapist work pending", "link": "/visits"})
+
+        return {"role": role, "items": items[:20]}
+
+    # ---------- Patient stats & transactions ----------
+    @api.get("/patients/{pid}/stats")
+    async def patient_stats(pid: str, user: dict = Depends(get_current_user)):
+        p = await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Total spent: sum of price * quantity across treatment_items for this patient
+        # treatment_items hang off visits; find visit ids first.
+        visit_ids = [v["id"] async for v in db.visits.find({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0, "id": 1})]
+        total_spent = 0.0
+        item_count = 0
+        if visit_ids:
+            pipeline = [
+                {"$match": {"clinic_id": user.get("clinic_id"), "visit_id": {"$in": visit_ids}}},
+                {"$group": {"_id": None, "total": {"$sum": {"$multiply": [{"$ifNull": ["$price", 0]}, {"$ifNull": ["$quantity", 1]}]}}, "n": {"$sum": 1}}},
+            ]
+            async for r in db.treatment_items.aggregate(pipeline):
+                total_spent = float(r.get("total", 0) or 0)
+                item_count = int(r.get("n", 0) or 0)
+        visits_total = len(visit_ids)
+        last_visit = await db.visits.find_one({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0, "visit_date": 1, "created_at": 1}, sort=[("created_at", -1)])
+        return {
+            "total_spent_idr": total_spent,
+            "visits_total": visits_total,
+            "treatment_items_total": item_count,
+            "last_visit_at": (last_visit or {}).get("visit_date") or (last_visit or {}).get("created_at"),
+            "avg_per_visit_idr": (total_spent / visits_total) if visits_total else 0,
+        }
+
+    @api.get("/patients/{pid}/transactions")
+    async def patient_transactions(pid: str, user: dict = Depends(get_current_user)):
+        # Verify patient access scope
+        p = await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0, "id": 1})
+        if not p:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        visits = await db.visits.find({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        out = []
+        for v in visits:
+            items = await db.treatment_items.find({"clinic_id": user.get("clinic_id"), "visit_id": v["id"]}, {"_id": 0}).to_list(50)
+            subtotal = sum(float(i.get("price", 0) or 0) * float(i.get("quantity", 1) or 1) for i in items)
+            out.append({
+                "visit_id": v["id"],
+                "visit_date": v.get("visit_date") or v.get("created_at"),
+                "visit_type": v.get("visit_type", ""),
+                "status": v.get("status"),
+                "items": items,
+                "subtotal_idr": subtotal,
+            })
+        return out
 
     # ---------- Dashboard (Owner / FO KPIs) ----------
     @api.get("/dashboard/owner")

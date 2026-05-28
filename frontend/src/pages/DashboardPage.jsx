@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import {
   Users, Stethoscope, Activity, Calendar, CheckCircle2,
   TrendingUp, TrendingDown, CalendarCheck, Sparkles,
+  ListChecks, ArrowRight,
 } from "lucide-react";
 
 const Stat = ({ icon: Icon, label, value, accent, sub, testid }) => (
@@ -21,18 +22,58 @@ const Stat = ({ icon: Icon, label, value, accent, sub, testid }) => (
   </div>
 );
 
+const QUEUE_HEADERS = {
+  doctor: "Patients awaiting your clinical notes",
+  therapist: "Your treatments to perform",
+  fo: "Bookings to handle today",
+  manager: "Operations snapshot",
+  super_admin: "Operations snapshot",
+};
+
+function QueueItemLink({ item }) {
+  if (item.kind === "summary") {
+    return (
+      <Link to={item.link || "#"} className="flex items-center justify-between px-4 py-3 rounded-lg hover:bg-[#F8F5EC] transition border border-transparent hover:border-[#EAE6D7]">
+        <div>
+          <div className="text-sm font-medium text-[#2D3A33]">{item.label}</div>
+          <div className="text-xs text-[#5C6C62]">{item.sub}</div>
+        </div>
+        <ArrowRight className="w-4 h-4 text-[#5C6C62]" />
+      </Link>
+    );
+  }
+  const href = item.visit_id ? `/visits/${item.visit_id}` : (item.booking_id ? `/bookings` : "#");
+  return (
+    <Link to={href} className="flex items-center justify-between px-4 py-3 rounded-lg hover:bg-[#F8F5EC] transition border border-transparent hover:border-[#EAE6D7]" data-testid="queue-item">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-[#2D3A33] truncate">{item.patient_name || "—"}</div>
+        <div className="text-xs text-[#5C6C62]">{item.label} {item.sub && <span className="text-[#A89F8B]">· {item.sub}</span>}</div>
+      </div>
+      <ArrowRight className="w-4 h-4 text-[#5C6C62] shrink-0" />
+    </Link>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { clinic } = useClinic();
   const [data, setData] = useState({});
   const [recent, setRecent] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [queue, setQueue] = useState({ role: user?.role, items: [] });
+
+  const isStaff = ["doctor", "therapist"].includes(user?.role);
 
   useEffect(() => {
-    api.get("/dashboard/owner").then(r => setData(r.data || {})).catch(() => {});
-    api.get("/visits").then(r => setRecent((r.data || []).slice(0, 6))).catch(() => {});
-    api.get("/bookings", { params: { scope: "today" } }).then(r => setBookings(r.data || [])).catch(() => {});
-  }, []);
+    if (!isStaff) {
+      api.get("/dashboard/owner").then(r => setData(r.data || {})).catch(() => {});
+      api.get("/visits").then(r => setRecent((r.data || []).slice(0, 6))).catch(() => {});
+      api.get("/bookings", { params: { scope: "today" } }).then(r => setBookings(r.data || [])).catch(() => {});
+    } else {
+      api.get("/visits").then(r => setRecent((r.data || []).slice(0, 6))).catch(() => {});
+    }
+    api.get("/dashboard/me-queue").then(r => setQueue(r.data || { items: [] })).catch(() => {});
+  }, [isStaff]);
 
   const delta = data.revenue_delta_pct;
   const deltaPositive = typeof delta === "number" && delta >= 0;
@@ -50,97 +91,113 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Link to="/bookings" className="bl-btn-ghost" data-testid="dash-quick-bookings">View bookings</Link>
-          <Link to="/patients" className="bl-btn-ghost" data-testid="dash-quick-patients">View patients</Link>
-          {(user?.role === "fo" || user?.role === "super_admin") && (
-            <Link to="/patients" className="bl-btn-primary" data-testid="dash-quick-new-patient">+ New patient</Link>
+          <Link to="/patients" className="bl-btn-ghost" data-testid="dash-quick-patients">Patients</Link>
+          {(user?.role === "fo" || user?.role === "super_admin" || user?.role === "manager") && (
+            <Link to="/bookings" className="bl-btn-primary" data-testid="dash-quick-bookings">Bookings</Link>
           )}
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
-        <Stat icon={CalendarCheck} label="Bookings today" value={data.bookings_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-bookings-today" />
-        <Stat icon={Calendar} label="Upcoming" value={data.upcoming_bookings ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-upcoming" sub={`${data.pending_confirm ?? 0} need confirm`} />
-        <Stat
-          icon={deltaPositive ? TrendingUp : TrendingDown}
-          label="Revenue MTD"
-          value={formatIdr(data.revenue_mtd ?? 0)}
-          accent="bg-[#EDF3EF] text-[#52796F]"
-          testid="kpi-revenue-mtd"
-          sub={typeof delta === "number" ? `${deltaPositive ? "+" : ""}${delta.toFixed(0)}% vs last month` : "—"}
-        />
-        <Stat icon={Users} label="Total patients" value={data.total_patients ?? "—"} accent="bg-[#F3F1EB] text-[#5C6C62]" testid="kpi-total-patients" />
-        <Stat icon={Stethoscope} label="In progress" value={data.in_progress ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-in-progress" />
-        <Stat icon={Activity} label="Visits today" value={data.visits_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-visits-today" />
-        <Stat icon={CheckCircle2} label="Total visits" value={data.total_visits ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" testid="kpi-total-visits" />
-        <div className="bl-card p-5" data-testid="kpi-quick-book">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#F3F1EB]" style={{ color: "var(--bl-primary)" }}>
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div className="label-eyebrow">Public booking</div>
-          </div>
-          {clinic?.slug ? (
-            <>
-              <div className="mt-3 text-xs font-mono break-all text-[#2D3A33]">{`/book/${clinic.slug}`}</div>
-              <Link to="/bookings" className="mt-3 inline-block text-sm" style={{ color: "var(--bl-primary)" }}>Manage link →</Link>
-            </>
-          ) : <div className="mt-3 text-sm text-[#5C6C62]">—</div>}
+      <div className="mt-8 bl-card p-5" data-testid="todays-queue">
+        <div className="flex items-center gap-2 mb-1">
+          <ListChecks className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />
+          <div className="label-eyebrow">Today's queue</div>
+        </div>
+        <h2 className="font-display text-xl text-[#2D3A33] mt-0.5">{QUEUE_HEADERS[user?.role] || "Your queue"}</h2>
+        <div className="mt-3 space-y-1.5" data-testid="queue-items-list">
+          {queue.items.length === 0 ? (
+            <div className="py-6 text-center text-[#5C6C62] text-sm">All clear — no items pending.</div>
+          ) : queue.items.map((it, i) => <QueueItemLink key={i} item={it} />)}
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Today's bookings</h2>
-            <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>See all →</Link>
-          </div>
-          <div className="bl-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[480px]" data-testid="today-bookings-table">
-                <thead className="bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62] text-left">
-                  <tr><th className="px-5 py-3">Time</th><th className="px-5 py-3">Patient</th><th className="px-5 py-3">Treatment</th><th className="px-5 py-3">Status</th></tr>
-                </thead>
-                <tbody>
-                  {bookings.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-[#5C6C62]">No bookings today</td></tr>}
-                  {bookings.map(b => {
-                    const dt = new Date(b.scheduled_at);
-                    return (
-                      <tr key={b.id} className="border-t border-[#EAE6D7]">
-                        <td className="px-5 py-3 text-sm text-[#5C6C62] whitespace-nowrap">{dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
-                        <td className="px-5 py-3 text-sm text-[#2D3A33]">{b.patient_name}</td>
-                        <td className="px-5 py-3 text-sm">{b.treatment}</td>
-                        <td className="px-5 py-3"><span className={`bl-chip ${b.status === "confirmed" || b.status === "checked_in" ? "success" : "info"}`}>{b.status.replace("_", " ")}</span></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+      {!isStaff && (
+        <>
+          <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+            <Stat icon={CalendarCheck} label="Bookings today" value={data.bookings_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-bookings-today" />
+            <Stat icon={Calendar} label="Upcoming" value={data.upcoming_bookings ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-upcoming" sub={`${data.pending_confirm ?? 0} need confirm`} />
+            <Stat
+              icon={deltaPositive ? TrendingUp : TrendingDown}
+              label="Revenue MTD"
+              value={formatIdr(data.revenue_mtd ?? 0)}
+              accent="bg-[#EDF3EF] text-[#52796F]"
+              testid="kpi-revenue-mtd"
+              sub={typeof delta === "number" ? `${deltaPositive ? "+" : ""}${delta.toFixed(0)}% vs last month` : "—"}
+            />
+            <Stat icon={Users} label="Total patients" value={data.total_patients ?? "—"} accent="bg-[#F3F1EB] text-[#5C6C62]" testid="kpi-total-patients" />
+            <Stat icon={Stethoscope} label="In progress" value={data.in_progress ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-in-progress" />
+            <Stat icon={Activity} label="Visits today" value={data.visits_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-visits-today" />
+            <Stat icon={CheckCircle2} label="Total visits" value={data.total_visits ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" testid="kpi-total-visits" />
+            <div className="bl-card p-5" data-testid="kpi-quick-book">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#F3F1EB]" style={{ color: "var(--bl-primary)" }}>
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="label-eyebrow">Public booking</div>
+              </div>
+              {clinic?.slug ? (
+                <>
+                  <div className="mt-3 text-xs font-mono break-all text-[#2D3A33]">{`/book/${clinic.slug}`}</div>
+                  <Link to="/bookings" className="mt-3 inline-block text-sm" style={{ color: "var(--bl-primary)" }}>Manage link →</Link>
+                </>
+              ) : <div className="mt-3 text-sm text-[#5C6C62]">—</div>}
             </div>
           </div>
-        </div>
 
-        <div>
-          <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33] mb-4">Top treatments (MTD)</h2>
-          <div className="bl-card p-5" data-testid="top-treatments">
-            {(data.top_treatments || []).length === 0 ? (
-              <div className="text-sm text-[#5C6C62]">No treatment data yet this month.</div>
-            ) : (
-              <ul className="space-y-3">
-                {(data.top_treatments || []).map((t, i) => (
-                  <li key={i} className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm text-[#2D3A33]">{t.name}</div>
-                      <div className="text-xs text-[#5C6C62]">{t.count} session{t.count !== 1 ? "s" : ""}</div>
-                    </div>
-                    <div className="text-sm font-medium text-[#2D3A33]">{formatIdr(t.revenue)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Today's bookings</h2>
+                <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>See all →</Link>
+              </div>
+              <div className="bl-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px]" data-testid="today-bookings-table">
+                    <thead className="bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62] text-left">
+                      <tr><th className="px-5 py-3">Time</th><th className="px-5 py-3">Patient</th><th className="px-5 py-3">Treatment</th><th className="px-5 py-3">Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {bookings.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-[#5C6C62]">No bookings today</td></tr>}
+                      {bookings.map(b => {
+                        const dt = new Date(b.scheduled_at);
+                        return (
+                          <tr key={b.id} className="border-t border-[#EAE6D7]">
+                            <td className="px-5 py-3 text-sm text-[#5C6C62] whitespace-nowrap">{dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="px-5 py-3 text-sm text-[#2D3A33]">{b.patient_name}</td>
+                            <td className="px-5 py-3 text-sm">{b.treatment}</td>
+                            <td className="px-5 py-3"><span className={`bl-chip ${b.status === "confirmed" || b.status === "checked_in" ? "success" : "info"}`}>{b.status.replace("_", " ")}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33] mb-4">Top treatments (MTD)</h2>
+              <div className="bl-card p-5" data-testid="top-treatments">
+                {(data.top_treatments || []).length === 0 ? (
+                  <div className="text-sm text-[#5C6C62]">No treatment data yet this month.</div>
+                ) : (
+                  <ul className="space-y-3">
+                    {(data.top_treatments || []).map((t, i) => (
+                      <li key={i} className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-[#2D3A33]">{t.name}</div>
+                          <div className="text-xs text-[#5C6C62]">{t.count} session{t.count !== 1 ? "s" : ""}</div>
+                        </div>
+                        <div className="text-sm font-medium text-[#2D3A33]">{formatIdr(t.revenue)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       <div className="mt-10">
         <div className="flex items-center justify-between mb-4">

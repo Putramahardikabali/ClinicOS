@@ -8,7 +8,7 @@ import ExpiryGate from "@/components/ExpiryGate";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
   Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, CreditCard, Lock,
-  CalendarCheck,
+  CalendarCheck, Pill,
 } from "lucide-react";
 
 const NAV = [
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/bookings", label: "Bookings", icon: CalendarCheck, roles: ["super_admin","fo","manager"], feature: "online_booking" },
   { to: "/patients", label: "Patients", icon: Users, roles: ["super_admin","doctor","therapist","fo","manager"] },
   { to: "/visits", label: "Visits", icon: Stethoscope, roles: ["super_admin","doctor","therapist","fo","manager"] },
+  { to: "/treatments", label: "Treatments", icon: Pill, roles: ["super_admin","fo","manager"], shortLabel: "Treatments" },
   { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["super_admin","manager"], shortLabel: "Audit", feature: "audit_log" },
   { to: "/admin", label: "Admin Settings", icon: SettingsIcon, roles: ["super_admin"], shortLabel: "Admin" },
   { to: "/billing/plans", label: "Billing & Plan", icon: CreditCard, roles: ["super_admin"], shortLabel: "Billing" },
