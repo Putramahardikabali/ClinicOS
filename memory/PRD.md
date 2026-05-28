@@ -107,7 +107,12 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - `_gen_slots()` in `bookings.py` now uses the clinic's interval — `/public/clinics/{slug}/availability` returns slots on the chosen grid (5/10/15/20/30/45/60 or custom).
 - Frontend: new **Schedule** tab in `/admin` (clinic owner) with preset chips + custom number input.
 - Frontend: **Custom time** toggle in the FO "New booking" modal — swaps the slot dropdown for a `<input type="time">` so staff can book ad-hoc times like 14:05. Performer-based conflict check still enforced server-side.
-- Verified via curl: 15 min → 09:00, 09:15, 09:30…; 20 min → 09:00, 09:20, 09:40…; invalid 3 min rejected (400); custom booking at 14:05 saved successfully.
+
+### Iteration 13 (Slot UI polish + past filter, Feb 28 2026)
+- Backend marks slots with `past: true` for today's slots before the clinic's local "now" (uses `clinic.timezone` via `zoneinfo`).
+- Public booking page redesigned: slots grouped by hour bands (`09:00 ─── :00 :05 :10 …`) with running counter ("8 of 8 slots available"). Past slots hidden entirely; busy slots line-through and `cursor: not-allowed`.
+- FO modal `<select>` also filters out past slots; disabled slots labeled "— booked".
+- Verified overlap detection on 5-min interval: doctor booked 14:00–14:45 → all slots 13:50–14:40 marked BUSY, 14:45+ AVAIL.
 
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |

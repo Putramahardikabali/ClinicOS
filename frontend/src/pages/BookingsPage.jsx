@@ -323,8 +323,8 @@ function NewBookingModal({ onClose, onCreated }) {
                 ) : (
                   <select className="bl-input" value={form.scheduled_time} onChange={e => setForm({...form, scheduled_time: e.target.value})} disabled={!form.treatment || !form.scheduled_date} required data-testid="nb-time">
                     <option value="">{loadingSlots ? "Loading slots…" : (form.treatment && form.scheduled_date ? "Pick a time…" : "Pick treatment & date first")}</option>
-                    {slots.map(s => (
-                      <option key={s.time} value={s.label} disabled={!s.available}>{s.label} {s.available ? "" : "— full"}</option>
+                    {slots.filter(s => !s.past).map(s => (
+                      <option key={s.time} value={s.label} disabled={!s.available}>{s.label} {s.available ? "" : "— booked"}</option>
                     ))}
                   </select>
                 )}

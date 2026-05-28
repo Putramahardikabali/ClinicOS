@@ -21,6 +21,11 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -252,10 +257,20 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 continue
 
         slots: List[Dict[str, Any]] = []
+        # Compute "now" in the clinic's local timezone for past-slot filtering
+        tz_name = c.get("timezone") or "Asia/Makassar"
+        try:
+            local_now = datetime.now(ZoneInfo(tz_name)) if ZoneInfo else datetime.now(timezone.utc)
+        except Exception:
+            local_now = datetime.now(timezone.utc)
+        today_str = local_now.strftime("%Y-%m-%d")
+        is_today = (date == today_str)
+        now_minute = local_now.hour * 60 + local_now.minute if is_today else None
         for s_min in base:
             s_end = s_min + duration
             if s_end > close_min:
                 continue
+            past = is_today and s_min < (now_minute or 0)
             # Overlapping bookings
             busy_assigned = set()
             unassigned = 0
@@ -272,7 +287,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 # Headroom = eligible_count - busy among eligible - generic unassigned bookings
                 remaining = eligible_count - len(busy_assigned & eligible_ids) - unassigned
                 available = remaining > 0 if eligible_count > 0 else True  # if clinic has no staff, fall back to "open"
-            slots.append({"time": _format_slot(date, s_min), "label": f"{s_min // 60:02d}:{s_min % 60:02d}", "available": available})
+            if past:
+                available = False
+            slots.append({
+                "time": _format_slot(date, s_min),
+                "label": f"{s_min // 60:02d}:{s_min % 60:02d}",
+                "available": available,
+                "past": past,
+            })
         return {
             "date": date,
             "slots": slots,
