@@ -59,6 +59,15 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - **Real payment flow**: `/billing/checkout` now POSTs `/api/billing/payment-request` with optional proof file upload (Emergent Object Storage), replacing earlier mock.
 - Backend 100% (28/28 new + 10/10 saas regression) / Frontend 100%.
 
+### Iteration 8 (Magic Link / WhatsApp QR fast-track, Feb 2026)
+- **WhatsApp "Notify in 1 click" card** on `/billing/checkout` after the upload section:
+  - Pre-filled WA message with plan name, total amount, unique code, clinic name.
+  - Green WhatsApp CTA button → `wa.me/{number}?text=...` deep link.
+  - **Scannable QR code** (qrcode.react) for desktop → mobile handoff.
+  - Copy support number to clipboard.
+- Backend: new public endpoint `GET /api/platform/support` returns `{whatsapp, hours}` from env (`SUPPORT_WHATSAPP`, `SUPPORT_HOURS`).
+- Cuts payment-verify turnaround from ~24h to minutes; increases trial-to-paid conversion trust signal.
+
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |
 |------|---------------|-------|---------|----------|

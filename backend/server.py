@@ -28,6 +28,8 @@ APP_NAME = os.environ.get("APP_NAME", "bodylabbali")
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "platform@clinicos.id")
 SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "ChangeMe123!")
+SUPPORT_WHATSAPP = os.environ.get("SUPPORT_WHATSAPP", "")
+SUPPORT_HOURS = os.environ.get("SUPPORT_HOURS", "Mon-Fri 9am-6pm")
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 
 ROLES = ["super_admin", "doctor", "therapist", "fo", "manager"]
@@ -876,6 +878,14 @@ async def serve_file(path: str, auth: Optional[str] = Query(None), authorization
 async def public_branding():
     s = await db.settings.find_one({"id": "global"}, {"_id": 0, "branding": 1})
     return (s or {}).get("branding", DEFAULT_SETTINGS["branding"])
+
+@api.get("/platform/support")
+async def platform_support():
+    """Public — returns platform support contact info (WhatsApp number, hours)."""
+    return {
+        "whatsapp": SUPPORT_WHATSAPP,
+        "hours": SUPPORT_HOURS,
+    }
 
 # ---------------- Mappings ----------------
 @api.post("/visits/{vid}/mappings")
