@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, X, Clock, Layers, Users as UsersIcon, Banknote } from "lucide-react";
+import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, X, UserCheck, Stethoscope, Heart } from "lucide-react";
 
 const CATEGORIES = [
   { key: "facial",     label: "Facial" },
@@ -13,7 +13,6 @@ const CATEGORIES = [
   { key: "consult",    label: "Consultation" },
   { key: "general",    label: "Other" },
 ];
-
 const CAT_COLORS = {
   facial:     { bg: "#FBF3DB", fg: "#8A6D1F" },
   injectable: { bg: "#F1DDE3", fg: "#9B2C5A" },
@@ -24,11 +23,17 @@ const CAT_COLORS = {
   general:    { bg: "#F3F1EB", fg: "#5C6C62" },
 };
 
+const PERFORMER_LABEL = {
+  doctor: { label: "Doctor", icon: Stethoscope, color: "#2C5A77" },
+  therapist: { label: "Therapist", icon: Heart, color: "#9B2C5A" },
+  either: { label: "Either", icon: UserCheck, color: "#5C6C62" },
+};
+
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 
 function EditorModal({ initial, onClose, onSaved }) {
   const editing = !!initial?.id;
-  const [form, setForm] = useState(initial || { name: "", category: "facial", duration_min: 30, price_idr: 0, slots_per_session: 1, active: true, description: "" });
+  const [form, setForm] = useState(initial || { name: "", category: "facial", performer_type: "therapist", duration_min: 30, price_idr: 0, slots_per_session: 1, active: true, description: "" });
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
@@ -57,11 +62,21 @@ function EditorModal({ initial, onClose, onSaved }) {
               <label className="label-eyebrow block mb-1.5">Treatment name</label>
               <input className="bl-input" value={form.name} onChange={e => setForm({...form, name: e.target.value})} required data-testid="treatment-name" />
             </div>
-            <div>
-              <label className="label-eyebrow block mb-1.5">Category</label>
-              <select className="bl-input" value={form.category} onChange={e => setForm({...form, category: e.target.value})} data-testid="treatment-category">
-                {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-eyebrow block mb-1.5">Category</label>
+                <select className="bl-input" value={form.category} onChange={e => setForm({...form, category: e.target.value})} data-testid="treatment-category">
+                  {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1.5">Performed by</label>
+                <select className="bl-input" value={form.performer_type} onChange={e => setForm({...form, performer_type: e.target.value})} data-testid="treatment-performer-type">
+                  <option value="doctor">Doctor</option>
+                  <option value="therapist">Therapist</option>
+                  <option value="either">Either</option>
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -137,52 +152,73 @@ export default function TreatmentsPage() {
         ))}
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="treatments-grid">
-        {filtered.length === 0 && <div className="col-span-full text-center text-[#5C6C62] py-12">No treatments in this category yet.</div>}
-        {filtered.map(t => {
-          const cc = CAT_COLORS[t.category] || CAT_COLORS.general;
-          return (
-            <div key={t.id} className="bl-card p-5 flex flex-col" data-testid={`treatment-card-${t.id}`} style={{ opacity: t.active ? 1 : 0.6 }}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1">
-                  <span className="bl-chip" style={{ background: cc.bg, color: cc.fg, borderColor: "transparent" }}>{(CATEGORIES.find(c => c.key === t.category)?.label) || t.category}</span>
-                  <h3 className="font-display text-xl text-[#2D3A33] mt-2">{t.name}</h3>
-                  {t.description && <p className="text-sm text-[#5C6C62] mt-1 line-clamp-2">{t.description}</p>}
-                </div>
-                {canManage && (
-                  <button onClick={() => toggleActive(t)} className="p-2 rounded-lg hover:bg-[#F3F1EB]" title={t.active ? "Active" : "Hidden"} data-testid={`treatment-toggle-${t.id}`}>
-                    {t.active ? <ToggleRight className="w-5 h-5" style={{ color: "var(--bl-primary)" }} /> : <ToggleLeft className="w-5 h-5 text-[#A89F8B]" />}
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                <div className="flex flex-col items-center bg-[#F8F5EC] rounded-lg py-2">
-                  <Clock className="w-3.5 h-3.5 text-[#5C6C62]" /><span className="mt-1 font-medium text-[#2D3A33]">{t.duration_min}m</span>
-                </div>
-                <div className="flex flex-col items-center bg-[#F8F5EC] rounded-lg py-2">
-                  <UsersIcon className="w-3.5 h-3.5 text-[#5C6C62]" /><span className="mt-1 font-medium text-[#2D3A33]">{t.slots_per_session}×</span>
-                </div>
-                <div className="flex flex-col items-center bg-[#F8F5EC] rounded-lg py-2">
-                  <Banknote className="w-3.5 h-3.5 text-[#5C6C62]" /><span className="mt-1 font-medium text-[#2D3A33] text-[11px]">{Math.round(t.price_idr / 1000)}k</span>
-                </div>
-              </div>
-
-              <div className="mt-3 font-mono text-sm text-[#5C6C62]">{fmtIDR(t.price_idr)}</div>
-
-              {canManage && (
-                <div className="mt-4 pt-3 border-t border-[#EAE6D7] flex gap-2">
-                  <button onClick={() => setEditing(t)} className="flex-1 text-xs px-3 py-2 rounded-lg inline-flex items-center justify-center gap-1.5 hover:bg-[#F3F1EB]" data-testid={`treatment-edit-${t.id}`}>
-                    <Edit2 className="w-3.5 h-3.5" /> Edit
-                  </button>
-                  <button onClick={() => remove(t)} className="text-xs px-3 py-2 rounded-lg text-[#B14A2C] hover:bg-[#FAE5DC]" data-testid={`treatment-delete-${t.id}`}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="mt-5 bl-card overflow-hidden" data-testid="treatments-table">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px]">
+            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+              <tr>
+                <th className="px-5 py-3">Treatment</th>
+                <th className="px-5 py-3">Category</th>
+                <th className="px-5 py-3">Performed by</th>
+                <th className="px-5 py-3 text-right">Duration</th>
+                <th className="px-5 py-3 text-right">Slots</th>
+                <th className="px-5 py-3 text-right">Price</th>
+                <th className="px-5 py-3">Active</th>
+                <th className="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-[#5C6C62] text-sm">No treatments in this category yet.</td></tr>}
+              {filtered.map(t => {
+                const cc = CAT_COLORS[t.category] || CAT_COLORS.general;
+                const perf = PERFORMER_LABEL[t.performer_type] || PERFORMER_LABEL.therapist;
+                const PerfIcon = perf.icon;
+                return (
+                  <tr key={t.id} className="border-t border-[#EAE6D7]" style={{ opacity: t.active ? 1 : 0.55 }} data-testid={`treatment-row-${t.id}`}>
+                    <td className="px-5 py-3">
+                      <div className="font-medium text-[#2D3A33]">{t.name}</div>
+                      {t.description && <div className="text-xs text-[#5C6C62] mt-0.5 line-clamp-1 max-w-xs">{t.description}</div>}
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className="bl-chip" style={{ background: cc.bg, color: cc.fg, borderColor: "transparent" }}>
+                        {(CATEGORIES.find(c => c.key === t.category)?.label) || t.category}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: perf.color }} data-testid={`treatment-performer-${t.id}`}>
+                        <PerfIcon className="w-3.5 h-3.5" /> {perf.label}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-right text-sm text-[#2D3A33] whitespace-nowrap">{t.duration_min} min</td>
+                    <td className="px-5 py-3 text-right text-sm text-[#2D3A33]">{t.slots_per_session}×</td>
+                    <td className="px-5 py-3 text-right text-sm font-medium text-[#2D3A33] whitespace-nowrap">{fmtIDR(t.price_idr)}</td>
+                    <td className="px-5 py-3">
+                      {canManage ? (
+                        <button onClick={() => toggleActive(t)} className="inline-flex items-center" title={t.active ? "Active" : "Hidden"} data-testid={`treatment-toggle-${t.id}`}>
+                          {t.active ? <ToggleRight className="w-5 h-5" style={{ color: "var(--bl-primary)" }} /> : <ToggleLeft className="w-5 h-5 text-[#A89F8B]" />}
+                        </button>
+                      ) : (
+                        <span className={`bl-chip ${t.active ? "success" : ""}`}>{t.active ? "Yes" : "No"}</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      {canManage && (
+                        <div className="inline-flex gap-1">
+                          <button onClick={() => setEditing(t)} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1 hover:bg-[#F3F1EB] border border-transparent hover:border-[#EAE6D7]" data-testid={`treatment-edit-${t.id}`}>
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button onClick={() => remove(t)} className="text-xs p-1.5 rounded-lg text-[#B14A2C] hover:bg-[#FAE5DC]" data-testid={`treatment-delete-${t.id}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {editing !== null && <EditorModal initial={editing.id ? editing : null} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}

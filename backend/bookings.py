@@ -48,6 +48,7 @@ class BookingIn(BaseModel):
     scheduled_at: str
     notes: Optional[str] = ""
     patient_id: Optional[str] = None  # link to existing patient if known
+    performer_id: Optional[str] = None  # assigned staff member id
 
 
 class BookingUpdateIn(BaseModel):
@@ -71,6 +72,7 @@ class WaSentIn(BaseModel):
 class TreatmentCatalogIn(BaseModel):
     name: str
     category: str = "general"          # facial | injectable | laser | body | peel | consult | general
+    performer_type: str = "therapist"  # "doctor" | "therapist" | "either"
     duration_min: int = 30
     price_idr: int = 0
     slots_per_session: int = 1          # concurrent capacity (e.g., 2 chairs = 2)
@@ -81,6 +83,7 @@ class TreatmentCatalogIn(BaseModel):
 class TreatmentCatalogUpdateIn(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
+    performer_type: Optional[str] = None
     duration_min: Optional[int] = None
     price_idr: Optional[int] = None
     slots_per_session: Optional[int] = None
@@ -90,14 +93,14 @@ class TreatmentCatalogUpdateIn(BaseModel):
 
 # ---------------- Defaults ----------------
 DEFAULT_TREATMENTS = [
-    {"key": "consult",     "name": "Consultation",            "category": "consult",    "duration_min": 30, "price_idr": 200_000},
-    {"key": "facial",      "name": "Signature Facial",        "category": "facial",     "duration_min": 60, "price_idr": 450_000},
-    {"key": "peel",        "name": "Chemical Peel",           "category": "peel",       "duration_min": 45, "price_idr": 600_000},
-    {"key": "microneedle", "name": "Microneedling",           "category": "facial",     "duration_min": 60, "price_idr": 850_000},
-    {"key": "laser",       "name": "Laser Treatment",         "category": "laser",      "duration_min": 45, "price_idr": 1_200_000},
-    {"key": "filler",      "name": "Dermal Filler",           "category": "injectable", "duration_min": 45, "price_idr": 3_500_000},
-    {"key": "toxin",       "name": "Anti-wrinkle (Toxin)",    "category": "injectable", "duration_min": 30, "price_idr": 2_800_000},
-    {"key": "body",        "name": "Body Treatment / RF",     "category": "body",       "duration_min": 75, "price_idr": 1_500_000},
+    {"key": "consult",     "name": "Consultation",            "category": "consult",    "performer_type": "doctor",    "duration_min": 30, "price_idr": 200_000},
+    {"key": "facial",      "name": "Signature Facial",        "category": "facial",     "performer_type": "therapist", "duration_min": 60, "price_idr": 450_000},
+    {"key": "peel",        "name": "Chemical Peel",           "category": "peel",       "performer_type": "therapist", "duration_min": 45, "price_idr": 600_000},
+    {"key": "microneedle", "name": "Microneedling",           "category": "facial",     "performer_type": "therapist", "duration_min": 60, "price_idr": 850_000},
+    {"key": "laser",       "name": "Laser Treatment",         "category": "laser",      "performer_type": "therapist", "duration_min": 45, "price_idr": 1_200_000},
+    {"key": "filler",      "name": "Dermal Filler",           "category": "injectable", "performer_type": "doctor",    "duration_min": 45, "price_idr": 3_500_000},
+    {"key": "toxin",       "name": "Anti-wrinkle (Toxin)",    "category": "injectable", "performer_type": "doctor",    "duration_min": 30, "price_idr": 2_800_000},
+    {"key": "body",        "name": "Body Treatment / RF",     "category": "body",       "performer_type": "therapist", "duration_min": 75, "price_idr": 1_500_000},
 ]
 
 DEFAULT_WA_TEMPLATES = [
@@ -271,13 +274,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid scheduled_at")
-        # Overlap check
-        overlap = await db.bookings.find_one({
-            "clinic_id": c["id"],
-            "scheduled_at": payload.scheduled_at,
-            "status": {"$in": ["booked", "confirmed", "checked_in"]},
-        })
-        if overlap:
+        # Capacity-aware slot check
+        if await _has_slot_conflict(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min):
             raise HTTPException(status_code=409, detail="Slot just got taken — please pick another")
         booking = {
             "id": str(uuid.uuid4()),
@@ -325,14 +323,60 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         items = await db.bookings.find(flt, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
         return items
 
+    async def _has_slot_conflict(cid: str, treatment_name: str, scheduled_at: str, duration_min: int) -> bool:
+        """Return True if booking this slot would exceed capacity.
+        - Capacity for the treatment = slots_per_session (default 1).
+        - A different-treatment overlap always counts as conflict (single resource room).
+        """
+        # Lookup capacity
+        t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "slots_per_session": 1})
+        capacity = max(1, int((t or {}).get("slots_per_session") or 1))
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            return False
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration_min or 30)
+        # Pull active bookings on same date
+        day_str = sched.strftime("%Y-%m-%d")
+        existing = await db.bookings.find({
+            "clinic_id": cid,
+            "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
+            "status": {"$in": ["booked", "confirmed", "checked_in"]},
+        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "treatment": 1}).to_list(500)
+        same_count = 0
+        for b in existing:
+            try:
+                bs_dt = _parse_iso(b["scheduled_at"])
+            except Exception:
+                continue
+            bs = bs_dt.hour * 60 + bs_dt.minute
+            be = bs + int(b.get("duration_min", 30))
+            if s_end <= bs or s_start >= be:
+                continue
+            if b.get("treatment") == treatment_name:
+                same_count += 1
+            else:
+                return True  # different-treatment overlap blocks the resource
+        return same_count >= capacity
+
     @api.post("/bookings")
     async def create_booking(payload: BookingIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo"):
-            raise HTTPException(status_code=403, detail="Only FO or owner can create bookings")
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Only FO, owner, or manager can create bookings")
         await assert_writeable(user)
+        cid = user.get("clinic_id")
+        # Validate performer if given (must belong to same clinic)
+        if payload.performer_id:
+            p = await db.users.find_one({"id": payload.performer_id, "clinic_id": cid}, {"_id": 0, "role": 1, "name": 1})
+            if not p:
+                raise HTTPException(status_code=400, detail="Performer not found in clinic")
+        # Capacity-aware slot check
+        if await _has_slot_conflict(cid, payload.treatment, payload.scheduled_at, payload.duration_min):
+            raise HTTPException(status_code=409, detail="Slot unavailable — capacity reached or overlapping booking")
         b = payload.model_dump()
         b["id"] = str(uuid.uuid4())
-        b["clinic_id"] = user.get("clinic_id")
+        b["clinic_id"] = cid
         b["status"] = "booked"
         b["source"] = "fo"
         b["wa_history"] = []
@@ -425,6 +469,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 "key": t["key"],
                 "name": t["name"],
                 "category": t.get("category", "general"),
+                "performer_type": t.get("performer_type", "therapist"),
                 "duration_min": t["duration_min"],
                 "price_idr": t["price_idr"],
                 "slots_per_session": 1,

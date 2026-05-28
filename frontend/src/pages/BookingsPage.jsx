@@ -129,25 +129,91 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose }) {
 
 function NewBookingModal({ onClose, onCreated }) {
   const [treatments, setTreatments] = useState([]);
-  const [form, setForm] = useState({ patient_name: "", patient_phone: "", patient_email: "", treatment: "", duration_min: 30, scheduled_at: "", notes: "" });
+  const [patients, setPatients] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [pSearch, setPSearch] = useState("");
+  const [step, setStep] = useState("patient"); // patient -> details
+  const [form, setForm] = useState({
+    patient_id: "", patient_name: "", patient_phone: "", patient_email: "",
+    treatment_category: "",
+    treatment: "", duration_min: 30, performer_type: "therapist",
+    scheduled_date: "", scheduled_time: "",
+    performer_id: "",
+    notes: "",
+  });
+  const [slots, setSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [newPatient, setNewPatient] = useState(false);
 
   useEffect(() => {
-    api.get("/treatments-catalog").then(r => {
-      setTreatments(r.data || []);
-      if (r.data?.[0]) setForm(f => ({ ...f, treatment: r.data[0].name, duration_min: r.data[0].duration_min }));
-    });
+    api.get("/treatments-catalog", { params: { active_only: true } }).then(r => setTreatments(r.data || []));
+    api.get("/patients").then(r => setPatients(r.data || []));
+    api.get("/users").then(r => setStaff(r.data || []));
   }, []);
 
-  const selectTreat = (name) => {
+  const categories = Array.from(new Set(treatments.map(t => t.category)));
+  const filteredTreatments = form.treatment_category ? treatments.filter(t => t.category === form.treatment_category) : treatments;
+
+  const selectedTreatment = treatments.find(t => t.name === form.treatment);
+  const eligibleStaff = staff.filter(s => {
+    if (!selectedTreatment) return false;
+    const pt = selectedTreatment.performer_type;
+    if (pt === "doctor") return s.role === "doctor";
+    if (pt === "therapist") return s.role === "therapist";
+    return ["doctor", "therapist"].includes(s.role);
+  });
+
+  // Reload slots whenever date or treatment changes
+  useEffect(() => {
+    if (!form.scheduled_date || !form.treatment) { setSlots([]); return; }
+    setLoadingSlots(true);
+    // Use the public availability endpoint; we have a slug via clinic context — but easier:
+    // use api wrapper but the endpoint is public — pass with treatment & duration.
+    const slug = (window.location.pathname.includes("/book/") ? window.location.pathname.split("/book/")[1] : "");
+    // For staff use, derive slug from `/api/clinics/me` cache (clinic context isn't passed here, but the bookings page calls api with auth which is fine)
+    // We'll call the auth-equivalent endpoint we already have: GET /api/bookings, scheduled_at on a date
+    // Simpler: call /api/clinics/me to get slug.
+    api.get("/clinics/me").then(rc => {
+      const cslug = rc.data?.slug;
+      return api.get(`/public/clinics/${cslug}/availability`, { params: { date: form.scheduled_date, duration: form.duration_min, treatment: form.treatment } });
+    }).then(r => setSlots(r.data?.slots || [])).finally(() => setLoadingSlots(false));
+  }, [form.scheduled_date, form.treatment, form.duration_min]);
+
+  const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
-    setForm(f => ({ ...f, treatment: name, duration_min: t?.duration_min || f.duration_min }));
+    setForm(f => ({ ...f, treatment: name, duration_min: t?.duration_min || 30, performer_type: t?.performer_type || "therapist", performer_id: "" }));
+  };
+
+  const selectPatient = (p) => {
+    setForm(f => ({ ...f, patient_id: p.id, patient_name: p.full_name, patient_phone: p.phone || "", patient_email: p.email || "" }));
+    setNewPatient(false);
+    setStep("details");
+  };
+
+  const startNewPatient = () => {
+    setForm(f => ({ ...f, patient_id: "", patient_name: "", patient_phone: "", patient_email: "" }));
+    setNewPatient(true);
+    setStep("details");
   };
 
   const submit = async () => {
+    if (!form.scheduled_date || !form.scheduled_time) { toast.error("Pick a date and time"); return; }
     setBusy(true);
     try {
-      await api.post("/bookings", { ...form, scheduled_at: new Date(form.scheduled_at).toISOString() });
+      // Combine date + time into ISO with seconds
+      const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
+      await api.post("/bookings", {
+        patient_id: form.patient_id || null,
+        patient_name: form.patient_name,
+        patient_phone: form.patient_phone,
+        patient_email: form.patient_email,
+        treatment: form.treatment,
+        duration_min: form.duration_min,
+        scheduled_at,
+        performer_id: form.performer_id || null,
+        notes: form.notes,
+      });
       toast.success("Booking created");
       onCreated();
     } catch (e) {
@@ -155,31 +221,116 @@ function NewBookingModal({ onClose, onCreated }) {
     } finally { setBusy(false); }
   };
 
+  const fSearch = pSearch.toLowerCase();
+  const visiblePatients = patients.filter(p =>
+    !fSearch ||
+    (p.full_name || "").toLowerCase().includes(fSearch) ||
+    (p.phone || "").includes(fSearch) ||
+    (p.email || "").toLowerCase().includes(fSearch)
+  ).slice(0, 40);
+
   return (
     <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="new-booking-modal">
-      <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-xl text-[#2D3A33]">New booking</h3>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F1EB]"><X className="w-5 h-5" /></button>
         </div>
-        <div className="mt-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="label-eyebrow block mb-1.5">Name</label><input className="bl-input" value={form.patient_name} onChange={e => setForm({...form, patient_name: e.target.value})} data-testid="new-booking-name" /></div>
-            <div><label className="label-eyebrow block mb-1.5">Phone</label><input className="bl-input" value={form.patient_phone} onChange={e => setForm({...form, patient_phone: e.target.value})} data-testid="new-booking-phone" /></div>
+
+        {step === "patient" && (
+          <div className="mt-5" data-testid="nb-step-patient">
+            <label className="label-eyebrow block mb-1.5">Select patient</label>
+            <input className="bl-input" placeholder="Search by name, phone, or email…" value={pSearch} onChange={e => setPSearch(e.target.value)} data-testid="nb-patient-search" />
+            <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-[#EAE6D7]" data-testid="nb-patient-list">
+              {visiblePatients.length === 0 && <div className="text-sm text-[#5C6C62] py-6 text-center">No matches.</div>}
+              {visiblePatients.map(p => (
+                <button key={p.id} onClick={() => selectPatient(p)} className="w-full text-left px-4 py-2.5 border-b border-[#EAE6D7] last:border-b-0 hover:bg-[#F8F5EC]" data-testid={`nb-patient-${p.id}`}>
+                  <div className="font-medium text-[#2D3A33]">{p.full_name}</div>
+                  <div className="text-xs text-[#5C6C62]">{p.phone || "—"} {p.email && `· ${p.email}`}</div>
+                </button>
+              ))}
+            </div>
+            <button onClick={startNewPatient} className="mt-3 w-full bl-btn-ghost text-sm" data-testid="nb-walk-in">+ Walk-in / new patient</button>
           </div>
-          <div><label className="label-eyebrow block mb-1.5">Treatment</label>
-            <select className="bl-input" value={form.treatment} onChange={e => selectTreat(e.target.value)} data-testid="new-booking-treatment">
-              {treatments.map(t => <option key={t.key} value={t.name}>{t.name} · {t.duration_min}min</option>)}
-            </select>
+        )}
+
+        {step === "details" && (
+          <div className="mt-5 space-y-4" data-testid="nb-step-details">
+            <button onClick={() => setStep("patient")} className="text-xs text-[#5C6C62] hover:text-[#2D3A33]">← Change patient</button>
+            <div className="bl-card p-3 text-sm flex items-center justify-between">
+              <div>
+                <div className="font-medium text-[#2D3A33]">{form.patient_name || "Walk-in"}</div>
+                <div className="text-xs text-[#5C6C62]">{form.patient_phone || "—"}</div>
+              </div>
+              {newPatient && <span className="bl-chip">new</span>}
+            </div>
+
+            {newPatient && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label-eyebrow block mb-1.5">Name</label>
+                  <input className="bl-input" value={form.patient_name} onChange={e => setForm({...form, patient_name: e.target.value})} required data-testid="nb-patient-name" />
+                </div>
+                <div>
+                  <label className="label-eyebrow block mb-1.5">Phone</label>
+                  <input className="bl-input" value={form.patient_phone} onChange={e => setForm({...form, patient_phone: e.target.value})} required data-testid="nb-patient-phone" />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-eyebrow block mb-1.5">Treatment category</label>
+                <select className="bl-input" value={form.treatment_category} onChange={e => setForm({...form, treatment_category: e.target.value, treatment: "", performer_id: ""})} data-testid="nb-category">
+                  <option value="">All categories</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1.5">Treatment</label>
+                <select className="bl-input" value={form.treatment} onChange={e => selectTreatment(e.target.value)} required data-testid="nb-treatment">
+                  <option value="">Pick a treatment…</option>
+                  {filteredTreatments.map(t => <option key={t.id} value={t.name}>{t.name} · {t.duration_min}min</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-eyebrow block mb-1.5">Date</label>
+                <input type="date" className="bl-input" value={form.scheduled_date} onChange={e => setForm({...form, scheduled_date: e.target.value})} required data-testid="nb-date" />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1.5">Time</label>
+                <select className="bl-input" value={form.scheduled_time} onChange={e => setForm({...form, scheduled_time: e.target.value})} disabled={!form.treatment || !form.scheduled_date} required data-testid="nb-time">
+                  <option value="">{loadingSlots ? "Loading slots…" : (form.treatment && form.scheduled_date ? "Pick a time…" : "Pick treatment & date first")}</option>
+                  {slots.map(s => (
+                    <option key={s.time} value={s.label} disabled={!s.available}>{s.label} {s.available ? "" : "— full"}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="label-eyebrow block mb-1.5">
+                Performer
+                {selectedTreatment && <span className="text-[#A89F8B] normal-case ml-1">· {selectedTreatment.performer_type}</span>}
+              </label>
+              <select className="bl-input" value={form.performer_id} onChange={e => setForm({...form, performer_id: e.target.value})} disabled={!form.treatment} data-testid="nb-performer">
+                <option value="">Unassigned</option>
+                {eligibleStaff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role})</option>)}
+              </select>
+              {form.treatment && eligibleStaff.length === 0 && <div className="text-xs mt-1 text-[#B14A2C]">No {selectedTreatment?.performer_type} on staff. Booking can still be saved unassigned.</div>}
+            </div>
+
+            <div>
+              <label className="label-eyebrow block mb-1.5">Notes (optional)</label>
+              <textarea className="bl-input min-h-[60px]" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} data-testid="nb-notes" />
+            </div>
+
+            <button onClick={submit} disabled={busy || !form.patient_name || !form.patient_phone || !form.treatment || !form.scheduled_date || !form.scheduled_time} className="bl-btn-primary w-full disabled:opacity-50" data-testid="new-booking-submit">{busy ? "Saving…" : "Create booking"}</button>
           </div>
-          <div><label className="label-eyebrow block mb-1.5">Date & time</label>
-            <input type="datetime-local" className="bl-input" value={form.scheduled_at} onChange={e => setForm({...form, scheduled_at: e.target.value})} data-testid="new-booking-datetime" />
-          </div>
-          <div><label className="label-eyebrow block mb-1.5">Notes</label>
-            <textarea className="bl-input" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
-          </div>
-        </div>
-        <button onClick={submit} disabled={busy || !form.patient_name || !form.patient_phone || !form.scheduled_at} className="bl-btn-primary w-full mt-5 disabled:opacity-50" data-testid="new-booking-submit">{busy ? "Saving…" : "Create booking"}</button>
+        )}
       </div>
     </div>
   );
