@@ -685,6 +685,19 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             p = await db.users.find_one({"id": payload.performer_id, "clinic_id": cid}, {"_id": 0, "role": 1, "name": 1})
             if not p:
                 raise HTTPException(status_code=400, detail="Performer not found in clinic")
+        # Require performer when eligible staff exists for this treatment
+        if not payload.performer_id:
+            t = await db.treatments.find_one({"clinic_id": cid, "name": payload.treatment}, {"_id": 0, "performer_type": 1})
+            ptype = (t or {}).get("performer_type", "either")
+            roles = ["doctor", "therapist"] if ptype == "either" else [ptype]
+            staff_count = await db.users.count_documents({"clinic_id": cid, "role": {"$in": roles}, "active": {"$ne": False}})
+            if staff_count > 0:
+                # Try to auto-pick
+                auto = await _auto_pick_performer(cid, payload.treatment, payload.scheduled_at, payload.duration_min)
+                if auto:
+                    payload.performer_id = auto
+                else:
+                    raise HTTPException(status_code=409, detail="No performer available at this slot")
         # Special closed date check
         try:
             sched_dt = _parse_iso(payload.scheduled_at)

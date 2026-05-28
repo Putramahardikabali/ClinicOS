@@ -196,8 +196,17 @@ function NewBookingModal({ onClose, onCreated }) {
       },
     })
       .then(r => {
-        setAvailablePerformers(r.data?.performers || []);
-        setSuggestedPerformerId(r.data?.suggested_performer_id || null);
+        const list = r.data?.performers || [];
+        const sug = r.data?.suggested_performer_id || null;
+        setAvailablePerformers(list);
+        setSuggestedPerformerId(sug);
+        // Auto-select suggested performer if user hasn't picked one (or current pick is now unavailable)
+        setForm(f => {
+          if (!sug) return { ...f, performer_id: "" };
+          const currentValid = f.performer_id && list.some(p => p.id === f.performer_id);
+          if (currentValid) return f;
+          return { ...f, performer_id: sug };
+        });
       })
       .catch(() => { setAvailablePerformers([]); setSuggestedPerformerId(null); })
       .finally(() => setLoadingPerformers(false));
@@ -406,9 +415,10 @@ function NewBookingModal({ onClose, onCreated }) {
                       value={form.performer_id}
                       onChange={e => setForm({ ...form, performer_id: e.target.value })}
                       disabled={disabled}
+                      required={list.length > 0}
                       data-testid="nb-performer"
                     >
-                      <option value="">Unassigned</option>
+                      {list.length === 0 && <option value="">— No performer available —</option>}
                       {list.map(s => {
                         const ap = availablePerformers?.find(p => p.id === s.id);
                         const load = ap?.bookings_today ?? 0;

@@ -125,6 +125,16 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - FO New Booking modal hides off-duty / on-leave / double-booked performers from the dropdown once date+time picked. Counter "N hidden — off-duty or already booked".
 
 ### Iteration 16 (Auto-pick performer, Feb 28 2026)
+- `GET /api/bookings/available-performers` returns `suggested_performer_id` (least-busy on-duty) + `bookings_today` per performer.
+- FO modal: "✨ Auto-pick {Name}" link; suggested option marked with ✨.
+- Public guest booking silently auto-assigns least-busy available performer (`performer_auto_assigned: true`).
+
+### Iteration 17 (Slot grid + mandatory performer, Feb 28 2026)
+- Public booking time-slot UI redesigned from hour-band rows into a responsive compact grid (3/4/5/6 columns by screen size). All slots visible at once with full `HH:MM` labels.
+- FO dropdown: "Unassigned" option removed. The suggested performer is auto-selected by default; user can still override with any other available staff. When dropdown has zero candidates, shows "— No performer available —" and blocks save.
+- Backend: `POST /api/bookings` now auto-picks a performer when payload omits `performer_id` (if staff exist for the treatment). Returns 409 if no on-duty performer is free.
+
+
 - `GET /api/bookings/available-performers` now returns `suggested_performer_id` (least-busy on-duty) + `bookings_today` for each performer; results are sorted by load ascending.
 - FO New Booking modal: shows "✨ Auto-pick {Name}" link next to the Performer label; clicking fills the dropdown. Suggested performer marked with ✨ in the option label, plus "· N today" load indicator. User can still override.
 - Public guest booking (`POST /api/public/clinics/{slug}/bookings`) now silently auto-assigns the least-busy available performer (`performer_id` set on insert + `performer_auto_assigned: true` flag for transparency).

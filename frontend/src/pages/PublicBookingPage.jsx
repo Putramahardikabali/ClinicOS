@@ -162,58 +162,33 @@ export default function PublicBookingPage() {
                   if (visibleSlots.length === 0) {
                     return <div className="text-sm text-[#5C6C62] mt-3">No remaining slots for this day. Please pick another date.</div>;
                   }
-                  // Group by hour
-                  const groups = [];
-                  let currentHour = null;
-                  let bucket = null;
-                  for (const s of visibleSlots) {
-                    const h = s.label.slice(0, 2);
-                    if (h !== currentHour) {
-                      currentHour = h;
-                      bucket = { hour: h, items: [] };
-                      groups.push(bucket);
-                    }
-                    bucket.items.push(s);
-                  }
                   const totalAvail = visibleSlots.filter(s => s.available).length;
                   return (
-                    <div className="mt-2" data-testid="slots-grid">
+                    <div className="mt-3" data-testid="slots-grid">
                       <div className="text-xs text-[#5C6C62] mb-3">
                         {totalAvail} of {visibleSlots.length} slots available
                       </div>
-                      <div className="space-y-4">
-                        {groups.map(g => (
-                          <div key={g.hour} data-testid={`slot-hour-${g.hour}`}>
-                            <div className="flex items-center gap-3 mb-2">
-                              <div className="font-mono text-xs font-semibold text-[#2D3A33] tracking-wider w-10">{g.hour}:00</div>
-                              <div className="flex-1 h-px bg-[#EAE6D7]" />
-                            </div>
-                            <div className="flex flex-wrap gap-1.5 pl-12">
-                              {g.items.map(s => {
-                                const active = selSlot?.time === s.time;
-                                const mins = s.label.slice(3);
-                                return (
-                                  <button
-                                    key={s.time}
-                                    disabled={!s.available}
-                                    onClick={() => s.available && setSelSlot(s)}
-                                    aria-label={s.label}
-                                    title={s.available ? s.label : `${s.label} — fully booked`}
-                                    className="rounded-md px-2.5 py-1.5 border text-xs font-medium transition min-w-[44px]"
-                                    style={!s.available
-                                      ? { background: "transparent", color: "#C9C3B0", borderColor: "#EAE6D7", cursor: "not-allowed", textDecoration: "line-through" }
-                                      : active
-                                        ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary)", color: "white" }
-                                        : { borderColor: "#D6D0BD", color: "#2D3A33", background: "white" }}
-                                    data-testid={`slot-${s.label}`}
-                                  >
-                                    :{mins}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5">
+                        {visibleSlots.map(s => {
+                          const active = selSlot?.time === s.time;
+                          return (
+                            <button
+                              key={s.time}
+                              disabled={!s.available}
+                              onClick={() => s.available && setSelSlot(s)}
+                              title={s.available ? s.label : `${s.label} — fully booked`}
+                              className="rounded-md px-2 py-2 border text-xs font-medium font-mono tabular-nums transition"
+                              style={!s.available
+                                ? { background: "transparent", color: "#C9C3B0", borderColor: "#EAE6D7", cursor: "not-allowed", textDecoration: "line-through" }
+                                : active
+                                  ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary)", color: "white" }
+                                  : { borderColor: "#D6D0BD", color: "#2D3A33", background: "white" }}
+                              data-testid={`slot-${s.label}`}
+                            >
+                              {s.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   );
