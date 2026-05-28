@@ -68,6 +68,12 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - Backend: new public endpoint `GET /api/platform/support` returns `{whatsapp, hours}` from env.
 - Cuts payment-verify turnaround from ~24h to minutes.
 
+### Iteration 10 (Revenue chart + full clinic staff seat seeds, Feb 2026)
+- **Revenue chart on `/superadmin` dashboard** — 6-month stacked bar chart (Starter/Clinic/Complete) using recharts; reads from new `GET /api/superadmin/revenue-chart?months=6`. Source: verified `payment_requests`; falls back to active-MRR snapshot if no verified history. Tooltip shows per-plan + total per month, header shows grand total + peak month.
+- **Seeded `Glow Aesthetic` with full staff team**: doctor / therapist / FO / manager (all `password123`). This is now the canonical demo clinic for exercising all 5 clinic roles.
+- **Cleaned 7 stale test clinics** from earlier test runs (deleted clinic + users + settings + bookings + patients + visits).
+- Seeded 29 demo-history verified payments (Dec 25 – Apr 26) so the revenue chart shows a realistic shape (Rp 34.1M across 6 months, peak Apr 26).
+
 ### Iteration 9 (Platform Settings module + Payment Proof viewer, Feb 2026)
 - **New `/superadmin/settings` page** with 3 tabs:
   - **General**: platform name, support WhatsApp, business hours, support email.

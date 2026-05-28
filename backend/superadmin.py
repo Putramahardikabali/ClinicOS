@@ -81,6 +81,66 @@ def register_superadmin(api: APIRouter, db, get_current_user, audit, public_clin
             "new_clinics_30d": new_clinics,
         }
 
+    @api.get("/superadmin/revenue-chart")
+    async def sa_revenue_chart(months: int = 6, _user: dict = Depends(admin_dep)):
+        """Returns last `months` of activated subscription revenue, stacked by plan.
+        Source: verified payment_requests (one verification = one month of revenue at that plan's price).
+        Falls back to current active MRR if no verified payments yet (so the chart isn't empty)."""
+        from datetime import date
+        # Build month buckets going back N months
+        now = now_utc()
+        buckets: List[Dict[str, Any]] = []
+        for i in range(months - 1, -1, -1):
+            # First day of (now.month - i)
+            y = now.year
+            m = now.month - i
+            while m <= 0:
+                y -= 1
+                m += 12
+            label = date(y, m, 1).strftime("%b %y")
+            buckets.append({"key": f"{y}-{m:02d}", "label": label, "starter": 0, "clinic": 0, "complete": 0, "total": 0})
+
+        # Aggregate verified payments by month + plan
+        payments = await db.payment_requests.find({"status": "verified"}, {"_id": 0}).to_list(2000)
+        bucket_by_key = {b["key"]: b for b in buckets}
+        any_verified = False
+        for p in payments:
+            t = p.get("verified_at") or p.get("created_at") or ""
+            if not t or len(t) < 7:
+                continue
+            key = t[:7].replace("-", "-")  # YYYY-MM
+            # Normalize key to match (year-month with two-digit month)
+            try:
+                y, mo = key.split("-")[:2]
+                key = f"{int(y)}-{int(mo):02d}"
+            except Exception:
+                continue
+            b = bucket_by_key.get(key)
+            if not b:
+                continue
+            plan = p.get("plan", "")
+            if plan in ("starter", "clinic", "complete"):
+                b[plan] = b.get(plan, 0) + int(p.get("amount_idr", 0))
+                b["total"] = b.get("total", 0) + int(p.get("amount_idr", 0))
+                any_verified = True
+
+        # If no verified payments yet, populate the LATEST bucket with current active MRR snapshot
+        # so the chart has something to show.
+        if not any_verified and buckets:
+            clinics = await db.clinics.find({}, {"_id": 0}).to_list(2000)
+            latest = buckets[-1]
+            for c in clinics:
+                sub = c.get("subscription") or {}
+                if sub.get("status") != "active":
+                    continue
+                plan = sub.get("plan")
+                if plan in ("starter", "clinic", "complete"):
+                    price = PLAN_CATALOG[plan]["price_idr"]
+                    latest[plan] += price
+                    latest["total"] += price
+
+        return {"months": buckets, "source": "verified_payments" if any_verified else "active_mrr_snapshot"}
+
     # ---------- Clinics ----------
     @api.get("/superadmin/clinics")
     async def sa_list_clinics(q: Optional[str] = None, status: Optional[str] = None, plan: Optional[str] = None, _user: dict = Depends(admin_dep)):

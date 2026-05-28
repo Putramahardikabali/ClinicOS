@@ -7,7 +7,9 @@ import {
   Shield, Building2, CreditCard, Megaphone, LogOut, Search,
   Activity, TrendingUp, Users, ExternalLink, CheckCircle2, XCircle, Clock,
   Sparkles, ChevronRight, Settings as SettingsIcon, FileText, X, Eye,
+  BarChart3,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend, CartesianGrid } from "recharts";
 import SaSettingsPage from "@/pages/SaSettingsPage";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -120,6 +122,83 @@ function SaLoginPage() {
 }
 
 // ------------- Dashboard -------------
+function fmtCompactIDR(n) {
+  const v = Number(n || 0);
+  if (v >= 1_000_000_000) return `Rp ${(v / 1_000_000_000).toFixed(1)}b`;
+  if (v >= 1_000_000) return `Rp ${(v / 1_000_000).toFixed(1)}m`;
+  if (v >= 1_000) return `Rp ${(v / 1_000).toFixed(0)}k`;
+  return `Rp ${v}`;
+}
+
+const CHART_COLORS = { starter: "#8AA992", clinic: "#D4A373", complete: "#C7A8E0" };
+
+function RevenueTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const total = payload.reduce((s, p) => s + (p.value || 0), 0);
+  return (
+    <div className="rounded-lg p-3 text-xs" style={{ background: "#0F1419", border: "1px solid #2A3942" }}>
+      <div className="font-medium mb-1" style={{ color: "#F5F2EA" }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4">
+          <span className="capitalize inline-flex items-center gap-1.5" style={{ color: "#C7D1CB" }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.color }} /> {p.dataKey}
+          </span>
+          <span style={{ color: "#F5F2EA" }}>{fmtIDR(p.value)}</span>
+        </div>
+      ))}
+      <div className="mt-1 pt-1 border-t flex items-center justify-between gap-4" style={{ borderColor: "#1F2A30", color: "#8AA992" }}>
+        <span>Total</span><span>{fmtIDR(total)}</span>
+      </div>
+    </div>
+  );
+}
+
+function RevenueChart() {
+  const [data, setData] = useState(null);
+  useEffect(() => { api.get("/superadmin/revenue-chart?months=6").then(r => setData(r.data)); }, []);
+  if (!data) return <div className="h-72 flex items-center justify-center text-sm" style={{ color: "#8FA89E" }}>Loading chart…</div>;
+  const total = data.months.reduce((s, m) => s + (m.total || 0), 0);
+  const peak = Math.max(...data.months.map(m => m.total || 0));
+  const peakMonth = data.months.find(m => m.total === peak);
+
+  return (
+    <div className="p-5 rounded-2xl" style={{ background: "#141B22", border: "1px solid #1F2A30" }} data-testid="sa-revenue-chart">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+        <div>
+          <div className="text-xs uppercase tracking-widest flex items-center gap-2" style={{ color: "#8FA89E" }}>
+            <BarChart3 className="w-3.5 h-3.5" /> Revenue · last 6 months
+          </div>
+          <div className="font-display text-2xl mt-1" style={{ color: "#F5F2EA" }} data-testid="sa-revenue-total">{fmtIDR(total)}</div>
+          <div className="text-xs mt-0.5" style={{ color: "#8FA89E" }}>
+            {data.source === "verified_payments" ? "from verified subscription payments" : "active subscription snapshot"}
+            {peak > 0 && peakMonth && <> · peak {peakMonth.label}</>}
+          </div>
+        </div>
+        <div className="flex gap-3 text-xs">
+          {["starter", "clinic", "complete"].map(k => (
+            <div key={k} className="inline-flex items-center gap-1.5 capitalize" style={{ color: "#C7D1CB" }}>
+              <span className="w-2 h-2 rounded-sm" style={{ background: CHART_COLORS[k] }} /> {k}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data.months} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1F2A30" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#8FA89E", fontSize: 11 }} axisLine={{ stroke: "#1F2A30" }} tickLine={false} />
+            <YAxis tickFormatter={fmtCompactIDR} tick={{ fill: "#8FA89E", fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip content={<RevenueTooltip />} cursor={{ fill: "rgba(138,169,146,0.06)" }} />
+            <Bar dataKey="starter"  stackId="rev" fill={CHART_COLORS.starter}  radius={[0,0,0,0]} />
+            <Bar dataKey="clinic"   stackId="rev" fill={CHART_COLORS.clinic}   radius={[0,0,0,0]} />
+            <Bar dataKey="complete" stackId="rev" fill={CHART_COLORS.complete} radius={[6,6,0,0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function SaDashboardPage() {
   const [data, setData] = useState({});
   useEffect(() => { api.get("/superadmin/dashboard").then(r => setData(r.data)); }, []);
@@ -141,6 +220,10 @@ function SaDashboardPage() {
         {stat("Total clinics", data.total_clinics ?? "—", `${data.new_clinics_30d || 0} new this month`, "sa-kpi-clinics")}
         {stat("Pending payments", data.pending_payments ?? "—", "Awaiting verification", "sa-kpi-pending")}
         {stat("Active trials", data.by_status?.trial ?? 0, `${data.by_status?.suspended || 0} suspended`, "sa-kpi-trials")}
+      </div>
+
+      <div className="mt-6">
+        <RevenueChart />
       </div>
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="p-5 rounded-2xl" style={{ background: "#141B22", border: "1px solid #1F2A30" }}>
