@@ -39,6 +39,7 @@ from saas import (
     public_clinic_view, new_clinic_doc, now_utc, iso, slugify,
 )
 from bookings import register_bookings, DEFAULT_TREATMENTS, DEFAULT_WA_TEMPLATES
+from superadmin import register_superadmin
 
 app = FastAPI(title="Body Lab Bali EMR")
 api = APIRouter(prefix="/api")
@@ -952,6 +953,21 @@ register_bookings(
     get_active_clinic=get_active_clinic,
     public_clinic_view=public_clinic_view,
     DEFAULT_SETTINGS=DEFAULT_SETTINGS,
+)
+
+# Super Admin / Platform endpoints
+register_superadmin(
+    api=api,
+    db=db,
+    get_current_user=get_current_user,
+    audit=audit,
+    public_clinic_view=public_clinic_view,
+    PLAN_CATALOG=PLAN_CATALOG,
+    STORAGE_URL=STORAGE_URL,
+    init_storage=init_storage,
+    put_object=put_object,
+    APP_NAME=APP_NAME,
+    scope=scope,
 )
 
 app.include_router(api)

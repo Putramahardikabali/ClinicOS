@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useClinic, formatIdr } from "@/lib/clinic";
+import api from "@/lib/api";
 import { Copy, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,8 +13,27 @@ export default function BillingCheckoutPage() {
   const uniq = useMemo(() => Math.floor(Math.random() * 900) + 100, []);
   const total = plan ? plan.price_idr + uniq : 0;
   const [submitted, setSubmitted] = useState(false);
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const copy = (text) => { navigator.clipboard.writeText(text); toast.success("Copied"); };
+
+  const submit = async () => {
+    if (!plan) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("plan", plan.key);
+      fd.append("amount", String(total));
+      fd.append("unique_code", String(uniq));
+      if (file) fd.append("file", file);
+      await api.post("/billing/payment-request", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setSubmitted(true);
+      toast.success("Payment submitted — we'll verify shortly");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Submission failed");
+    } finally { setBusy(false); }
+  };
 
   if (!plan) return <div className="p-10 text-[#5C6C62]">Loading…</div>;
 
@@ -43,22 +63,10 @@ export default function BillingCheckoutPage() {
 
       <div className="mt-5 bl-card p-5">
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <div className="label-eyebrow">Plan</div>
-            <div className="mt-1 font-medium">{plan.name}</div>
-          </div>
-          <div>
-            <div className="label-eyebrow">Plan price</div>
-            <div className="mt-1 font-medium">{formatIdr(plan.price_idr)}</div>
-          </div>
-          <div>
-            <div className="label-eyebrow">Unique code</div>
-            <div className="mt-1 font-medium font-mono">{uniq}</div>
-          </div>
-          <div>
-            <div className="label-eyebrow">Total to transfer</div>
-            <div className="mt-1 font-display text-2xl text-[#2D3A33]" data-testid="checkout-total">{formatIdr(total)}</div>
-          </div>
+          <div><div className="label-eyebrow">Plan</div><div className="mt-1 font-medium">{plan.name}</div></div>
+          <div><div className="label-eyebrow">Plan price</div><div className="mt-1 font-medium">{formatIdr(plan.price_idr)}</div></div>
+          <div><div className="label-eyebrow">Unique code</div><div className="mt-1 font-medium font-mono">{uniq}</div></div>
+          <div><div className="label-eyebrow">Total to transfer</div><div className="mt-1 font-display text-2xl text-[#2D3A33]" data-testid="checkout-total">{formatIdr(total)}</div></div>
         </div>
         <p className="mt-4 text-xs text-[#5C6C62]">Please transfer the <strong>exact total amount including the unique code</strong> so we can match your payment automatically.</p>
       </div>
@@ -66,14 +74,14 @@ export default function BillingCheckoutPage() {
       <div className="mt-5 bl-card p-5">
         <div className="label-eyebrow mb-2">Upload payment proof</div>
         {submitted ? (
-          <div className="flex items-center gap-2 text-sm" style={{ color: "#52796F" }}>
+          <div className="flex items-center gap-2 text-sm" style={{ color: "#52796F" }} data-testid="checkout-success">
             <CheckCircle2 className="w-4 h-4" /> Submitted — activation within 1×24 hours.
           </div>
         ) : (
           <>
-            <input type="file" accept="image/*" className="block text-sm" data-testid="proof-input" />
-            <button onClick={() => { setSubmitted(true); toast.success("Proof submitted — we'll verify shortly"); }} className="bl-btn-primary mt-4 w-full sm:w-auto" data-testid="payment-submit">Submit proof</button>
-            <p className="text-xs text-[#5C6C62] mt-2">For the MVP, payment proof storage isn't wired up yet — but a Super Admin will manually verify and activate your plan.</p>
+            <input type="file" accept="image/*,application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} className="block text-sm" data-testid="proof-input" />
+            <p className="text-xs text-[#5C6C62] mt-2">Upload the screenshot or PDF receipt of your bank transfer. PNG, JPG, or PDF.</p>
+            <button onClick={submit} disabled={busy} className="bl-btn-primary mt-4 w-full sm:w-auto disabled:opacity-50" data-testid="payment-submit">{busy ? "Submitting…" : "Submit payment"}</button>
           </>
         )}
       </div>

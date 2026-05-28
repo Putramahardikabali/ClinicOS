@@ -20,6 +20,7 @@ import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
 import BookingsPage from "@/pages/BookingsPage";
 import PublicBookingPage from "@/pages/PublicBookingPage";
+import SuperAdminApp from "@/pages/SuperAdminApp";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/book/:slug" element={<PublicBookingPage />} />
+              <Route path="/superadmin/*" element={<SuperAdminApp />} />
               <Route path="/onboarding" element={<Protected><OnboardingPage /></Protected>} />
               <Route path="/print/visit/:vid" element={<Protected><PrintVisitPage /></Protected>} />
               <Route path="/" element={<Protected><OnboardingRedirect><Shell><DashboardPage /></Shell></OnboardingRedirect></Protected>} />
