@@ -396,7 +396,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.put("/bookings/{bid}")
     async def update_booking(bid: str, payload: BookingUpdateIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo"):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         await assert_writeable(user)
         upd = {k: v for k, v in payload.model_dump().items() if v is not None}
@@ -408,7 +408,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.put("/bookings/{bid}/status")
     async def transition_status(bid: str, payload: BookingStatusIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo"):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         if payload.status not in BOOKING_STATUSES:
             raise HTTPException(status_code=400, detail="Invalid status")
@@ -422,7 +422,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.post("/bookings/{bid}/wa-sent")
     async def mark_wa_sent(bid: str, payload: WaSentIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo"):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         await assert_writeable(user)
         entry = {"template_key": payload.template_key, "sent_at": iso(now_utc()), "sent_by": user["id"]}
@@ -437,7 +437,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.delete("/bookings/{bid}")
     async def delete_booking(bid: str, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo"):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         await assert_writeable(user)
         r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": {"status": "cancelled", "status_updated_at": iso(now_utc())}})

@@ -69,10 +69,25 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 - Cuts payment-verify turnaround from ~24h to minutes.
 
 ### Iteration 10 (Revenue chart + full clinic staff seat seeds, Feb 2026)
-- **Revenue chart on `/superadmin` dashboard** — 6-month stacked bar chart (Starter/Clinic/Complete) using recharts; reads from new `GET /api/superadmin/revenue-chart?months=6`. Source: verified `payment_requests`; falls back to active-MRR snapshot if no verified history. Tooltip shows per-plan + total per month, header shows grand total + peak month.
-- **Seeded `Glow Aesthetic` with full staff team**: doctor / therapist / FO / manager (all `password123`). This is now the canonical demo clinic for exercising all 5 clinic roles.
-- **Cleaned 7 stale test clinics** from earlier test runs (deleted clinic + users + settings + bookings + patients + visits).
-- Seeded 29 demo-history verified payments (Dec 25 – Apr 26) so the revenue chart shows a realistic shape (Rp 34.1M across 6 months, peak Apr 26).
+- **Revenue chart on `/superadmin` dashboard** — 6-month stacked bar chart (Starter/Clinic/Complete) using recharts.
+- **Seeded Glow Aesthetic with full staff team** (doctor / therapist / FO / manager) + cleaned 7 stale test clinics + seeded 29 demo-history verified payments.
+
+### Iteration 11 (Today's queue + Treatments CRUD + Patient transactions, Feb 2026)
+- **Role-aware "Today's queue"** on clinic dashboard: Doctor sees pending clinical forms; Therapist sees pending therapist work + today's confirmed/checked_in bookings; FO sees today's bookings to confirm/check-in + visit completion items; Manager/Owner sees operations snapshot (bookings today / pending confirmations / in-progress visits).
+- **Treatments catalog CRUD** at `/treatments` (Owner/FO/Manager): name, category (facial/injectable/laser/peel/body/consult/general), duration, price, concurrent slots, active toggle, description. Auto-seeds 8 defaults on first access.
+- **Patient detail enhancement**: `patient-spend-summary` card with lifetime spend / visits / items / last-visit / avg-per-visit, and full `patient-transactions` table with per-visit subtotals.
+- Backend new endpoints: GET/POST/PUT/DELETE `/treatments-catalog`, GET `/dashboard/me-queue`, GET `/patients/{pid}/stats`, GET `/patients/{pid}/transactions`. Availability engine now respects `slots_per_session`.
+- Demo data: 5 Glow patients with 12 visits + ~24 treatment_items (Anya Rp 4.1M, Dharma Rp 8.2M, etc.).
+
+### Iteration 12 (Treatment list view + performer_type + slot capacity enforcement + redesigned New Booking, Feb 2026)
+- **Treatments page → table layout** with columns: Treatment, Category, Performed by (Stethoscope=Doctor, Heart=Therapist), Duration, Slots, Price, Active, Actions.
+- **New `performer_type` field** on treatment (doctor / therapist / either) — DEFAULT_TREATMENTS pre-mapped (Consult/Injectables=doctor, Facial/Laser/Peel/Body=therapist).
+- **Capacity-aware booking enforcement**: new `_has_slot_conflict()` helper. With `slots_per_session=1` and one existing same-treatment booking at a slot, second booking returns **409**. Different-treatment overlaps always 409. Public POST + FO POST share the same logic.
+- **FO "New Booking" modal redesigned** as a 2-step wizard:
+  - Step 1: search & select existing patient OR walk-in.
+  - Step 2: treatment category → treatment dropdown → date → time (populated from availability API) → performer (filtered by treatment's performer_type — only doctors for doctor-only treatments, only therapists for therapist-only).
+- POST `/api/bookings` now accepts `performer_id` (validated against same clinic). Manager role gains booking CRUD permissions.
+- Backend 100% (11/11 iter12 tests; 5 pre-existing test_bookings failures relate to stale test data colliding with the new capacity rule — not a regression).
 
 ### Iteration 9 (Platform Settings module + Payment Proof viewer, Feb 2026)
 - **New `/superadmin/settings` page** with 3 tabs:
