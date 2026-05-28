@@ -371,6 +371,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         # Capacity-aware slot check
         if await _has_slot_conflict(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min):
             raise HTTPException(status_code=409, detail="Slot just got taken — please pick another")
+        # Auto-pick the least-busy on-duty performer (silent — guest doesn't choose)
+        auto_performer_id = await _auto_pick_performer(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min)
         booking = {
             "id": str(uuid.uuid4()),
             "clinic_id": c["id"],
@@ -381,6 +383,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "treatment": payload.treatment,
             "duration_min": payload.duration_min,
             "scheduled_at": payload.scheduled_at,
+            "performer_id": auto_performer_id,
+            "performer_auto_assigned": bool(auto_performer_id),
             "notes": payload.notes or "",
             "status": "booked",
             "source": "public",
@@ -506,6 +510,79 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         ids = await db.users.find({"clinic_id": cid}, {"_id": 0, "id": 1}).to_list(500)
         return {u["id"] for u in ids}
 
+    async def _auto_pick_performer(cid: str, treatment_name: str, scheduled_at: str, duration_min: int) -> Optional[str]:
+        """Pick the least-busy on-duty performer eligible for this treatment at this slot.
+        Returns performer id, or None if nobody qualifies.
+        """
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            return None
+        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1})
+        c_hours = (c or {}).get("operating_hours") or {}
+        t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name, "active": True}, {"_id": 0, "performer_type": 1})
+        performer_type = (t or {}).get("performer_type", "either")
+        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        staff = await db.users.find(
+            {"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}},
+            {"_id": 0, "id": 1, "working_hours": 1, "days_off": 1},
+        ).to_list(200)
+        if not staff:
+            return None
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration_min or 30)
+        day_str = sched.strftime("%Y-%m-%d")
+        day_key = _day_key(sched)
+        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
+        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
+        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
+        # Existing same-day bookings for load + conflict
+        day_existing = await db.bookings.find({
+            "clinic_id": cid,
+            "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
+            "status": {"$in": ["booked", "confirmed", "checked_in"]},
+        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
+        busy_pids = set()
+        load: Dict[str, int] = {}  # performer_id -> count of bookings today
+        for b in day_existing:
+            try:
+                bs_dt = _parse_iso(b["scheduled_at"])
+            except Exception:
+                continue
+            bs = bs_dt.hour * 60 + bs_dt.minute
+            be = bs + int(b.get("duration_min", 30))
+            pid = b.get("performer_id")
+            if pid:
+                load[pid] = load.get(pid, 0) + 1
+                if not (s_end <= bs or s_start >= be):
+                    busy_pids.add(pid)
+        # Build candidates
+        candidates = []
+        for s in staff:
+            sid = s["id"]
+            if any(d.get("date") == day_str for d in (s.get("days_off") or [])):
+                continue
+            wh = s.get("working_hours") or {}
+            if not wh:
+                w_open, w_close = c_open, c_close
+            else:
+                day_h = wh.get(day_key) or {}
+                if not (day_h.get("open") and day_h.get("close")):
+                    continue
+                w_open = _hhmm_to_minutes(day_h["open"]) or 0
+                w_close = _hhmm_to_minutes(day_h["close"]) or 0
+                if w_open >= w_close:
+                    continue
+            if not (w_open <= s_start and s_end <= w_close):
+                continue
+            if sid in busy_pids:
+                continue
+            candidates.append((load.get(sid, 0), sid))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
     @api.get("/bookings/available-performers")
     async def available_performers(
         date: str = Query(..., description="YYYY-MM-DD"),
@@ -550,13 +627,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
         c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
 
-        # Existing bookings on this date to compute per-performer busy
+        # Existing bookings on this date to compute per-performer busy + load
         day_existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{date}T00:00:00", "$lte": f"{date}T23:59:59"},
             "status": {"$in": ["booked", "confirmed", "checked_in"]},
         }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
         busy_pids = set()
+        load: Dict[str, int] = {}
         for b in day_existing:
             try:
                 bs_dt = _parse_iso(b["scheduled_at"])
@@ -564,11 +642,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 continue
             bs = bs_dt.hour * 60 + bs_dt.minute
             be = bs + int(b.get("duration_min", 30))
-            if s_end <= bs or s_start >= be:
-                continue
             pid = b.get("performer_id")
             if pid:
-                busy_pids.add(pid)
+                load[pid] = load.get(pid, 0) + 1
+                if not (s_end <= bs or s_start >= be):
+                    busy_pids.add(pid)
 
         out = []
         for s in staff:
@@ -591,8 +669,10 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 continue  # outside their working window
             if s["id"] in busy_pids:
                 continue  # already booked at this slot
-            out.append({"id": s["id"], "name": s["name"], "role": s["role"]})
-        return {"performers": out, "closed": False, "performer_type": performer_type}
+            out.append({"id": s["id"], "name": s["name"], "role": s["role"], "bookings_today": load.get(s["id"], 0)})
+        out.sort(key=lambda p: (p["bookings_today"], p["name"]))
+        suggested = out[0]["id"] if out else None
+        return {"performers": out, "closed": False, "performer_type": performer_type, "suggested_performer_id": suggested}
 
     @api.post("/bookings")
     async def create_booking(payload: BookingIn, user: dict = Depends(get_current_user)):

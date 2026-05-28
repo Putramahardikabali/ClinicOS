@@ -121,6 +121,16 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 **6d — Reports & Analytics**: `/reports` page (owner/manager) with revenue chart + KPIs + table. Endpoint `GET /api/reports/revenue-monthly?months=N`.
 
 ### Iteration 15 (Performer dropdown filtering, Feb 28 2026)
+- New endpoint `GET /api/bookings/available-performers` returning only staff who are eligible + on-duty + free at that exact slot.
+- FO New Booking modal hides off-duty / on-leave / double-booked performers from the dropdown once date+time picked. Counter "N hidden — off-duty or already booked".
+
+### Iteration 16 (Auto-pick performer, Feb 28 2026)
+- `GET /api/bookings/available-performers` now returns `suggested_performer_id` (least-busy on-duty) + `bookings_today` for each performer; results are sorted by load ascending.
+- FO New Booking modal: shows "✨ Auto-pick {Name}" link next to the Performer label; clicking fills the dropdown. Suggested performer marked with ✨ in the option label, plus "· N today" load indicator. User can still override.
+- Public guest booking (`POST /api/public/clinics/{slug}/bookings`) now silently auto-assigns the least-busy available performer (`performer_id` set on insert + `performer_auto_assigned: true` flag for transparency).
+- Verified: with Doctor 1 loaded 2x, Doctor 2 loaded 1x → suggestion = Doctor 3 (0 load). Guest POST returned auto-assigned performer_id.
+
+
 - New endpoint `GET /api/bookings/available-performers?date=…&time=…&duration=…&treatment=…` returning only staff who are eligible (role match) + on-duty (within working hours, not on day-off) + free (no overlapping booking) at that exact slot. Returns `{closed:true,reason:...}` when clinic is closed.
 - FO "New Booking" modal now hides off-duty / on-leave / double-booked doctors and therapists from the **Performer** dropdown once the user has picked date + time. Disabled state with helpful messaging ("Pick date & time first", "Checking availability…", "No doctor available at this slot"). Counter under the dropdown reads e.g. "2 doctor(s) hidden — off-duty or already booked."
 - Verified live: 3 doctors total → 1 on vacation 2026-03-10, 1 evening-only → at 10:00 dropdown shows only Doctor 3 (2 hidden); at 17:30 shows Doctor 2 + Doctor 3 (1 hidden).

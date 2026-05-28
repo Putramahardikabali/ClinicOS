@@ -148,6 +148,7 @@ function NewBookingModal({ onClose, onCreated }) {
   const [customTime, setCustomTime] = useState(false);
   const [availablePerformers, setAvailablePerformers] = useState(null);
   const [loadingPerformers, setLoadingPerformers] = useState(false);
+  const [suggestedPerformerId, setSuggestedPerformerId] = useState(null);
 
   useEffect(() => {
     api.get("/treatments-catalog", { params: { active_only: true } }).then(r => setTreatments(r.data || []));
@@ -194,8 +195,11 @@ function NewBookingModal({ onClose, onCreated }) {
         treatment: form.treatment,
       },
     })
-      .then(r => setAvailablePerformers(r.data?.performers || []))
-      .catch(() => setAvailablePerformers([]))
+      .then(r => {
+        setAvailablePerformers(r.data?.performers || []);
+        setSuggestedPerformerId(r.data?.suggested_performer_id || null);
+      })
+      .catch(() => { setAvailablePerformers([]); setSuggestedPerformerId(null); })
       .finally(() => setLoadingPerformers(false));
   }, [form.scheduled_date, form.scheduled_time, form.treatment, form.duration_min]);
 
@@ -357,13 +361,31 @@ function NewBookingModal({ onClose, onCreated }) {
             </div>
 
             <div>
-              <label className="label-eyebrow block mb-1.5">
-                Performer
-                {selectedTreatment && <span className="text-[#A89F8B] normal-case ml-1">· {selectedTreatment.performer_type}</span>}
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="label-eyebrow">
+                  Performer
+                  {selectedTreatment && <span className="text-[#A89F8B] normal-case ml-1">· {selectedTreatment.performer_type}</span>}
+                </label>
+                {(() => {
+                  const slotChosen = !!(form.scheduled_date && form.scheduled_time);
+                  if (!slotChosen || !suggestedPerformerId || loadingPerformers) return null;
+                  const sug = availablePerformers?.find(p => p.id === suggestedPerformerId);
+                  if (!sug) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, performer_id: suggestedPerformerId }))}
+                      className="text-xs underline text-[#52796F] hover:text-[#2D3A33] flex items-center gap-1"
+                      data-testid="nb-autopick"
+                      title={`Least-busy ${sug.role} today (${sug.bookings_today} booking${sug.bookings_today === 1 ? "" : "s"})`}
+                    >
+                      ✨ Auto-pick {sug.name}
+                    </button>
+                  );
+                })()}
+              </div>
               {(() => {
                 const slotChosen = !!(form.scheduled_date && form.scheduled_time);
-                // When time chosen: only show actually-available performers
                 const list = slotChosen && availablePerformers !== null
                   ? eligibleStaff.filter(s => availablePerformers.some(ap => ap.id === s.id))
                   : eligibleStaff;
@@ -387,9 +409,16 @@ function NewBookingModal({ onClose, onCreated }) {
                       data-testid="nb-performer"
                     >
                       <option value="">Unassigned</option>
-                      {list.map(s => (
-                        <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
-                      ))}
+                      {list.map(s => {
+                        const ap = availablePerformers?.find(p => p.id === s.id);
+                        const load = ap?.bookings_today ?? 0;
+                        const isSuggested = s.id === suggestedPerformerId;
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.role}){isSuggested ? " ✨" : ""} · {load} today
+                          </option>
+                        );
+                      })}
                     </select>
                     {hint && (
                       <div className="text-xs mt-1.5" style={{ color: list.length === 0 && slotChosen ? "#B14A2C" : "#A89F8B" }} data-testid="nb-performer-hint">
