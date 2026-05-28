@@ -18,49 +18,46 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 
 ## Architecture
 - Backend: FastAPI + MongoDB (Motor), JWT auth, Emergent Object Storage for images.
-- Frontend: React 19 + React Router + Tailwind + Shadcn/UI + Sonner toasts + Lucide.
-- Hard multi-tenant isolation: every collection has a `clinic_id` field; `scope(user)` helper guarantees queries are scoped.
-- Booking & dashboard logic lives in `/app/backend/bookings.py`, SaaS layer in `/app/backend/saas.py`.
+- Frontend: React 19 + React Router + Tailwind + Shadcn/UI + Sonner + Lucide.
+- Hard multi-tenant isolation: every collection has a `clinic_id`; `scope(user)` helper guarantees queries are scoped.
+- Modules: `saas.py` (SaaS layer), `bookings.py` (Phase 3+4), `superadmin.py` (Phase 5+6).
 
 ## What's been implemented
 
 ### Iteration 1-3 (legacy / pre-SaaS)
 - JWT login, role-aware sidebar, dashboard with KPIs.
-- Patient + visit lifecycle (in_progress → completed); doctor/therapist forms, treatments, photos, mapping canvas, audit log.
-- Admin Settings Center.
-- Camera capture for photos; mobile/tablet responsive shell with bottom nav.
+- Patient + visit lifecycle; doctor/therapist forms, treatments, photos, mapping canvas, audit log.
+- Admin Settings Center; camera capture; responsive shell with bottom nav.
 
 ### Iteration 4 (SaaS Phase 1 — multi-tenant backend, Feb 2026)
-- Added `clinic_id` scoping across every backend collection and query.
-- Removed legacy in-clinic patient billing.
+- `clinic_id` scoping on every collection and query.
 - `/app/backend/saas.py`: plan catalog, helpers, `public_clinic_view`, `clinic_is_readonly`, registration.
 - Endpoints: `POST /auth/register-clinic`, `GET/PUT /clinics/me`, `GET /plans`, `GET /clinics/by-slug/{slug}`.
 - Seed script `seed_demo_clinics.py` for 4 demo clinics.
 
 ### Iteration 5 (SaaS Phase 2 — frontend wiring, Feb 2026)
-- `ClinicProvider` in App.js. Routes: `/register`, `/onboarding`, `/billing/plans`, `/billing/checkout`. `OnboardingRedirect` guard.
-- `AppShell`: globally renders `SubscriptionBanner` + `ExpiryGate`; lock icons on plan-gated nav items.
-- `FeatureGate` on visit tabs (Starter locks clinical/therapist/treatments/mapping).
-- Multi-tenant identity leak fixed (sidebar reads real clinic name).
-- Backend 100% (10/10 SaaS tests + 63/64 full suite); Frontend e2e 92%+.
+- `ClinicProvider` in App.js. Routes: `/register`, `/onboarding`, `/billing/plans`, `/billing/checkout`. `OnboardingRedirect`.
+- `AppShell`: `SubscriptionBanner` + `ExpiryGate`; locked nav with lock icons.
+- `FeatureGate` on visit tabs.
+- Multi-tenant identity leak fixed.
+- Backend 100% / Frontend 92%+.
 
-### Iteration 6 (SaaS Phase 3 & 4 + Plan Quiz, Feb 2026)
-- **Plan Recommender Quiz** on `/billing/plans` (3 questions → highlights recommended plan with "Recommended for you" badge).
-- **Phase 3 — Public Online Booking** (`/book/{slug}`)
-  - `/api/public/clinics/{slug}/treatments` · `/availability?date&duration` · `POST /bookings` (no auth).
-  - Availability engine: 30-min slot grid, fallback operating hours per weekday, overlap detection.
-  - 8 default treatments with durations + prices. Past-date rejection (400), slot conflict (409).
-  - 3-step wizard UI: treatment → date+slot → contact form → confirmation.
-- **Phase 4 — FO Booking Management** (`/bookings`)
-  - List with Today/Upcoming/Past scope tabs + status filter.
-  - Status flow: booked → confirmed → checked_in → completed (also cancelled / no_show).
-  - "New booking" modal (manual FO entry), "Copy booking link" + "View public page" CTAs.
-  - **WhatsApp Template UI**: 3 default templates (confirmation, reminder, follow-up) with `{patient_name}` / `{treatment}` / `{date}` / `{time}` / `{clinic_name}` interpolation. Copy + Open WhatsApp (wa.me deep link) + Mark as sent (writes wa_history with audit trail).
-- **Enhanced Dashboard**
-  - `/api/dashboard/owner` returns: bookings_today, upcoming_bookings, pending_confirm, revenue_mtd, revenue_prev_month, revenue_delta_pct, top_treatments[], total_patients, visits_today, total_visits, in_progress.
-  - UI: 8 KPI cards, today's bookings table, top treatments (MTD) panel, public-link card.
-- Bookings collection scoped by `clinic_id` with indexes on `(clinic_id, scheduled_at)` and `(clinic_id, status)`.
-- Backend 100% (18/18 new booking tests); Frontend 95%+ (only LOW cosmetic: date strip shows 12 visible of 14 due to overflow).
+### Iteration 6 (Phase 3 & 4 + Plan Quiz, Feb 2026)
+- **Plan Recommender Quiz** on `/billing/plans` (3 questions → "Recommended for you" badge).
+- **Phase 3 — Public Online Booking** (`/book/{slug}`): availability engine, 8 default treatments, slot overlap detection, 3-step wizard.
+- **Phase 4 — FO Booking Management** (`/bookings`): Today/Upcoming/Past tabs, status flow, "New booking" modal, copy public link, **WhatsApp Templates UI** with placeholder interpolation, copy + wa.me deep-link + mark-sent.
+- **Enhanced Dashboard**: 8 KPIs, today's bookings table, top treatments MTD.
+- Backend 100% (18/18) / Frontend ~95%.
+
+### Iteration 7 (Phase 5 — Super Admin portal, Feb 2026)
+- **`/superadmin`** env-credentialed dark-themed portal (separate auth context):
+  - **Dashboard**: MRR, total clinics, pending payments, active trials, plan distribution, quick actions.
+  - **Clinics list**: search by name/slug/email; filter by status/plan; per-row staff/patient/booking counts.
+  - **Clinic detail**: counts dashboard + subscription actions (Activate / Suspend / Extend +30d / change plan).
+  - **Payments queue**: verify/reject submitted requests; verifying activates the clinic + extends expiry 30 days.
+  - **Announcements** CRUD: severity (info/warning/success) + audience (all/trial/active/expired).
+- **Real payment flow**: `/billing/checkout` now POSTs `/api/billing/payment-request` with optional proof file upload (Emergent Object Storage), replacing earlier mock.
+- Backend 100% (28/28 new + 10/10 saas regression) / Frontend 100%.
 
 ## Plan catalog
 | Plan | Price (IDR/mo) | Staff | Storage | Features |
@@ -72,34 +69,34 @@ Evolve the existing single-clinic aesthetic EMR ("Body Lab Bali") into **ClinicO
 
 ## Prioritized backlog
 
-### P0 — Next up
-- **Phase 5 — Super Admin portal `/superadmin`** (env credentials)
-  - Clinics list + detail (Activate / Suspend / Extend trial / Override plan).
-  - Payment verification queue (review uploaded proofs and activate plan).
-  - MRR + total-clinics dashboard.
-- **Phase 6** — feature flag management, announcements, multi-currency, scheduled trial-expiry job.
+### P1 — Polish / hardening
+- **Render uploaded payment proof image/PDF link in `/superadmin/payments`** queue rows (currently metadata-only).
+- Strict booking transition graph (prevent completed → booked).
+- Normalize `scheduled_at` to UTC ISO with offset on insert (both public + FO paths).
+- Revenue MTD: switch from `treatment_items.created_at` to `visit_date`.
+- Server-side overlap detection for different-duration bookings on non-identical start times.
 
-### P1 — Important enhancements
-- Wire actual payment-proof upload to Object Storage (currently MOCKED on `/billing/checkout`).
-- Strict booking status transition graph (prevent completed → booked).
-- Normalize `scheduled_at` to UTC ISO with offset on insert (both public + FO paths) to prevent day-bucket drift.
-- Revenue aggregation: switch from `treatment_items.created_at` to `visit_date` for accuracy.
-- Server-side conflict detection for overlapping different-duration bookings on non-identical start times.
-
-### P2 — Refactor / hardening
-- Tighten CORS (explicit origin instead of `*` + credentials).
-- Move large mapping base64 to object storage.
+### P2 — Quality of life
+- Automated SMS/WhatsApp via Twilio or Fonnte (turn manual WA templates into 1-click auto-send + day-before reminders).
+- Multi-currency, scheduled trial-expiry job, feature-flag toggles per clinic.
 - Soft-delete users to preserve historical references.
+- Tighten CORS (explicit origin + credentials).
+
+### P3 — Tech debt
+- Move large mapping base64 to object storage.
 - Replace `?auth=token` query param with short-lived signed URLs.
 - Lifespan context manager replacing deprecated `@on_event`.
 - Server-side PDF export.
 - Split `AdminPage.jsx` into per-tab files.
+- conftest.py that auto-loads REACT_APP_BACKEND_URL for pytest.
 
 ## Key API endpoints
 - SaaS: `POST /auth/register-clinic`, `GET/PUT /clinics/me`, `GET /plans`, `GET /clinics/by-slug/{slug}`.
-- Public booking: `GET /public/clinics/{slug}/treatments`, `GET /public/clinics/{slug}/availability`, `POST /public/clinics/{slug}/bookings`.
+- Public booking: `GET /public/clinics/{slug}/treatments|availability`, `POST /public/clinics/{slug}/bookings`.
 - FO booking: `GET/POST /bookings`, `GET/PUT/DELETE /bookings/{id}`, `PUT /bookings/{id}/status`, `POST /bookings/{id}/wa-sent`.
-- Misc: `GET /wa-templates`, `GET /treatments-catalog`, `GET /dashboard/owner`.
+- Misc: `GET /wa-templates`, `GET /treatments-catalog`, `GET /dashboard/owner`, `GET /announcements/active`.
+- Payments: `POST /billing/payment-request` (multipart).
+- Super Admin (platform_admin only): `GET /superadmin/dashboard`, `GET /superadmin/clinics`, `GET /superadmin/clinics/{cid}`, `PUT /superadmin/clinics/{cid}/subscription`, `DELETE /superadmin/clinics/{cid}`, `GET /superadmin/payments`, `POST /superadmin/payments/{pid}/{verify|reject}`, `GET/POST/DELETE /superadmin/announcements`.
 
 ## Test data
 See `/app/memory/test_credentials.md`. SaaS demo clinics (`password123`):
@@ -108,4 +105,4 @@ See `/app/memory/test_credentials.md`. SaaS demo clinics (`password123`):
 - Lumina Aesthetic (Complete) · owner@luminabali.id
 - Rena Skin (Trial, 3 days left) · owner@renaskin.id
 
-Public booking demo: https://aesthetic-records.preview.emergentagent.com/book/cantikbeauty
+Platform Admin: `platform@clinicos.id` / `ClinicOS@2026` (env-driven)
