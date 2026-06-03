@@ -83,7 +83,8 @@ android-sdk/-e
 # Environment and credential files
 .env
 .env.*
-*.env
+!.env.example
+!.env.production.example
 credentials.json
 *.pem
 *.key

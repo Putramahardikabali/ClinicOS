@@ -1,0 +1,32 @@
+# Production stack for Dokploy (MongoDB Atlas — no local mongo).
+# Domains: app.clinicos.id → frontend:80, api.clinicos.id → backend:8000
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - clinicos_uploads:/app/uploads
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        REACT_APP_PUBLIC_UPLOAD_BASE_URL: ${REACT_APP_PUBLIC_UPLOAD_BASE_URL:-}
+        REACT_APP_APP_ENV: ${REACT_APP_APP_ENV:-production}
+        REACT_APP_BETA_MODE: ${REACT_APP_BETA_MODE:-}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+volumes:
+  clinicos_uploads:
