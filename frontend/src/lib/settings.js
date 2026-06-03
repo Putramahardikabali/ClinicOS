@@ -48,7 +48,7 @@ export function SettingsProvider({ children }) {
     }
   }, [user]);
 
-  useEffect(() => { applyTheme(branding); }, []); // initial paint
+  useEffect(() => { applyTheme(FALLBACK_BRANDING); }, []); // initial paint
   useEffect(() => { refresh(); }, [refresh]);
 
   return (
@@ -62,5 +62,10 @@ export const useSettings = () => useContext(SettingsContext);
 
 export const logoUrl = (logo_path) => {
   if (!logo_path) return null;
-  return `${API_BASE}/files/${logo_path}`; // branding files are public
+  const publicBase =
+    process.env.REACT_APP_PUBLIC_UPLOAD_BASE_URL
+    || process.env.VITE_PUBLIC_UPLOAD_BASE_URL
+    || (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL.replace(/\/$/, "")}/uploads` : "");
+  if (publicBase) return `${publicBase}/${logo_path}`;
+  return `${API_BASE}/files/${logo_path}`; // backward-compatible fallback
 };

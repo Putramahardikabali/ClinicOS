@@ -122,6 +122,7 @@ class TestSettingsCrud:
         d = r.json()
         for k in ("platform_name", "support_whatsapp", "support_hours", "support_email", "banks", "plan_overrides"):
             assert k in d, f"missing key {k}"
+        assert "platform_branding" in d, "missing platform_branding"
 
     def test_partial_update_platform_name(self, sa_headers):
         new_name = f"ClinicOS-TEST-{uuid.uuid4().hex[:6]}"
@@ -196,6 +197,29 @@ class TestPlanOverrides:
         assert starter["storage_gb"] == 99
         # cleanup
         requests.put(f"{API}/superadmin/platform-settings", json={"plan_overrides": {}}, headers=sa_headers, timeout=10)
+
+
+# ---------------- Platform branding ----------------
+class TestPlatformBranding:
+    def test_sa_can_get_platform_branding(self, sa_headers):
+        r = requests.get(f"{API}/superadmin/platform/branding", headers=sa_headers, timeout=10)
+        assert r.status_code == 200
+        d = r.json()
+        for k in ("app_name", "short_name", "theme_color", "background_color"):
+            assert k in d
+
+    def test_non_sa_cannot_update_platform_branding(self, owner_headers):
+        r = requests.put(f"{API}/superadmin/platform/branding", headers=owner_headers, json={"app_name": "Nope"}, timeout=10)
+        assert r.status_code == 403
+
+    def test_manifest_returns_dynamic_name(self, sa_headers):
+        app_name = f"ClinicOS Manifest {uuid.uuid4().hex[:5]}"
+        up = requests.put(f"{API}/superadmin/platform/branding", headers=sa_headers, json={"app_name": app_name}, timeout=10)
+        assert up.status_code == 200
+        m = requests.get(f"{BASE_URL}/manifest.webmanifest", timeout=10)
+        assert m.status_code == 200
+        body = m.json()
+        assert body.get("name") == app_name
 
 
 # ---------------- Payments proof_content_type ----------------

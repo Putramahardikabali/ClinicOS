@@ -38,8 +38,19 @@ export function ClinicProvider({ children }) {
 export const useClinic = () => useContext(ClinicContext) || { clinic: null, plans: [], loading: false, refresh: () => {} };
 
 export const hasFeature = (clinic, feature) => {
-  if (!clinic) return true; // optimistic until loaded
+  if (!clinic) return false;
   return (clinic.features || []).includes(feature);
+};
+
+/** Lowest plan (from /plans) that includes this feature — for upgrade copy. */
+export const minimumPlanForFeature = (plans, feature) => {
+  if (!feature || !plans?.length) return null;
+  const order = ["starter", "clinic", "complete"];
+  for (const key of order) {
+    const plan = plans.find((p) => p.key === key);
+    if (plan?.features?.includes(feature)) return plan;
+  }
+  return null;
 };
 
 export const trialDaysLeft = (clinic) => {

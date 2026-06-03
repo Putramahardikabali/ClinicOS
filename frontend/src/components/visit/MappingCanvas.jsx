@@ -16,9 +16,11 @@ export default function MappingCanvas({ visit, onSaved }) {
   const [tool, setTool] = useState("pen");
   const [color, setColor] = useState(COLORS[0]);
   const [size, setSize] = useState(3);
+  const [penOpacity, setPenOpacity] = useState(1);
   const [strokes, setStrokes] = useState([]); // [{tool, color, size, points:[{x,y}]}]
   const [markers, setMarkers] = useState([]); // [{x,y,label,color}]
   const [labelInput, setLabelInput] = useState("0.5 ml");
+  const [dirty, setDirty] = useState(false);
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const cur = useRef(null);
@@ -38,12 +40,19 @@ export default function MappingCanvas({ visit, onSaved }) {
       strokes.forEach((s) => {
         if (!s || !s.points) return;
         ctx.strokeStyle = s.color; ctx.lineWidth = s.size; ctx.lineCap = "round"; ctx.lineJoin = "round";
-        if (s.tool === "eraser") { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = s.size * 4; }
+        if (s.tool === "eraser") {
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = s.size * 4;
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.globalAlpha = s.opacity ?? 1;
+        }
         if (s.points.length < 2) return;
         ctx.beginPath();
         ctx.moveTo(s.points[0].x, s.points[0].y);
         for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
         ctx.stroke();
+        ctx.globalAlpha = 1;
       });
       // markers
       markers.forEach((m) => {
@@ -94,11 +103,13 @@ export default function MappingCanvas({ visit, onSaved }) {
     const p = pos(e);
     if (tool === "marker") {
       setMarkers((m) => [...m, { x: p.x, y: p.y, label: labelInput, color }]);
+      setDirty(true);
       return;
     }
     drawing.current = true;
-    cur.current = { tool, color, size, points: [p] };
+    cur.current = { tool, color, size, opacity: tool === "pen" ? penOpacity : 1, points: [p] };
     setStrokes((s) => [...s, cur.current]);
+    setDirty(true);
   };
   const handleMove = (e) => {
     if (!drawing.current || !cur.current) return;
@@ -106,6 +117,7 @@ export default function MappingCanvas({ visit, onSaved }) {
     cur.current.points.push(pos(e));
     const snapshot = { ...cur.current, points: [...cur.current.points] };
     setStrokes((s) => (s.length === 0 ? [snapshot] : [...s.slice(0, -1), snapshot]));
+    setDirty(true);
   };
   const handleEnd = () => {
     if (cur.current) {
@@ -120,9 +132,10 @@ export default function MappingCanvas({ visit, onSaved }) {
   const undo = () => {
     if (markers.length > 0) setMarkers((m) => m.slice(0, -1));
     else setStrokes((s) => s.slice(0, -1));
+    setDirty(true);
   };
 
-  const clearAll = () => { setStrokes([]); setMarkers([]); };
+  const clearAll = () => { setStrokes([]); setMarkers([]); setDirty(true); };
 
   const save = async () => {
     const c = canvasRef.current;
@@ -137,6 +150,7 @@ export default function MappingCanvas({ visit, onSaved }) {
       toast.success("Mapping saved");
       onSaved?.();
       clearAll();
+      setDirty(false);
     } catch (e) {
       toast.error("Failed to save mapping");
     }
@@ -146,12 +160,18 @@ export default function MappingCanvas({ visit, onSaved }) {
     try { await api.delete(`/visits/${visit.id}/mappings/${id}`); onSaved?.(); } catch {}
   };
 
+  const canvasW = mapType === "face" ? 480 : 400;
+  const canvasH = mapType === "face" ? 560 : 520;
+
   return (
     <div className="space-y-5">
+      <p className="text-sm text-[#5C6C62]">
+        Mark treatment areas, injection points, or concerns directly on the template.
+      </p>
       {editable && (
         <div className="bl-card p-5">
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <select className="bl-input w-auto" value={mapType} onChange={(e)=>{ setMapType(e.target.value); clearAll(); }} data-testid="map-template-select">
+            <select className="bl-input w-auto" value={mapType} onChange={(e)=>{ setMapType(e.target.value); clearAll(); setDirty(false); }} data-testid="map-template-select">
               {Object.entries(TEMPLATES).map(([k, v]) => (
                 <option key={k} value={k}>{v.label || k}</option>
               ))}
@@ -166,27 +186,46 @@ export default function MappingCanvas({ visit, onSaved }) {
                 <button key={c} onClick={()=>setColor(c)} className={`w-7 h-7 rounded-full border-2 ${color === c ? "border-[#2D3A33]" : "border-transparent"}`} style={{ background: c }} aria-label={c} />
               ))}
             </div>
-            <input type="range" min="1" max="10" value={size} onChange={(e)=>setSize(parseInt(e.target.value))} className="w-24" />
+            <input type="range" min="1" max="10" value={size} onChange={(e)=>setSize(parseInt(e.target.value))} className="w-24" aria-label="Pen size" />
+            {tool === "pen" && (
+              <div className="flex items-center gap-2" data-testid="map-pen-opacity">
+                <span className="text-xs text-[#5C6C62] whitespace-nowrap">Opacity</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  value={Math.round(penOpacity * 100)}
+                  onChange={(e) => setPenOpacity(parseInt(e.target.value, 10) / 100)}
+                  className="w-24"
+                  aria-label="Pen opacity"
+                />
+              </div>
+            )}
             {tool === "marker" && (
               <div className="flex items-center gap-2">
                 <Type className="w-4 h-4 text-[#5C6C62]" />
                 <input className="bl-input w-32 py-1.5" placeholder="Dosage label" value={labelInput} onChange={(e)=>setLabelInput(e.target.value)} data-testid="marker-label" />
               </div>
             )}
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {dirty && (
+                <span className="text-xs font-medium text-[#B45309] bg-[#FEF3C7] px-2 py-1 rounded-md" data-testid="mapping-unsaved">
+                  Unsaved changes
+                </span>
+              )}
               <button onClick={undo} className="bl-btn-ghost text-sm inline-flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> Undo</button>
               <button onClick={clearAll} className="bl-btn-ghost text-sm inline-flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Clear</button>
               <button onClick={save} className="bl-btn-primary text-sm inline-flex items-center gap-1.5" data-testid="map-save"><Save className="w-3.5 h-3.5" /> Save mapping</button>
             </div>
           </div>
 
-          <div className="bg-[#FBF8EF] rounded-xl border border-[#EAE6D7] flex justify-center p-4">
+          <div className="bg-[#FBF8EF] rounded-xl border border-[#EAE6D7] flex justify-center items-center p-6 min-h-[320px]">
             <canvas
               ref={canvasRef}
-              width={mapType === "face" ? 400 : 300}
-              height={mapType === "face" ? 500 : 600}
-              className="bg-white rounded-lg border border-[#EAE6D7] touch-none"
-              style={{ maxWidth: "100%", maxHeight: "70vh" }}
+              width={canvasW}
+              height={canvasH}
+              className="bg-white rounded-lg border border-[#EAE6D7] touch-none shadow-sm"
+              style={{ width: "min(100%, 480px)", height: "auto", aspectRatio: `${canvasW} / ${canvasH}` }}
               onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
               onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
               data-testid="mapping-canvas"

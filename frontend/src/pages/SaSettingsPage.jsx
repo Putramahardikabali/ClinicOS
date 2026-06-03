@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, ToggleLeft, ToggleRight, Banknote, Phone, Layers } from "lucide-react";
+import { Plus, Trash2, Save, ToggleLeft, ToggleRight, Banknote, Phone, Layers, Palette, Upload } from "lucide-react";
 
 const inputCls = "w-full px-3 py-2 rounded-lg outline-none text-sm";
 const inputStyle = { background: "#0F1419", border: "1px solid #2A3942", color: "#F5F2EA" };
@@ -11,6 +11,7 @@ function genId() { return "b_" + Math.random().toString(36).slice(2, 10); }
 function Tabs({ tab, setTab }) {
   const items = [
     { key: "general", label: "General", icon: Phone },
+    { key: "branding", label: "Branding", icon: Palette },
     { key: "banks", label: "Bank accounts", icon: Banknote },
     { key: "plans", label: "Plan pricing", icon: Layers },
   ];
@@ -66,6 +67,7 @@ export default function SaSettingsPage() {
       <Tabs tab={tab} setTab={setTab} />
 
       {tab === "general" && <GeneralTab s={s} save={save} busy={busy} />}
+      {tab === "branding" && <BrandingTab s={s} save={save} busy={busy} load={load} />}
       {tab === "banks" && <BanksTab s={s} save={save} busy={busy} />}
       {tab === "plans" && <PlansTab plansCatalog={plansCatalog} s={s} save={save} busy={busy} />}
     </div>
@@ -89,6 +91,85 @@ function GeneralTab({ s, save, busy }) {
       <button onClick={() => save(form)} disabled={busy} className="px-4 py-2 rounded-lg text-white text-sm inline-flex items-center gap-1.5 disabled:opacity-50" style={{ background: "#3F5A52" }} data-testid="sa-general-save">
         <Save className="w-4 h-4" /> Save changes
       </button>
+    </div>
+  );
+}
+
+function BrandingTab({ s, save, busy, load }) {
+  const b = s.platform_branding || {};
+  const [form, setForm] = useState({
+    app_name: b.app_name || "ClinicOS",
+    short_name: b.short_name || "ClinicOS",
+    description: b.description || "Clinic management system",
+    theme_color: b.theme_color || "#3F5A52",
+    background_color: b.background_color || "#FDFBF7",
+    favicon_url: b.favicon_url || "",
+    app_icon_192_url: b.app_icon_192_url || "",
+    app_icon_512_url: b.app_icon_512_url || "",
+    maskable_icon_url: b.maskable_icon_url || "",
+    login_logo_url: b.login_logo_url || "",
+    sidebar_logo_url: b.sidebar_logo_url || "",
+  });
+  const [uploading, setUploading] = useState("");
+
+  const upload = async (assetType, file) => {
+    if (!file) return;
+    setUploading(assetType);
+    try {
+      const fd = new FormData();
+      fd.append("asset_type", assetType);
+      fd.append("file", file);
+      const r = await api.post("/superadmin/platform/branding/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setForm((prev) => ({ ...prev, [r.data.field]: r.data.url }));
+      await load();
+      toast.success("Asset uploaded");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Upload failed");
+    } finally {
+      setUploading("");
+    }
+  };
+
+  return (
+    <div className="mt-6 space-y-5" data-testid="sa-branding-tab">
+      <div className="p-5 rounded-2xl space-y-4" style={{ background: "#141B22", border: "1px solid #1F2A30" }}>
+        <div className="text-xs uppercase tracking-widest" style={{ color: "#8FA89E" }}>Platform app branding</div>
+        <Field label="App Name" value={form.app_name} onChange={(v) => setForm({ ...form, app_name: v })} testid="sa-branding-app-name" />
+        <Field label="Short Name" value={form.short_name} onChange={(v) => setForm({ ...form, short_name: v })} testid="sa-branding-short-name" />
+        <Field label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testid="sa-branding-description" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Theme Color" value={form.theme_color} onChange={(v) => setForm({ ...form, theme_color: v })} testid="sa-branding-theme-color" />
+          <Field label="Background Color" value={form.background_color} onChange={(v) => setForm({ ...form, background_color: v })} testid="sa-branding-bg-color" />
+        </div>
+        <button onClick={() => save(form)} disabled={busy} className="px-4 py-2 rounded-lg text-white text-sm inline-flex items-center gap-1.5 disabled:opacity-50" style={{ background: "#3F5A52" }} data-testid="sa-branding-save">
+          <Save className="w-4 h-4" /> Save branding
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <UploadCard title="Favicon" hint=".ico / .png / .svg" value={form.favicon_url} uploading={uploading === "favicon"} onPick={(f) => upload("favicon", f)} testid="sa-branding-favicon" />
+        <UploadCard title="App Icon 192" hint="PNG 192x192" value={form.app_icon_192_url} uploading={uploading === "app_icon_192"} onPick={(f) => upload("app_icon_192", f)} testid="sa-branding-icon-192" />
+        <UploadCard title="App Icon 512" hint="PNG 512x512" value={form.app_icon_512_url} uploading={uploading === "app_icon_512"} onPick={(f) => upload("app_icon_512", f)} testid="sa-branding-icon-512" />
+        <UploadCard title="Maskable Icon" hint="PNG square" value={form.maskable_icon_url} uploading={uploading === "maskable_icon"} onPick={(f) => upload("maskable_icon", f)} testid="sa-branding-maskable" />
+        <UploadCard title="Login Logo" hint="PNG recommended" value={form.login_logo_url} uploading={uploading === "login_logo"} onPick={(f) => upload("login_logo", f)} testid="sa-branding-login-logo" />
+        <UploadCard title="Sidebar Logo" hint="PNG recommended" value={form.sidebar_logo_url} uploading={uploading === "sidebar_logo"} onPick={(f) => upload("sidebar_logo", f)} testid="sa-branding-sidebar-logo" />
+      </div>
+    </div>
+  );
+}
+
+function UploadCard({ title, hint, value, uploading, onPick, testid }) {
+  return (
+    <div className="p-4 rounded-2xl" style={{ background: "#141B22", border: "1px solid #1F2A30" }} data-testid={testid}>
+      <div className="text-xs uppercase tracking-widest" style={{ color: "#8FA89E" }}>{title}</div>
+      <div className="text-xs mt-1" style={{ color: "#8FA89E" }}>{hint}</div>
+      <div className="mt-3 rounded-lg p-3 min-h-[90px] flex items-center justify-center" style={{ background: "#0F1419", border: "1px solid #2A3942" }}>
+        {value ? <img src={value} alt={title} className="max-h-16 object-contain" /> : <div className="text-xs" style={{ color: "#8FA89E" }}>No asset uploaded</div>}
+      </div>
+      <label className="mt-3 px-3 py-2 rounded-lg text-sm inline-flex items-center gap-2 cursor-pointer" style={{ background: "#1A242B", color: "#E6E8E6", border: "1px solid #2A3942" }}>
+        <Upload className="w-4 h-4" /> {uploading ? "Uploading..." : "Upload"}
+        <input type="file" className="hidden" accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" onChange={(e) => onPick(e.target.files?.[0])} />
+      </label>
     </div>
   );
 }

@@ -162,12 +162,12 @@ class TestVisits:
         # billing must NOT be present
         assert "billing" not in v, "billing field should be removed from visit detail"
         # status must be in_progress on a freshly created visit
-        assert v["status"] in ("in_progress", "completed")
+        assert v["status"] in ("in_progress", "submitted", "completed")
 
     def test_migration_no_legacy_statuses(self, tokens):
         r = requests.get(f"{API}/visits", headers=H(tokens["super_admin"]), timeout=30)
         assert r.status_code == 200
-        bad = [v for v in r.json() if v.get("status") in ("submitted", "billed")]
+        bad = [v for v in r.json() if v.get("status") in ("billed",)]
         assert not bad, f"Found {len(bad)} visits with legacy status: {[v['id'] for v in bad[:3]]}"
 
 
@@ -189,9 +189,9 @@ class TestClinical:
                          json={"diagnosis": "TEST final", "assessment": {}, "submit": True}, timeout=30)
         assert r.status_code == 200
         assert r.json().get("submitted") is True
-        # visit status MUST remain in_progress (NOT submitted/completed)
+        # visit status moves to submitted when clinical record is submitted
         v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["doctor"]), timeout=30).json()
-        assert v["status"] == "in_progress", f"status should stay in_progress, got {v['status']}"
+        assert v["status"] == "submitted", f"status should be submitted, got {v['status']}"
 
     def test_doctor_cannot_edit_after_submit(self, tokens, patient_visit):
         vid = patient_visit["visit_id"]
@@ -227,9 +227,9 @@ class TestTherapist:
                                "duration": "30min", "submit": True}, timeout=30)
         assert r.status_code == 200, r.text
         assert r.json().get("submitted") is True
-        # status remains in_progress
+        # status becomes submitted after therapist record submit
         v = requests.get(f"{API}/visits/{vid}", headers=H(tokens["fo"]), timeout=30).json()
-        assert v["status"] == "in_progress", f"status should stay in_progress, got {v['status']}"
+        assert v["status"] == "submitted", f"status should be submitted, got {v['status']}"
 
     def test_therapist_cannot_edit_after_submit(self, tokens, therapist_visit):
         vid = therapist_visit["visit_id"]

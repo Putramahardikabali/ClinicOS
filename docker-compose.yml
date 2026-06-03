@@ -1,0 +1,45 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - clinicos_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: clinicos
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      APP_NAME: clinicos
+      APP_ENV: development
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8000
+      CORS_ORIGINS: http://localhost:3000
+      USE_LOCAL_UPLOADS: "true"
+      UPLOAD_DIR: /app/uploads
+      PUBLIC_UPLOAD_BASE_URL: http://localhost:8000/uploads
+      SUPER_ADMIN_EMAIL: platform@clinicos.id
+      SUPER_ADMIN_PASSWORD: ChangeMe123!
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+    command: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  clinicos_mongo_data:
+  uploads:

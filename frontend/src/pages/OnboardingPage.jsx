@@ -42,7 +42,7 @@ export default function OnboardingPage() {
       await api.post("/admin/logo", fd, { headers: { "Content-Type": "multipart/form-data" } });
       await refreshSettings();
       toast.success("Logo uploaded");
-    } catch { toast.error("Upload failed"); }
+    } catch (err) { toast.error(err?.response?.data?.detail || "Logo upload failed"); }
     e.target.value = "";
   };
 

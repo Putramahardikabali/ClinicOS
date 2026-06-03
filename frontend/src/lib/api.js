@@ -1,6 +1,14 @@
 import axios from "axios";
 
-export const API_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const BACKEND_URL =
+  process.env.VITE_API_BASE_URL ||
+  process.env.REACT_APP_BACKEND_URL ||
+  (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
+const PUBLIC_UPLOAD_BASE_URL =
+  process.env.REACT_APP_PUBLIC_UPLOAD_BASE_URL ||
+  (BACKEND_URL ? `${BACKEND_URL.replace(/\/$/, "")}/uploads` : "");
+
+export const API_BASE = `${BACKEND_URL}/api`;
 const API = API_BASE;
 
 const api = axios.create({ baseURL: API });
@@ -24,6 +32,10 @@ api.interceptors.response.use(
 
 export const fileUrl = (storagePath) => {
   const token = localStorage.getItem("bl_token");
+  if (!storagePath) return "";
+  if (PUBLIC_UPLOAD_BASE_URL) {
+    return `${PUBLIC_UPLOAD_BASE_URL}/${storagePath}?auth=${encodeURIComponent(token || "")}`;
+  }
   return `${API}/files/${storagePath}?auth=${encodeURIComponent(token || "")}`;
 };
 

@@ -36,9 +36,14 @@ class TestPlans:
         # Features sanity
         feats = {p["key"]: set(p["features"]) for p in plans}
         assert "emr" not in feats["starter"]
-        assert "photos" in feats["starter"]
+        assert "photos" not in feats["starter"]
+        assert "treatments" in feats["starter"]
         assert "audit_log" not in feats["clinic"]
         assert "audit_log" in feats["complete"]
+        assert "products" in feats["complete"]
+        assert "products" not in feats["clinic"]
+        assert "commissions" not in feats["clinic"]
+        assert "whatsapp_automation" not in feats["clinic"]
 
 
 # ---------------- Register clinic ----------------
@@ -111,15 +116,19 @@ class TestSeededLogins:
             # plan-specific feature checks
             if plan == "starter":
                 assert "emr" not in c["features"]
-                assert "photos" in c["features"]
-                assert "treatments" not in c["features"]
+                assert "photos" not in c["features"]
+                assert "treatments" in c["features"]
+                assert "billing" in c["features"]
+                assert "commissions" not in c["features"]
                 assert "mapping" not in c["features"]
             elif plan == "clinic":
                 assert "emr" in c["features"]
                 assert "audit_log" not in c["features"]
+                assert "products" not in c["features"]
             elif plan == "complete":
                 assert "emr" in c["features"]
                 assert "audit_log" in c["features"]
+                assert "products" in c["features"]
         assert c["readonly"] is False
         assert "plan_details" in c
 

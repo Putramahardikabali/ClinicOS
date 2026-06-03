@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.env
+pip_install.log
+login_test.txt
+_test_out.txt
+.pytest_cache

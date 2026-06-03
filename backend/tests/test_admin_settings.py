@@ -102,6 +102,47 @@ class TestSettingsPersist:
         requests.put(f"{API}/admin/settings", headers=admin_h,
                      json={"branding": original_branding}, timeout=15)
 
+    def test_branding_on_public_booking_page(self, admin_h):
+        me = requests.get(f"{API}/clinics/me", headers=admin_h, timeout=15).json()
+        slug = me["slug"]
+        cur = requests.get(f"{API}/settings", headers=admin_h, timeout=15).json()
+        original = cur["branding"].copy()
+        unique = f"TEST_Public_{uuid.uuid4().hex[:6]}"
+        new_branding = {**original, "clinic_name": unique, "tagline": "Test Tagline"}
+        try:
+            r = requests.put(f"{API}/admin/settings", headers=admin_h,
+                             json={"branding": new_branding}, timeout=15)
+            assert r.status_code == 200
+            pub = requests.get(f"{API}/public/clinics/{slug}/treatments", timeout=15).json()
+            assert pub["clinic"]["name"] == unique
+            assert pub["clinic"]["tagline"] == "Test Tagline"
+            me2 = requests.get(f"{API}/clinics/me", headers=admin_h, timeout=15).json()
+            assert me2["name"] == unique
+        finally:
+            requests.put(f"{API}/admin/settings", headers=admin_h,
+                         json={"branding": original}, timeout=15)
+
+    def test_booking_slug_update(self, admin_h):
+        me = requests.get(f"{API}/clinics/me", headers=admin_h, timeout=15).json()
+        original_slug = me["slug"]
+        new_slug = f"test-{uuid.uuid4().hex[:8]}"
+        try:
+            r = requests.put(f"{API}/admin/settings", headers=admin_h,
+                             json={"booking_slug": new_slug}, timeout=15)
+            assert r.status_code == 200, r.text
+            me2 = requests.get(f"{API}/clinics/me", headers=admin_h, timeout=15).json()
+            assert me2["slug"] == new_slug
+            assert requests.get(f"{API}/public/clinics/{new_slug}/treatments", timeout=15).status_code == 200
+            assert requests.get(f"{API}/public/clinics/{original_slug}/treatments", timeout=15).status_code == 404
+        finally:
+            requests.put(f"{API}/admin/settings", headers=admin_h,
+                         json={"booking_slug": original_slug}, timeout=15)
+
+    def test_booking_slug_reserved(self, admin_h):
+        r = requests.put(f"{API}/admin/settings", headers=admin_h,
+                         json={"booking_slug": "login"}, timeout=15)
+        assert r.status_code == 400
+
     def test_persist_form_config(self, admin_h):
         cur = requests.get(f"{API}/settings", headers=admin_h, timeout=15).json()
         original_fc = cur["form_config"].copy()

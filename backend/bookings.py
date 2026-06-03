@@ -3,6 +3,7 @@
 Endpoints (registered onto the main `api` router):
   - Public (no auth)
       GET  /api/public/clinics/{slug}/treatments      -> list of bookable treatments
+      GET  /api/public/clinics/{slug}/packages        -> list of bookable packages
       GET  /api/public/clinics/{slug}/availability    -> available slots for a date
       POST /api/public/clinics/{slug}/bookings        -> create a booking (status=booked)
   - Auth (clinic-scoped)
@@ -26,12 +27,106 @@ try:
 except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
+
+from treatment_catalog_io import (
+    build_treatment_doc,
+    build_treatment_lookup,
+    find_treatment_match,
+    parse_csv_text,
+    parse_xlsx_bytes as parse_treatment_xlsx,
+    register_treatment_in_lookup,
+    rows_to_csv,
+    rows_to_xlsx as treatment_rows_to_xlsx,
+    treatment_to_export_row,
+)
+from product_catalog_io import (
+    build_product_doc,
+    build_product_lookup,
+    find_product_match,
+    parse_csv_text as parse_product_csv,
+    parse_xlsx_bytes as parse_product_xlsx,
+    product_to_export_row,
+    register_product_in_lookup,
+    rows_to_csv as product_rows_to_csv,
+    rows_to_xlsx as product_rows_to_xlsx,
+)
+from package_io import (
+    build_package_doc,
+    package_to_export_row,
+    parse_csv_text as parse_package_csv,
+    parse_xlsx_bytes as parse_package_xlsx,
+    rows_to_csv as package_rows_to_csv,
+    rows_to_xlsx as package_rows_to_xlsx,
+)
+from coupon_io import (
+    apply_coupon_to_subtotal,
+    build_coupon_doc,
+    coupon_is_valid_now,
+    normalize_coupon_code,
+)
+from performers import (
+    CLINICAL_PERFORMER_ROLES,
+    PERFORMER_SLOT_ROLES,
+    booking_staff_filter,
+    get_performers,
+    normalize_allowed_performer_roles,
+    normalize_performers_input,
+    primary_performer_id,
+    roles_from_legacy_performer_type,
+    staff_ids_from_performers,
+    sync_legacy_performer_fields,
+    treatment_allows_multiple,
+    visit_staff_filter,
+)
+from visit_workflow import create_visit_from_booking, patient_loyalty_discount_percent
+from staff_scheduling import resolve_effective_day, resolve_effective_day_batch, staff_slot_available, slot_fits
+from permissions import user_has_permission
+
+
+def _can_view_treatments_catalog(user: dict) -> bool:
+    return any(user_has_permission(user, p) for p in (
+        "treatments.manage", "appointments.view", "billing.view", "visits.view",
+        "visits.view_own", "clinical_records.edit", "packages_catalog.manage", "packages.view",
+    ))
+
+
+def _can_view_packages_catalog(user: dict) -> bool:
+    return any(user_has_permission(user, p) for p in (
+        "packages_catalog.manage", "packages.view", "appointments.view", "billing.view",
+    ))
+
+
+def _can_manage_treatments(user: dict) -> bool:
+    return user_has_permission(user, "treatments.manage")
+
+
+def _can_manage_packages(user: dict) -> bool:
+    return user_has_permission(user, "packages_catalog.manage")
+
+
+def _can_view_owner_dashboard(user: dict) -> bool:
+    return any(user_has_permission(user, p) for p in ("billing.view", "reports.view"))
+
+
+def _assert_catalog_view(user: dict, catalog: str) -> None:
+    ok = _can_view_treatments_catalog(user) if catalog == "treatments" else _can_view_packages_catalog(user)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Insufficient permissions to view catalog")
 
 
 # ---------------- Models ----------------
-BOOKING_STATUSES = ["booked", "confirmed", "checked_in", "completed", "cancelled", "no_show"]
+BOOKING_STATUSES = ["booked", "confirmed", "checked_in", "completed", "cancelled", "no_show", "blocked", "pending_payment", "payment_expired", "payment_failed"]
+# Statuses that occupy a performer slot (including FO time blocks and payment hold)
+SLOT_OCCUPYING_STATUSES = ["booked", "confirmed", "checked_in", "blocked", "pending_payment"]
+# Real appointments only (excludes time blocks)
+APPOINTMENT_QUEUE_STATUSES = ["booked", "confirmed", "checked_in"]
+
+
+def is_time_block(doc: dict) -> bool:
+    return doc.get("status") == "blocked" or doc.get("booking_type") == "block"
 
 
 class PublicBookingIn(BaseModel):
@@ -42,6 +137,15 @@ class PublicBookingIn(BaseModel):
     duration_min: int = 30
     scheduled_at: str  # ISO datetime
     notes: Optional[str] = ""
+    package_id: Optional[str] = None
+    booking_type: Optional[str] = "treatment"  # treatment | package
+
+
+class PerformerEntryIn(BaseModel):
+    staff_id: str
+    performer_type: str = "primary"
+    notes: Optional[str] = ""
+    commission_eligible: bool = True
 
 
 class BookingIn(BaseModel):
@@ -52,8 +156,26 @@ class BookingIn(BaseModel):
     duration_min: int = 30
     scheduled_at: str
     notes: Optional[str] = ""
-    patient_id: Optional[str] = None  # link to existing patient if known
-    performer_id: Optional[str] = None  # assigned staff member id
+    patient_id: Optional[str] = None
+    performer_id: Optional[str] = None
+    performers: Optional[List[PerformerEntryIn]] = None
+    package_id: Optional[str] = None
+    booking_type: Optional[str] = "treatment"  # treatment | package | block
+    block_reason: Optional[str] = None
+    coupon_code: Optional[str] = None
+    gift_card_id: Optional[str] = None
+    is_overtime: Optional[bool] = False
+    overtime_reason: Optional[str] = None
+    overtime_note: Optional[str] = None
+
+
+OVERTIME_REASONS = (
+    "Patient request",
+    "Emergency",
+    "Schedule exception",
+    "Manager approved",
+    "Other",
+)
 
 
 class BookingUpdateIn(BaseModel):
@@ -63,7 +185,47 @@ class BookingUpdateIn(BaseModel):
     treatment: Optional[str] = None
     duration_min: Optional[int] = None
     scheduled_at: Optional[str] = None
+    performer_id: Optional[str] = None
+    performers: Optional[List[PerformerEntryIn]] = None
+    package_id: Optional[str] = None
+    booking_type: Optional[str] = None
     notes: Optional[str] = None
+    block_reason: Optional[str] = None
+    coupon_code: Optional[str] = None
+
+
+class CouponIn(BaseModel):
+    code: str
+    name: Optional[str] = ""
+    discount_type: str = "percent"  # percent | fixed
+    discount_value: int = 0
+    max_discount_idr: Optional[int] = None
+    min_subtotal_idr: int = 0
+    active: bool = True
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    max_uses: Optional[int] = None
+
+
+class CouponUpdateIn(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[int] = None
+    max_discount_idr: Optional[int] = None
+    min_subtotal_idr: Optional[int] = None
+    active: Optional[bool] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    max_uses: Optional[int] = None
+
+
+class CouponValidateIn(BaseModel):
+    code: str
+    subtotal_idr: int = 0
+    booking_type: Optional[str] = "treatment"
+    treatment: Optional[str] = None
+    package_id: Optional[str] = None
 
 
 class BookingStatusIn(BaseModel):
@@ -77,23 +239,141 @@ class WaSentIn(BaseModel):
 class TreatmentCatalogIn(BaseModel):
     name: str
     category: str = "general"          # facial | injectable | laser | body | peel | consult | general
-    performer_type: str = "therapist"  # "doctor" | "therapist" | "either"
+    sub_category: Optional[str] = ""
+    service_code: Optional[str] = ""
+    business_unit: Optional[str] = "Default"
+    service_type: Optional[str] = "None"
+    tax_included: bool = True
+    tax_group: Optional[str] = ""
+    performer_type: str = "therapist"  # legacy: doctor | therapist | either | nurse
+    allowed_performer_roles: Optional[List[str]] = None
+    allow_multiple_performers: bool = False
+    requires_assistant: bool = False
     duration_min: int = 30
     price_idr: int = 0
     slots_per_session: int = 1          # concurrent capacity (e.g., 2 chairs = 2)
     active: bool = True
     description: Optional[str] = ""
+    consent_required: bool = False
+    consent_template_id: Optional[str] = None
 
 
 class TreatmentCatalogUpdateIn(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
+    sub_category: Optional[str] = None
+    service_code: Optional[str] = None
+    business_unit: Optional[str] = None
+    service_type: Optional[str] = None
+    tax_included: Optional[bool] = None
+    tax_group: Optional[str] = None
     performer_type: Optional[str] = None
+    allowed_performer_roles: Optional[List[str]] = None
+    allow_multiple_performers: Optional[bool] = None
+    requires_assistant: Optional[bool] = None
     duration_min: Optional[int] = None
     price_idr: Optional[int] = None
     slots_per_session: Optional[int] = None
     active: Optional[bool] = None
     description: Optional[str] = None
+    consent_required: Optional[bool] = None
+    consent_template_id: Optional[str] = None
+
+
+class PackageComponentIn(BaseModel):
+    id: Optional[str] = None
+    treatment_id: str
+    treatment_name_snapshot: Optional[str] = ""
+    quantity: int = 1
+    sort_order: int = 0
+    is_required: bool = True
+    notes: Optional[str] = ""
+
+
+class PackageCatalogIn(BaseModel):
+    name: str
+    package_code: Optional[str] = ""
+    package_type: str = "series_package"
+    category: Optional[str] = "Default"
+    business_unit: Optional[str] = "Default"
+    performer_type: str = "therapist"
+    duration_min: int = 60
+    price_idr: int = 0
+    sessions_total: int = 6
+    validity_days: int = 365
+    valid_days: Optional[int] = None
+    redemption_rule: Optional[str] = None
+    unused_component_policy: Optional[str] = None
+    is_active: bool = True
+    active: Optional[bool] = None
+    online_booking: bool = False
+    description: Optional[str] = ""
+    components: Optional[List[PackageComponentIn]] = None
+    series_treatment_id: Optional[str] = None
+
+
+class PackageCatalogUpdateIn(BaseModel):
+    name: Optional[str] = None
+    package_code: Optional[str] = None
+    package_type: Optional[str] = None
+    category: Optional[str] = None
+    business_unit: Optional[str] = None
+    performer_type: Optional[str] = None
+    duration_min: Optional[int] = None
+    price_idr: Optional[int] = None
+    sessions_total: Optional[int] = None
+    validity_days: Optional[int] = None
+    valid_days: Optional[int] = None
+    redemption_rule: Optional[str] = None
+    unused_component_policy: Optional[str] = None
+    is_active: Optional[bool] = None
+    active: Optional[bool] = None
+    online_booking: Optional[bool] = None
+    description: Optional[str] = None
+    components: Optional[List[PackageComponentIn]] = None
+    series_treatment_id: Optional[str] = None
+
+
+class ProductCatalogIn(BaseModel):
+    name: str
+    product_code: Optional[str] = ""
+    brand: Optional[str] = ""
+    category: Optional[str] = "Default"
+    sub_category: Optional[str] = ""
+    business_unit: Optional[str] = "Default"
+    product_type: Optional[str] = "Consumable"
+    sale_price_idr: Optional[int] = None
+    cost_price_idr: Optional[int] = None
+    mrp_idr: Optional[int] = None
+    pos_enabled: bool = True
+    track_stock: bool = True
+    amount: Optional[str] = ""
+    current_stock: int = 0
+    minimum_stock: int = 0
+    unit: Optional[str] = "pcs"
+    notes: Optional[str] = ""
+    active: bool = True
+
+
+class ProductCatalogUpdateIn(BaseModel):
+    name: Optional[str] = None
+    product_code: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    sub_category: Optional[str] = None
+    business_unit: Optional[str] = None
+    product_type: Optional[str] = None
+    sale_price_idr: Optional[int] = None
+    cost_price_idr: Optional[int] = None
+    mrp_idr: Optional[int] = None
+    pos_enabled: Optional[bool] = None
+    track_stock: Optional[bool] = None
+    amount: Optional[str] = None
+    current_stock: Optional[int] = None
+    minimum_stock: Optional[int] = None
+    unit: Optional[str] = None
+    notes: Optional[str] = None
+    active: Optional[bool] = None
 
 
 # ---------------- Defaults ----------------
@@ -185,9 +465,77 @@ def _format_slot(date_str: str, minute_of_day: int) -> str:
     return f"{date_str}T{h:02d}:{m:02d}:00"
 
 
+def _public_online_bookable_filter() -> Dict[str, Any]:
+    """Active catalog rows; require online_booking when that field exists."""
+    return {
+        "active": True,
+        "$or": [
+            {"online_booking": True},
+            {"online_booking": {"$exists": False}},
+        ],
+    }
+
+
+def _public_package_component_summary(pkg: dict) -> str:
+    from package_engine import normalize_package_type
+    ptype = normalize_package_type(pkg.get("package_type"))
+    components = pkg.get("components") or []
+    if ptype == "series_package":
+        sessions = int(pkg.get("sessions_total") or 0)
+        if components:
+            name = (components[0].get("treatment_name_snapshot") or "").strip()
+            if name and sessions:
+                return f"{name} · {sessions} session{'s' if sessions != 1 else ''}"
+            if name:
+                return name
+        if sessions:
+            return f"{sessions} session{'s' if sessions != 1 else ''}"
+        return ""
+    parts = []
+    for comp in sorted(components, key=lambda c: int(c.get("sort_order") or 0)):
+        name = (comp.get("treatment_name_snapshot") or "Treatment").strip()
+        qty = max(1, int(comp.get("quantity") or 1))
+        parts.append(f"{name} x{qty}")
+    return " + ".join(parts)
+
+
+def _public_package_view(pkg: dict) -> dict:
+    from package_engine import normalize_package_type, package_type_label
+    ptype = normalize_package_type(pkg.get("package_type"))
+    desc = (pkg.get("description") or "").strip()
+    if len(desc) > 160:
+        desc = desc[:157] + "..."
+    return {
+        "id": pkg["id"],
+        "key": pkg.get("key") or pkg.get("package_code") or pkg["id"],
+        "name": pkg["name"],
+        "package_type": ptype,
+        "package_type_label": package_type_label(ptype),
+        "category": pkg.get("category") or "Default",
+        "description": desc,
+        "duration_min": int(pkg.get("duration_min") or 60),
+        "price_idr": pkg.get("price_idr"),
+        "sessions_total": int(pkg.get("sessions_total") or 0),
+        "component_summary": _public_package_component_summary(pkg),
+    }
+
+
 # ---------------- Router builder ----------------
 def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, assert_feature, audit, scope, get_active_clinic, public_clinic_view, DEFAULT_SETTINGS):
     """Wire booking endpoints onto the given /api router."""
+
+    async def _public_clinic_info(c: dict) -> dict:
+        s = await db.settings.find_one({"id": "global", "clinic_id": c["id"]}, {"_id": 0, "branding": 1})
+        branding = (s or {}).get("branding") or {}
+        return {
+            "name": (branding.get("clinic_name") or c.get("name") or "").strip() or c["name"],
+            "slug": c["slug"],
+            "tagline": (branding.get("tagline") or "").strip(),
+            "city": c.get("city", ""),
+            "phone": c.get("phone", ""),
+            "logo_path": branding.get("logo_path") or c.get("logo_path", ""),
+            "booking_slot_interval": int(c.get("booking_slot_interval") or 30),
+        }
 
     # ---------- Public endpoints ----------
     @api.get("/public/clinics/{slug}/treatments")
@@ -195,12 +543,49 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
+        from subscription_gates import resolve_clinic_for_public_booking
+        c, blocked = await resolve_clinic_for_public_booking(db, c)
+        if blocked:
+            return {
+                "clinic": await _public_clinic_info(c),
+                "treatments": [],
+                "booking_disabled": True,
+                "message": blocked,
+            }
         # Auto-seed collection if empty for this clinic
         await _seed_default_treatments(c["id"])
-        treatments = await db.treatments.find({"clinic_id": c["id"], "active": True}, {"_id": 0}).sort("name", 1).to_list(200)
+        treatments = await db.treatments.find(
+            {"clinic_id": c["id"], **_public_online_bookable_filter()},
+            {"_id": 0},
+        ).sort("name", 1).to_list(200)
         return {
-            "clinic": {"name": c["name"], "slug": c["slug"], "city": c.get("city", ""), "phone": c.get("phone", ""), "logo_path": c.get("logo_path", ""), "booking_slot_interval": int(c.get("booking_slot_interval") or 30)},
+            "clinic": await _public_clinic_info(c),
             "treatments": treatments,
+        }
+
+    @api.get("/public/clinics/{slug}/packages")
+    async def public_packages(slug: str):
+        c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
+        if not c:
+            raise HTTPException(status_code=404, detail="Clinic not found")
+        from subscription_gates import resolve_clinic_for_public_booking
+        c, blocked = await resolve_clinic_for_public_booking(db, c)
+        if blocked:
+            return {
+                "clinic": await _public_clinic_info(c),
+                "packages": [],
+                "booking_disabled": True,
+                "message": blocked,
+            }
+        rows = await db.packages.find(
+            {"clinic_id": c["id"], **_public_online_bookable_filter()},
+            {"_id": 0, "id": 1, "key": 1, "package_code": 1, "name": 1, "package_type": 1,
+             "category": 1, "description": 1, "duration_min": 1, "price_idr": 1,
+             "sessions_total": 1, "components": 1},
+        ).sort("name", 1).to_list(200)
+        return {
+            "clinic": await _public_clinic_info(c),
+            "packages": [_public_package_view(p) for p in rows],
         }
 
     @api.get("/public/clinics/{slug}/availability")
@@ -212,6 +597,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
+        from subscription_gates import resolve_clinic_for_public_booking, PUBLIC_BOOKING_UNAVAILABLE_MSG
+        c, blocked = await resolve_clinic_for_public_booking(db, c)
+        if blocked:
+            return {
+                "date": date,
+                "slots": [],
+                "closed": True,
+                "closed_reason": blocked,
+                "booking_disabled": True,
+            }
         try:
             d = datetime.fromisoformat(date)
         except Exception:
@@ -232,41 +627,25 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         base = _gen_slots(open_min, close_min, step_min=int(c.get("booking_slot_interval") or 30))
 
         # Resolve eligible performer pool
-        performer_type = "either"
+        treatment_doc = None
         if treatment:
-            t = await db.treatments.find_one({"clinic_id": c["id"], "name": treatment, "active": True}, {"_id": 0, "performer_type": 1})
-            if t:
-                performer_type = t.get("performer_type", "either")
-        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
-        staff = await db.users.find({"clinic_id": c["id"], "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1}).to_list(200)
-        # Pre-compute each staff member's effective availability for this date (open/close minutes + on-leave flag)
-        # Rule:
-        #   - days_off match -> None (off)
-        #   - working_hours empty {} -> inherit clinic hours
-        #   - working_hours set with explicit day open/close -> use that
-        #   - working_hours set but this day missing or empty -> None (explicitly off)
-        staff_window: Dict[str, Optional[tuple]] = {}  # id -> (open_min, close_min) or None if off
-        for s in staff:
-            # Day off?
-            doff = s.get("days_off") or []
-            if any(d.get("date") == date for d in doff):
-                staff_window[s["id"]] = None
-                continue
-            wh = s.get("working_hours") or {}
-            if not wh:
-                # No personal hours set → inherit clinic hours
-                staff_window[s["id"]] = (open_min, close_min)
-                continue
-            day_h = wh.get(day_key) or {}
-            if day_h.get("open") and day_h.get("close"):
-                o = _hhmm_to_minutes(day_h["open"]) or 0
-                cl = _hhmm_to_minutes(day_h["close"]) or 0
-                staff_window[s["id"]] = (o, cl) if o < cl else None
-            else:
-                # Day explicitly off (user took control and left this day blank)
-                staff_window[s["id"]] = None
-        # eligible_ids only includes staff who actually have a window today (i.e. not on leave)
-        eligible_ids = {sid for sid, w in staff_window.items() if w is not None}
+            pub = _public_online_bookable_filter()
+            treatment_doc = await db.treatments.find_one(
+                {"clinic_id": c["id"], "name": treatment, **pub}, {"_id": 0},
+            )
+            if not treatment_doc:
+                treatment_doc = await db.packages.find_one(
+                    {"clinic_id": c["id"], "name": treatment, **pub}, {"_id": 0},
+                )
+        role_filter = normalize_allowed_performer_roles(treatment_doc)
+        performer_type = (treatment_doc or {}).get("performer_type") or "either"
+        staff = await db.users.find(
+            {"clinic_id": c["id"], "role": {"$in": role_filter}, "active": {"$ne": False}},
+            {"_id": 0, "id": 1, "name": 1, "role": 1},
+        ).to_list(200)
+        staff_ids = [s["id"] for s in staff]
+        effective_map = await resolve_effective_day_batch(db, c["id"], staff_ids, date)
+        eligible_ids = {sid for sid, eff in effective_map.items() if eff.get("is_working")}
         eligible_count = len(eligible_ids)
         staff_count = len(staff)  # total role-matching staff (even if all off today)
 
@@ -274,17 +653,27 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         day_start = datetime(d.year, d.month, d.day, 0, 0, 0).isoformat()
         day_end = datetime(d.year, d.month, d.day, 23, 59, 59).isoformat()
         booked = await db.bookings.find(
-            {"clinic_id": c["id"], "scheduled_at": {"$gte": day_start, "$lte": day_end}, "status": {"$in": ["booked", "confirmed", "checked_in"]}},
-            {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1},
+            {"clinic_id": c["id"], "scheduled_at": {"$gte": day_start, "$lte": day_end}, "status": {"$in": SLOT_OCCUPYING_STATUSES}},
+            {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1, "performers": 1},
         ).to_list(500)
-        # Pre-parse bookings into minute ranges
+        # Pre-parse bookings into minute ranges (one entry per assigned performer)
         ranges = []
         for b in booked:
             try:
                 bt = _parse_iso(b["scheduled_at"])
                 start = bt.hour * 60 + bt.minute
                 end = start + int(b.get("duration_min", 30))
-                ranges.append((start, end, b.get("performer_id")))
+                pids = set()
+                if b.get("performer_id"):
+                    pids.add(b["performer_id"])
+                for pe in b.get("performers") or []:
+                    if pe.get("staff_id"):
+                        pids.add(pe["staff_id"])
+                if pids:
+                    for pid in pids:
+                        ranges.append((start, end, pid))
+                else:
+                    ranges.append((start, end, None))
             except Exception:
                 continue
 
@@ -313,8 +702,15 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     busy_assigned.add(pid)
                 else:
                     unassigned += 1
-            # Per-staff schedule: a performer is only available if (s_min, s_end) fits inside their window
-            in_window_ids = {sid for sid, w in staff_window.items() if w is not None and w[0] <= s_min and s_end <= w[1]}
+            in_window_ids = set()
+            for sid in staff_ids:
+                eff = effective_map.get(sid) or {}
+                if not eff.get("is_working"):
+                    continue
+                ww = [(w["start"], w["end"]) for w in eff.get("work_windows") or []]
+                br = [(b["start"], b["end"]) for b in eff.get("block_ranges") or []]
+                if slot_fits(ww, br, s_min, s_end):
+                    in_window_ids.add(sid)
             if performer_id:
                 available = (
                     performer_id in eligible_ids
@@ -351,9 +747,10 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         c = await db.clinics.find_one({"slug": slug}, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Clinic not found")
-        sub = c.get("subscription", {})
-        if sub.get("status") not in ("trial", "active"):
-            raise HTTPException(status_code=402, detail="Bookings temporarily disabled for this clinic")
+        from subscription_gates import resolve_clinic_for_public_booking, PUBLIC_BOOKING_UNAVAILABLE_MSG
+        c, blocked = await resolve_clinic_for_public_booking(db, c)
+        if blocked:
+            raise HTTPException(status_code=402, detail=blocked)
         # check feature: online_booking is included for all current plans + trial
         try:
             scheduled = _parse_iso(payload.scheduled_at)
@@ -368,11 +765,50 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         cd_match = next((cd for cd in (c.get("closed_dates") or []) if cd.get("date") == day_str), None)
         if cd_match:
             raise HTTPException(status_code=409, detail=f"Clinic is closed on {day_str}" + (f" ({cd_match.get('reason')})" if cd_match.get("reason") else ""))
+
+        booking_type = (payload.booking_type or "treatment").strip().lower()
+        package_id = (payload.package_id or "").strip() or None
+        treatment_name = payload.treatment.strip()
+        duration_min = int(payload.duration_min or 30)
+        pub_flt = _public_online_bookable_filter()
+
+        if booking_type == "package" or package_id:
+            pkg_flt: Dict[str, Any] = {"clinic_id": c["id"], **pub_flt}
+            if package_id:
+                pkg_flt["id"] = package_id
+            else:
+                pkg_flt["name"] = treatment_name
+            pkg = await db.packages.find_one(pkg_flt, {"_id": 0})
+            if not pkg:
+                raise HTTPException(status_code=400, detail="Package not available for online booking")
+            booking_type = "package"
+            package_id = pkg["id"]
+            treatment_name = pkg["name"]
+            if not duration_min or duration_min == 30:
+                duration_min = int(pkg.get("duration_min") or 60)
+        else:
+            tdoc = await db.treatments.find_one(
+                {"clinic_id": c["id"], "name": treatment_name, **pub_flt},
+                {"_id": 0, "duration_min": 1},
+            )
+            if not tdoc:
+                raise HTTPException(status_code=400, detail="Treatment not available for online booking")
+            booking_type = "treatment"
+            package_id = None
+            if not duration_min or duration_min == 30:
+                duration_min = int(tdoc.get("duration_min") or 30)
+
         # Capacity-aware slot check
-        if await _has_slot_conflict(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min):
+        if await _has_slot_conflict(
+            c["id"], treatment_name, payload.scheduled_at, duration_min,
+            package_id=package_id, booking_type=booking_type,
+        ):
             raise HTTPException(status_code=409, detail="Slot just got taken — please pick another")
         # Auto-pick the least-busy on-duty performer (silent — guest doesn't choose)
-        auto_performer_id = await _auto_pick_performer(c["id"], payload.treatment, payload.scheduled_at, payload.duration_min)
+        auto_performer_id = await _auto_pick_performer(
+            c["id"], treatment_name, payload.scheduled_at, duration_min,
+            package_id=package_id, booking_type=booking_type,
+        )
         # Match-or-create patient by phone (primary) or email
         normalized_phone = "".join(ch for ch in (payload.patient_phone or "") if ch.isdigit() or ch == "+").strip()
         normalized_email = (payload.patient_email or "").strip().lower()
@@ -418,13 +854,15 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "patient_name": payload.patient_name,
             "patient_phone": payload.patient_phone,
             "patient_email": (payload.patient_email or "").lower(),
-            "treatment": payload.treatment,
-            "duration_min": payload.duration_min,
+            "treatment": treatment_name,
+            "duration_min": duration_min,
             "scheduled_at": payload.scheduled_at,
             "performer_id": auto_performer_id,
             "performer_auto_assigned": bool(auto_performer_id),
             "patient_matched": patient_matched,
             "notes": payload.notes or "",
+            "booking_type": booking_type,
+            "package_id": package_id,
             "status": "booked",
             "source": "public",
             "wa_history": [],
@@ -432,6 +870,18 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         }
         await db.bookings.insert_one(booking)
         booking.pop("_id", None)
+        from audit_log import log_appointment_created
+        await log_appointment_created(
+            db,
+            {
+                "id": "public_booking",
+                "email": (payload.patient_email or "public@guest").lower(),
+                "role": "guest",
+                "name": payload.patient_name.strip(),
+                "clinic_id": c["id"],
+            },
+            booking,
+        )
         return booking
 
     # ---------- Authenticated FO Bookings ----------
@@ -439,16 +889,46 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
     async def list_bookings(
         status: Optional[str] = None,
         date: Optional[str] = None,
+        from_date: Optional[str] = Query(None, alias="from"),
+        to_date: Optional[str] = Query(None, alias="to"),
         scope_filter: Optional[str] = Query(None, alias="scope"),  # 'today' | 'upcoming' | 'past'
+        appointments_only: bool = Query(False),
+        patient_id: Optional[str] = None,
         user: dict = Depends(get_current_user),
     ):
+        from permissions import user_has_permission
+        from server import assert_patient_access
+        if not user_has_permission(user, "appointments.view") and not user_has_permission(user, "schedule.view_own"):
+            raise HTTPException(status_code=403, detail="Not allowed to list bookings")
+        if patient_id:
+            p = await db.patients.find_one(scope(user, {"id": patient_id}), {"_id": 0, "id": 1})
+            if not p:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            await assert_patient_access(db, user, patient_id)
         flt: Dict[str, Any] = scope(user)
+        if patient_id:
+            flt["patient_id"] = patient_id
+        if not user_has_permission(user, "appointments.view") and user.get("id"):
+            flt.update(booking_staff_filter(user["id"]))
+        elif user.get("role") in PERFORMER_SLOT_ROLES and user.get("id") and user_has_permission(user, "schedule.view_own"):
+            flt.update(booking_staff_filter(user["id"]))
+        if appointments_only and status != "blocked":
+            flt["status"] = {"$ne": "blocked"}
+            flt["booking_type"] = {"$ne": "block"}
         if status:
             flt["status"] = status
         if date:
             day_start = f"{date}T00:00:00"
             day_end = f"{date}T23:59:59"
             flt["scheduled_at"] = {"$gte": day_start, "$lte": day_end}
+        elif from_date or to_date:
+            sched: Dict[str, Any] = {}
+            if from_date:
+                sched["$gte"] = f"{from_date}T00:00:00"
+            if to_date:
+                sched["$lte"] = f"{to_date}T23:59:59"
+            if sched:
+                flt["scheduled_at"] = sched
         elif scope_filter:
             today = now_utc().strftime("%Y-%m-%d")
             if scope_filter == "today":
@@ -460,65 +940,71 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         items = await db.bookings.find(flt, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
         return items
 
-    async def _has_slot_conflict(cid: str, treatment_name: str, scheduled_at: str, duration_min: int, performer_id: Optional[str] = None) -> bool:
-        """Return True if no eligible performer is free at this slot.
-        Rule:
-          - If performer_id is provided: that specific staff member must be free AND on duty (not day-off, in working hours).
-          - Otherwise: at least ONE eligible performer (matching treatment.performer_type) must be free + on duty.
-          - Unassigned bookings consume one generic eligible slot each.
-        """
-        # Get clinic operating hours for day to fall back to
-        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1})
-        c_hours = (c or {}).get("operating_hours") or {}
-        # Resolve treatment performer_type
+    async def _get_treatment_doc(
+        cid: str,
+        treatment_name: str,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+    ) -> Optional[dict]:
+        if package_id or booking_type == "package":
+            if package_id:
+                p = await db.packages.find_one({"clinic_id": cid, "id": package_id}, {"_id": 0})
+                if p:
+                    return p
+            return await db.packages.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0})
+        return await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0})
+
+    async def _resolve_allowed_roles(
+        cid: str,
+        treatment_name: str,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+    ) -> List[str]:
+        doc = await _get_treatment_doc(cid, treatment_name, package_id, booking_type)
+        return normalize_allowed_performer_roles(doc)
+
+    async def _resolve_performer_type(
+        cid: str,
+        treatment_name: str,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+    ) -> str:
+        if package_id or booking_type == "package":
+            if package_id:
+                p = await db.packages.find_one({"clinic_id": cid, "id": package_id}, {"_id": 0, "performer_type": 1})
+                if p:
+                    return p.get("performer_type", "therapist")
+            p = await db.packages.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "performer_type": 1})
+            if p:
+                return p.get("performer_type", "therapist")
         t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "performer_type": 1})
-        performer_type = (t or {}).get("performer_type", "either")
-        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
-        staff = await db.users.find({"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}}, {"_id": 0, "id": 1, "working_hours": 1, "days_off": 1}).to_list(200)
+        if t:
+            return t.get("performer_type", "either")
+        p = await db.packages.find_one({"clinic_id": cid, "name": treatment_name}, {"_id": 0, "performer_type": 1})
+        return (p or {}).get("performer_type", "either")
+
+    async def _busy_staff_ids_at_slot(
+        cid: str,
+        scheduled_at: str,
+        duration_min: int,
+        exclude_booking_id: Optional[str] = None,
+    ) -> set:
         try:
             sched = _parse_iso(scheduled_at)
         except Exception:
-            return False
+            return set()
         s_start = sched.hour * 60 + sched.minute
         s_end = s_start + int(duration_min or 30)
         day_str = sched.strftime("%Y-%m-%d")
-        day_key = _day_key(sched)
-        # Compute clinic window for fallback
-        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
-        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
-        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
-        # Per-staff effective window for today (same rule as public_availability)
-        staff_window: Dict[str, Optional[tuple]] = {}
-        for s in staff:
-            doff = s.get("days_off") or []
-            if any(d.get("date") == day_str for d in doff):
-                staff_window[s["id"]] = None
-                continue
-            wh = s.get("working_hours") or {}
-            if not wh:
-                staff_window[s["id"]] = (c_open, c_close)
-                continue
-            day_h = wh.get(day_key) or {}
-            if day_h.get("open") and day_h.get("close"):
-                o = _hhmm_to_minutes(day_h["open"]) or 0
-                cl = _hhmm_to_minutes(day_h["close"]) or 0
-                staff_window[s["id"]] = (o, cl) if o < cl else None
-            else:
-                staff_window[s["id"]] = None
-        in_window_ids = {sid for sid, w in staff_window.items() if w is not None and w[0] <= s_start and s_end <= w[1]}
-        # If clinic has no eligible staff at all (legacy), allow except for explicit unknown performer
-        if performer_id:
-            all_ids = {*{s["id"] for s in staff}, *await _all_clinic_user_ids(cid)}
-            if performer_id not in all_ids:
-                return True
         existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
-            "status": {"$in": ["booked", "confirmed", "checked_in"]},
-        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
-        busy_assigned = set()
-        unassigned = 0
+            "status": {"$in": SLOT_OCCUPYING_STATUSES},
+        }, {"_id": 0, "id": 1, "scheduled_at": 1, "duration_min": 1, "performer_id": 1, "performers": 1}).to_list(500)
+        busy: set = set()
         for b in existing:
+            if exclude_booking_id and b.get("id") == exclude_booking_id:
+                continue
             try:
                 bs_dt = _parse_iso(b["scheduled_at"])
             except Exception:
@@ -527,15 +1013,171 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             be = bs + int(b.get("duration_min", 30))
             if s_end <= bs or s_start >= be:
                 continue
+            if b.get("performer_id"):
+                busy.add(b["performer_id"])
+            for pe in b.get("performers") or []:
+                if pe.get("staff_id"):
+                    busy.add(pe["staff_id"])
+        return busy
+
+    async def _staff_on_duty_at_slot(
+        cid: str,
+        staff_id: str,
+        scheduled_at: str,
+        duration_min: int,
+    ) -> bool:
+        user = await db.users.find_one(
+            {"id": staff_id, "clinic_id": cid, "active": {"$ne": False}},
+            {"_id": 0, "id": 1, "role": 1},
+        )
+        if not user or user.get("role") not in CLINICAL_PERFORMER_ROLES:
+            return False
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            return False
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration_min or 30)
+        day_str = sched.strftime("%Y-%m-%d")
+        effective_map = await resolve_effective_day_batch(db, cid, [staff_id], day_str)
+        eff = effective_map.get(staff_id) or {}
+        if not eff.get("is_working"):
+            return False
+        ww = [(w["start"], w["end"]) for w in eff.get("work_windows") or []]
+        br = [(b["start"], b["end"]) for b in eff.get("block_ranges") or []]
+        return slot_fits(ww, br, s_start, s_end)
+
+    async def _is_staff_free_at_slot(
+        cid: str,
+        staff_id: str,
+        scheduled_at: str,
+        duration_min: int,
+        exclude_booking_id: Optional[str] = None,
+        *,
+        require_on_duty: bool = True,
+    ) -> bool:
+        if not staff_id:
+            return False
+        if require_on_duty and not await _staff_on_duty_at_slot(cid, staff_id, scheduled_at, duration_min):
+            return False
+        busy = await _busy_staff_ids_at_slot(cid, scheduled_at, duration_min, exclude_booking_id)
+        return staff_id not in busy
+
+    async def _validate_overtime_booking(
+        user: dict,
+        cid: str,
+        performer_id: str,
+        scheduled_at: str,
+        duration_min: int,
+    ) -> None:
+        """Overtime: outside staff work windows; overlap still enforced. Clinical staff cannot create."""
+        if user.get("role") in CLINICAL_PERFORMER_ROLES:
+            raise HTTPException(status_code=403, detail="Clinical staff cannot create overtime bookings")
+        is_privileged = user.get("role") in ("super_admin", "manager")
+        if not is_privileged and not user_has_permission(user, "bookings.create_overtime"):
+            raise HTTPException(status_code=403, detail="Not allowed to create overtime bookings")
+        if not performer_id:
+            raise HTTPException(status_code=400, detail="Performer is required for overtime")
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+        day_str = sched.strftime("%Y-%m-%d")
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration_min or 30)
+        eff = await resolve_effective_day(db, cid, performer_id, day_str)
+        if eff.get("is_working"):
+            ww = [(w["start"], w["end"]) for w in eff.get("work_windows") or []]
+            br = [(b["start"], b["end"]) for b in eff.get("block_ranges") or []]
+            if slot_fits(ww, br, s_start, s_end):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This time is within normal working hours. Create a standard booking instead.",
+                )
+        else:
+            if not is_privileged:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Staff is not scheduled this day. A manager or owner must create this overtime booking.",
+                )
+        if not await _is_staff_free_at_slot(
+            cid, performer_id, scheduled_at, duration_min, require_on_duty=False,
+        ):
+            raise HTTPException(status_code=409, detail="This performer is already booked at this time")
+
+    async def _has_slot_conflict(
+        cid: str,
+        treatment_name: str,
+        scheduled_at: str,
+        duration_min: int,
+        performer_id: Optional[str] = None,
+        exclude_booking_id: Optional[str] = None,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+    ) -> bool:
+        """Return True if no eligible performer is free at this slot.
+        Rule:
+          - If performer_id is provided: that specific staff member must be free AND on duty (not day-off, in working hours).
+          - Otherwise: at least ONE eligible performer (matching treatment.performer_type) must be free + on duty.
+          - Unassigned bookings consume one generic eligible slot each.
+        """
+        performer_type = await _resolve_performer_type(cid, treatment_name, package_id, booking_type)
+        role_filter = await _resolve_allowed_roles(cid, treatment_name, package_id, booking_type)
+        if performer_id:
+            return not await _is_staff_free_at_slot(
+                cid, performer_id, scheduled_at, duration_min, exclude_booking_id,
+            )
+        staff = await db.users.find(
+            {"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}},
+            {"_id": 0, "id": 1},
+        ).to_list(200)
+        try:
+            sched = _parse_iso(scheduled_at)
+        except Exception:
+            return False
+        s_start = sched.hour * 60 + sched.minute
+        s_end = s_start + int(duration_min or 30)
+        day_str = sched.strftime("%Y-%m-%d")
+        staff_ids = [s["id"] for s in staff]
+        effective_map = await resolve_effective_day_batch(db, cid, staff_ids, day_str)
+        in_window_ids = set()
+        for sid in staff_ids:
+            eff = effective_map.get(sid) or {}
+            if not eff.get("is_working"):
+                continue
+            ww = [(w["start"], w["end"]) for w in eff.get("work_windows") or []]
+            br = [(b["start"], b["end"]) for b in eff.get("block_ranges") or []]
+            if slot_fits(ww, br, s_start, s_end):
+                in_window_ids.add(sid)
+        existing = await db.bookings.find({
+            "clinic_id": cid,
+            "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
+            "status": {"$in": SLOT_OCCUPYING_STATUSES},
+        }, {"_id": 0, "id": 1, "scheduled_at": 1, "duration_min": 1, "performer_id": 1, "performers": 1}).to_list(500)
+        busy_assigned = set()
+        unassigned = 0
+        for b in existing:
+            if exclude_booking_id and b.get("id") == exclude_booking_id:
+                continue
+            try:
+                bs_dt = _parse_iso(b["scheduled_at"])
+            except Exception:
+                continue
+            bs = bs_dt.hour * 60 + bs_dt.minute
+            be = bs + int(b.get("duration_min", 30))
+            if s_end <= bs or s_start >= be:
+                continue
+            performer_ids = set()
             pid = b.get("performer_id")
             if pid:
-                busy_assigned.add(pid)
+                performer_ids.add(pid)
+            for pe in b.get("performers") or []:
+                if pe.get("staff_id"):
+                    performer_ids.add(pe["staff_id"])
+            if performer_ids:
+                busy_assigned.update(performer_ids)
             else:
                 unassigned += 1
-        if performer_id:
-            if performer_id not in in_window_ids:
-                return True  # performer is off-duty / on leave / outside working hours
-            return performer_id in busy_assigned
         if len(staff) == 0:
             # No eligible staff configured — slot is "open" (legacy/setup-incomplete clinic)
             return False
@@ -549,7 +1191,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         ids = await db.users.find({"clinic_id": cid}, {"_id": 0, "id": 1}).to_list(500)
         return {u["id"] for u in ids}
 
-    async def _auto_pick_performer(cid: str, treatment_name: str, scheduled_at: str, duration_min: int) -> Optional[str]:
+    async def _auto_pick_performer(
+        cid: str,
+        treatment_name: str,
+        scheduled_at: str,
+        duration_min: int,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+    ) -> Optional[str]:
         """Pick the least-busy on-duty performer eligible for this treatment at this slot.
         Returns performer id, or None if nobody qualifies.
         """
@@ -557,30 +1206,25 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             sched = _parse_iso(scheduled_at)
         except Exception:
             return None
-        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1})
-        c_hours = (c or {}).get("operating_hours") or {}
-        t = await db.treatments.find_one({"clinic_id": cid, "name": treatment_name, "active": True}, {"_id": 0, "performer_type": 1})
-        performer_type = (t or {}).get("performer_type", "either")
-        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        performer_type = await _resolve_performer_type(cid, treatment_name, package_id, booking_type)
+        role_filter = await _resolve_allowed_roles(cid, treatment_name, package_id, booking_type)
         staff = await db.users.find(
             {"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}},
-            {"_id": 0, "id": 1, "working_hours": 1, "days_off": 1},
+            {"_id": 0, "id": 1},
         ).to_list(200)
         if not staff:
             return None
         s_start = sched.hour * 60 + sched.minute
         s_end = s_start + int(duration_min or 30)
         day_str = sched.strftime("%Y-%m-%d")
-        day_key = _day_key(sched)
-        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
-        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
-        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
+        staff_ids = [s["id"] for s in staff]
+        effective_map = await resolve_effective_day_batch(db, cid, staff_ids, day_str)
         # Existing same-day bookings for load + conflict
         day_existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{day_str}T00:00:00", "$lte": f"{day_str}T23:59:59"},
-            "status": {"$in": ["booked", "confirmed", "checked_in"]},
-        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
+            "status": {"$in": SLOT_OCCUPYING_STATUSES},
+        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1, "performers": 1}).to_list(500)
         busy_pids = set()
         load: Dict[str, int] = {}  # performer_id -> count of bookings today
         for b in day_existing:
@@ -590,29 +1234,27 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 continue
             bs = bs_dt.hour * 60 + bs_dt.minute
             be = bs + int(b.get("duration_min", 30))
-            pid = b.get("performer_id")
-            if pid:
+            slot_overlap = not (s_end <= bs or s_start >= be)
+            pids = set()
+            if b.get("performer_id"):
+                pids.add(b["performer_id"])
+            for pe in b.get("performers") or []:
+                if pe.get("staff_id"):
+                    pids.add(pe["staff_id"])
+            for pid in pids:
                 load[pid] = load.get(pid, 0) + 1
-                if not (s_end <= bs or s_start >= be):
+                if slot_overlap:
                     busy_pids.add(pid)
         # Build candidates
         candidates = []
         for s in staff:
             sid = s["id"]
-            if any(d.get("date") == day_str for d in (s.get("days_off") or [])):
+            eff = effective_map.get(sid) or {}
+            if not eff.get("is_working"):
                 continue
-            wh = s.get("working_hours") or {}
-            if not wh:
-                w_open, w_close = c_open, c_close
-            else:
-                day_h = wh.get(day_key) or {}
-                if not (day_h.get("open") and day_h.get("close")):
-                    continue
-                w_open = _hhmm_to_minutes(day_h["open"]) or 0
-                w_close = _hhmm_to_minutes(day_h["close"]) or 0
-                if w_open >= w_close:
-                    continue
-            if not (w_open <= s_start and s_end <= w_close):
+            ww = [(w["start"], w["end"]) for w in eff.get("work_windows") or []]
+            br = [(b["start"], b["end"]) for b in eff.get("block_ranges") or []]
+            if not slot_fits(ww, br, s_start, s_end):
                 continue
             if sid in busy_pids:
                 continue
@@ -628,10 +1270,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         time: str = Query(..., description="HH:MM"),
         duration: int = Query(30, ge=5, le=480),
         treatment: Optional[str] = None,
+        package_id: Optional[str] = None,
+        booking_type: Optional[str] = None,
+        role: Optional[str] = Query(None, description="Filter by staff role: doctor | therapist | nurse"),
+        exclude_booking_id: Optional[str] = Query(None),
+        is_overtime: bool = Query(False, description="Overtime: allow outside working hours if staff is working that day"),
         user: dict = Depends(get_current_user),
     ):
         """Return staff members who are eligible for this treatment AND on duty AND free at this slot.
         Used by the FO 'New Booking' modal to filter the performer dropdown.
+        When is_overtime=true, staff must be working that day but may be outside work windows; overlap still applies.
         """
         if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Only FO, owner, or manager can view performer availability")
@@ -642,101 +1290,332 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid date/time")
 
-        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "operating_hours": 1, "closed_dates": 1})
-        c_hours = (c or {}).get("operating_hours") or {}
-        # Block if clinic-closed date
+        c = await db.clinics.find_one({"id": cid}, {"_id": 0, "closed_dates": 1})
         if any(cd.get("date") == date for cd in ((c or {}).get("closed_dates") or [])):
             return {"performers": [], "closed": True, "reason": "Clinic closed on this date"}
-        # Resolve treatment performer_type
         performer_type = "either"
-        if treatment:
-            t = await db.treatments.find_one({"clinic_id": cid, "name": treatment, "active": True}, {"_id": 0, "performer_type": 1})
-            if t:
-                performer_type = t.get("performer_type", "either")
-        role_filter = ["doctor", "therapist"] if performer_type == "either" else [performer_type]
+        if treatment or package_id:
+            performer_type = await _resolve_performer_type(cid, treatment or "", package_id, booking_type)
+        if role and role in CLINICAL_PERFORMER_ROLES:
+            role_filter = [role]
+        else:
+            role_filter = await _resolve_allowed_roles(cid, treatment or "", package_id, booking_type)
         staff = await db.users.find(
             {"clinic_id": cid, "role": {"$in": role_filter}, "active": {"$ne": False}},
-            {"_id": 0, "id": 1, "name": 1, "role": 1, "working_hours": 1, "days_off": 1},
+            {"_id": 0, "id": 1, "name": 1, "role": 1},
         ).to_list(200)
 
-        s_start = sched.hour * 60 + sched.minute
-        s_end = s_start + int(duration or 30)
-        day_key = _day_key(sched)
-        cd_h = c_hours.get(day_key) or DEFAULT_OPERATING_HOURS.get(day_key, {})
-        c_open = _hhmm_to_minutes(cd_h.get("open", "")) or 0
-        c_close = _hhmm_to_minutes(cd_h.get("close", "")) or 24 * 60
-
-        # Existing bookings on this date to compute per-performer busy + load
+        # Load counts for sorting (all bookings today, not only overlapping)
         day_existing = await db.bookings.find({
             "clinic_id": cid,
             "scheduled_at": {"$gte": f"{date}T00:00:00", "$lte": f"{date}T23:59:59"},
-            "status": {"$in": ["booked", "confirmed", "checked_in"]},
-        }, {"_id": 0, "scheduled_at": 1, "duration_min": 1, "performer_id": 1}).to_list(500)
-        busy_pids = set()
+            "status": {"$in": SLOT_OCCUPYING_STATUSES},
+        }, {"_id": 0, "id": 1, "scheduled_at": 1, "duration_min": 1, "performer_id": 1, "performers": 1}).to_list(500)
         load: Dict[str, int] = {}
         for b in day_existing:
-            try:
-                bs_dt = _parse_iso(b["scheduled_at"])
-            except Exception:
+            if exclude_booking_id and b.get("id") == exclude_booking_id:
                 continue
-            bs = bs_dt.hour * 60 + bs_dt.minute
-            be = bs + int(b.get("duration_min", 30))
-            pid = b.get("performer_id")
-            if pid:
+            pids = set()
+            if b.get("performer_id"):
+                pids.add(b["performer_id"])
+            for pe in b.get("performers") or []:
+                if pe.get("staff_id"):
+                    pids.add(pe["staff_id"])
+            for pid in pids:
                 load[pid] = load.get(pid, 0) + 1
-                if not (s_end <= bs or s_start >= be):
-                    busy_pids.add(pid)
+
+        effective_map = await resolve_effective_day_batch(db, cid, [s["id"] for s in staff], date)
 
         out = []
         for s in staff:
-            doff = s.get("days_off") or []
-            if any(d.get("date") == date for d in doff):
-                continue
-            wh = s.get("working_hours") or {}
-            if not wh:
-                # inherit clinic window
-                w_open, w_close = c_open, c_close
-            else:
-                day_h = wh.get(day_key) or {}
-                if not (day_h.get("open") and day_h.get("close")):
-                    continue  # day explicitly off
-                w_open = _hhmm_to_minutes(day_h["open"]) or 0
-                w_close = _hhmm_to_minutes(day_h["close"]) or 0
-                if w_open >= w_close:
+            sid = s["id"]
+            eff = effective_map.get(sid) or {}
+            if is_overtime:
+                if not eff.get("is_working"):
                     continue
-            if not (w_open <= s_start and s_end <= w_close):
-                continue  # outside their working window
-            if s["id"] in busy_pids:
-                continue  # already booked at this slot
-            out.append({"id": s["id"], "name": s["name"], "role": s["role"], "bookings_today": load.get(s["id"], 0)})
+                if not await _is_staff_free_at_slot(
+                    cid, sid, scheduled_at, duration, exclude_booking_id, require_on_duty=False,
+                ):
+                    continue
+            elif not await _is_staff_free_at_slot(cid, sid, scheduled_at, duration, exclude_booking_id):
+                continue
+            out.append({"id": sid, "name": s["name"], "role": s["role"], "bookings_today": load.get(sid, 0)})
         out.sort(key=lambda p: (p["bookings_today"], p["name"]))
         suggested = out[0]["id"] if out else None
         return {"performers": out, "closed": False, "performer_type": performer_type, "suggested_performer_id": suggested}
+
+    def _can_manage_coupons(user: dict) -> bool:
+        return user_has_permission(user, "coupons.manage")
+
+    async def _resolve_booking_subtotal(
+        cid: str,
+        booking_type: str,
+        treatment_name: str,
+        package_id: Optional[str],
+    ) -> int:
+        if booking_type == "package" or package_id:
+            flt: Dict[str, Any] = {"clinic_id": cid}
+            if package_id:
+                flt["id"] = package_id
+            else:
+                flt["name"] = treatment_name
+            pkg = await db.packages.find_one(flt, {"_id": 0, "price_idr": 1})
+            if pkg:
+                return int(pkg.get("price_idr") or 0)
+        t = await db.treatments.find_one(
+            {"clinic_id": cid, "name": treatment_name},
+            {"_id": 0, "price_idr": 1},
+        )
+        if t:
+            return int(t.get("price_idr") or 0)
+        return 0
+
+    async def _lookup_coupon(cid: str, code: str) -> Optional[dict]:
+        norm = normalize_coupon_code(code)
+        if not norm:
+            return None
+        return await db.coupons.find_one({"clinic_id": cid, "code": norm}, {"_id": 0})
+
+    async def _pricing_with_coupon(
+        cid: str,
+        subtotal_idr: int,
+        coupon_code: Optional[str],
+    ) -> Dict[str, Any]:
+        subtotal_idr = max(0, int(subtotal_idr or 0))
+        if not coupon_code or not str(coupon_code).strip():
+            return {
+                "subtotal_idr": subtotal_idr,
+                "discount_idr": 0,
+                "total_idr": subtotal_idr,
+                "coupon_code": None,
+                "coupon_id": None,
+            }
+        coupon = await _lookup_coupon(cid, coupon_code)
+        if not coupon:
+            raise HTTPException(status_code=400, detail="Invalid coupon code")
+        err = coupon_is_valid_now(coupon, subtotal_idr)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        prices = apply_coupon_to_subtotal(coupon, subtotal_idr)
+        return {
+            **prices,
+            "coupon_code": coupon["code"],
+            "coupon_id": coupon["id"],
+        }
+
+    async def _increment_coupon_use(cid: str, coupon_id: Optional[str]) -> None:
+        if coupon_id:
+            await db.coupons.update_one(
+                {"clinic_id": cid, "id": coupon_id},
+                {"$inc": {"uses_count": 1}},
+            )
+
+    @api.get("/coupons")
+    async def list_coupons(user: dict = Depends(get_current_user), active_only: bool = False):
+        if not _can_manage_coupons(user):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        flt = scope(user)
+        if active_only:
+            flt["active"] = True
+        return await db.coupons.find(flt, {"_id": 0}).sort("code", 1).to_list(500)
+
+    @api.post("/coupons")
+    async def create_coupon(payload: CouponIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_coupons(user):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        await assert_writeable(user)
+        cid = user.get("clinic_id")
+        code = normalize_coupon_code(payload.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="Coupon code is required")
+        if payload.discount_type not in ("percent", "fixed"):
+            raise HTTPException(status_code=400, detail="discount_type must be percent or fixed")
+        existing = await db.coupons.find_one({"clinic_id": cid, "code": code}, {"_id": 0, "id": 1})
+        if existing:
+            raise HTTPException(status_code=409, detail="Coupon code already exists")
+        doc = build_coupon_doc(payload.model_dump(), cid, user["id"])
+        doc["code"] = code
+        await db.coupons.insert_one(doc)
+        doc.pop("_id", None)
+        await audit(user, "create", "coupon", doc["id"], {"code": code})
+        return doc
+
+    @api.put("/coupons/{coupon_id}")
+    async def update_coupon(coupon_id: str, payload: CouponUpdateIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_coupons(user):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        await assert_writeable(user)
+        upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if "code" in upd:
+            upd["code"] = normalize_coupon_code(upd["code"])
+            if not upd["code"]:
+                raise HTTPException(status_code=400, detail="Coupon code is required")
+        if "discount_type" in upd and upd["discount_type"] not in ("percent", "fixed"):
+            raise HTTPException(status_code=400, detail="discount_type must be percent or fixed")
+        r = await db.coupons.update_one(scope(user, {"id": coupon_id}), {"$set": upd})
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Coupon not found")
+        await audit(user, "update", "coupon", coupon_id, upd)
+        return await db.coupons.find_one(scope(user, {"id": coupon_id}), {"_id": 0})
+
+    @api.delete("/coupons/{coupon_id}")
+    async def delete_coupon(coupon_id: str, user: dict = Depends(get_current_user)):
+        if not _can_manage_coupons(user):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        await assert_writeable(user)
+        r = await db.coupons.delete_one(scope(user, {"id": coupon_id}))
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Coupon not found")
+        await audit(user, "delete", "coupon", coupon_id)
+        return {"ok": True}
+
+    @api.post("/bookings/validate-coupon")
+    async def validate_booking_coupon(payload: CouponValidateIn, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        cid = user.get("clinic_id")
+        subtotal = int(payload.subtotal_idr or 0)
+        if subtotal <= 0 and (payload.treatment or payload.package_id):
+            subtotal = await _resolve_booking_subtotal(
+                cid,
+                payload.booking_type or "treatment",
+                payload.treatment or "",
+                payload.package_id,
+            )
+        pricing = await _pricing_with_coupon(cid, subtotal, payload.code)
+        coupon = await _lookup_coupon(cid, payload.code)
+        return {
+            **pricing,
+            "coupon_name": (coupon or {}).get("name"),
+            "discount_type": (coupon or {}).get("discount_type"),
+            "discount_value": (coupon or {}).get("discount_value"),
+        }
 
     @api.post("/bookings")
     async def create_booking(payload: BookingIn, user: dict = Depends(get_current_user)):
         if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Only FO, owner, or manager can create bookings")
+        if user.get("role") in CLINICAL_PERFORMER_ROLES and payload.is_overtime:
+            raise HTTPException(status_code=403, detail="Clinical staff cannot create overtime bookings")
         await assert_writeable(user)
         cid = user.get("clinic_id")
-        # Validate performer if given (must belong to same clinic)
-        if payload.performer_id:
-            p = await db.users.find_one({"id": payload.performer_id, "clinic_id": cid}, {"_id": 0, "role": 1, "name": 1})
+        is_overtime = bool(payload.is_overtime)
+        booking_type = payload.booking_type or "treatment"
+        package_id = payload.package_id
+        treatment_name = payload.treatment
+        duration_min = payload.duration_min
+
+        if is_overtime and booking_type == "block":
+            raise HTTPException(status_code=400, detail="Overtime does not apply to time blocks")
+
+        if booking_type == "block":
+            reason = (payload.block_reason or payload.patient_name or "").strip()
+            if not reason:
+                raise HTTPException(status_code=400, detail="Block reason is required")
+            if not payload.performer_id:
+                raise HTTPException(status_code=400, detail="Select a staff member to block")
+            p = await db.users.find_one(
+                {"id": payload.performer_id, "clinic_id": cid},
+                {"_id": 0, "id": 1, "role": 1, "name": 1},
+            )
             if not p:
                 raise HTTPException(status_code=400, detail="Performer not found in clinic")
-        # Require performer when eligible staff exists for this treatment
-        if not payload.performer_id:
-            t = await db.treatments.find_one({"clinic_id": cid, "name": payload.treatment}, {"_id": 0, "performer_type": 1})
-            ptype = (t or {}).get("performer_type", "either")
-            roles = ["doctor", "therapist"] if ptype == "either" else [ptype]
-            staff_count = await db.users.count_documents({"clinic_id": cid, "role": {"$in": roles}, "active": {"$ne": False}})
+            if p.get("role") not in PERFORMER_SLOT_ROLES:
+                raise HTTPException(status_code=400, detail="Time blocks apply to clinical performers only")
+            try:
+                sched_dt = _parse_iso(payload.scheduled_at)
+                day_str = sched_dt.strftime("%Y-%m-%d")
+                c = await db.clinics.find_one({"id": cid}, {"_id": 0, "closed_dates": 1})
+                cd_match = next((cd for cd in ((c or {}).get("closed_dates") or []) if cd.get("date") == day_str), None)
+                if cd_match:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Clinic is closed on {day_str}"
+                        + (f" ({cd_match.get('reason')})" if cd_match.get("reason") else ""),
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+            if await _has_slot_conflict(
+                cid, "Blocked", payload.scheduled_at, duration_min, payload.performer_id,
+                booking_type="block",
+            ):
+                raise HTTPException(status_code=409, detail="This performer is already busy at this time")
+            doc = {
+                "id": str(uuid.uuid4()),
+                "clinic_id": cid,
+                "patient_id": None,
+                "patient_name": reason,
+                "patient_phone": (payload.patient_phone or "").strip() or "—",
+                "patient_email": "",
+                "treatment": "Blocked",
+                "duration_min": int(duration_min or 30),
+                "scheduled_at": payload.scheduled_at,
+                "performer_id": payload.performer_id,
+                "notes": (payload.notes or "").strip(),
+                "booking_type": "block",
+                "block_reason": reason,
+                "package_id": None,
+                "subtotal_idr": 0,
+                "discount_idr": 0,
+                "total_idr": 0,
+                "coupon_code": None,
+                "coupon_id": None,
+                "status": "blocked",
+                "source": "fo",
+                "wa_history": [],
+                "created_at": iso(now_utc()),
+                "created_by": user["id"],
+            }
+            await db.bookings.insert_one(doc)
+            doc.pop("_id", None)
+            await audit(user, "create", "booking", doc["id"], {"booking_type": "block", "reason": reason})
+            return doc
+
+        if booking_type == "package" or package_id:
+            flt: Dict[str, Any] = {"clinic_id": cid, "active": True}
+            if package_id:
+                flt["id"] = package_id
+            else:
+                flt["name"] = treatment_name
+            pkg = await db.packages.find_one(flt, {"_id": 0})
+            if not pkg:
+                raise HTTPException(status_code=400, detail="Package not found")
+            booking_type = "package"
+            package_id = pkg["id"]
+            treatment_name = pkg["name"]
+            if not duration_min or duration_min == 30:
+                duration_min = int(pkg.get("duration_min") or 60)
+
+        treatment_doc = await _get_treatment_doc(cid, treatment_name, package_id, booking_type)
+        allowed_roles = normalize_allowed_performer_roles(treatment_doc)
+        allow_multiple = treatment_allows_multiple(treatment_doc)
+        raw_performers = [p.model_dump() for p in payload.performers] if payload.performers else None
+
+        if not raw_performers and not payload.performer_id:
+            staff_count = await db.users.count_documents(
+                {"clinic_id": cid, "role": {"$in": allowed_roles}, "active": {"$ne": False}},
+            )
             if staff_count > 0:
-                # Try to auto-pick
-                auto = await _auto_pick_performer(cid, payload.treatment, payload.scheduled_at, payload.duration_min)
+                auto = await _auto_pick_performer(
+                    cid, treatment_name, payload.scheduled_at, duration_min, package_id, booking_type,
+                )
                 if auto:
                     payload.performer_id = auto
                 else:
                     raise HTTPException(status_code=409, detail="No performer available at this slot")
+
+        performers = await normalize_performers_input(
+            db,
+            cid,
+            raw_performers,
+            legacy_performer_id=payload.performer_id,
+            allowed_roles=list(CLINICAL_PERFORMER_ROLES),
+            primary_allowed_roles=allowed_roles,
+            allow_multiple=allow_multiple,
+            require_at_least_one=(booking_type == "treatment"),
+        )
         # Special closed date check
         try:
             sched_dt = _parse_iso(payload.scheduled_at)
@@ -749,12 +1628,57 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise
         except Exception:
             pass
-        # Performer-availability check
-        if await _has_slot_conflict(cid, payload.treatment, payload.scheduled_at, payload.duration_min, payload.performer_id):
-            if payload.performer_id:
-                raise HTTPException(status_code=409, detail="Selected performer is already booked at this time")
-            raise HTTPException(status_code=409, detail="No available performer for this slot")
+        staff_ids_booking = staff_ids_from_performers({"performers": performers})
+        primary_pid = primary_performer_id({"performers": performers}) or payload.performer_id
+
+        if is_overtime:
+            ot_reason = (payload.overtime_reason or "").strip()
+            ot_note = (payload.overtime_note or "").strip()
+            if not ot_reason:
+                raise HTTPException(status_code=400, detail="Overtime reason is required")
+            if ot_reason not in OVERTIME_REASONS:
+                raise HTTPException(status_code=400, detail="Invalid overtime reason")
+            if not ot_note:
+                raise HTTPException(status_code=400, detail="Overtime note is required")
+            if not primary_pid:
+                raise HTTPException(status_code=400, detail="Select a performer for overtime")
+            await _validate_overtime_booking(user, cid, primary_pid, payload.scheduled_at, duration_min)
+            for sid in staff_ids_booking:
+                if sid != primary_pid and not await _is_staff_free_at_slot(
+                    cid, sid, payload.scheduled_at, duration_min, require_on_duty=False,
+                ):
+                    raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
+        else:
+            for sid in staff_ids_booking:
+                if await _has_slot_conflict(
+                    cid, treatment_name, payload.scheduled_at, duration_min, sid,
+                    package_id=package_id, booking_type=booking_type,
+                ):
+                    raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
+        subtotal = await _resolve_booking_subtotal(cid, booking_type, treatment_name, package_id)
+        pricing = await _pricing_with_coupon(cid, subtotal, payload.coupon_code)
+        if not payload.coupon_code and payload.patient_id:
+            pct = await patient_loyalty_discount_percent(db, cid, payload.patient_id)
+            if pct > 0 and pricing.get("discount_idr", 0) == 0:
+                discount = int(subtotal * pct / 100)
+                pricing = {
+                    **pricing,
+                    "discount_idr": discount,
+                    "total_idr": max(0, subtotal - discount),
+                    "loyalty_discount_percent": pct,
+                }
         b = payload.model_dump()
+        b["treatment"] = treatment_name
+        b["duration_min"] = duration_min
+        b["booking_type"] = booking_type
+        b["package_id"] = package_id if booking_type == "package" else None
+        b["subtotal_idr"] = pricing["subtotal_idr"]
+        b["discount_idr"] = pricing["discount_idr"]
+        b["total_idr"] = pricing["total_idr"]
+        b["coupon_code"] = pricing["coupon_code"]
+        b["coupon_id"] = pricing["coupon_id"]
+        b["performers"] = performers
+        sync_legacy_performer_fields(b)
         b["id"] = str(uuid.uuid4())
         b["clinic_id"] = cid
         b["status"] = "booked"
@@ -762,9 +1686,36 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         b["wa_history"] = []
         b["created_at"] = iso(now_utc())
         b["created_by"] = user["id"]
+        if is_overtime:
+            b["is_overtime"] = True
+            b["overtime_reason"] = (payload.overtime_reason or "").strip()
+            b["overtime_note"] = (payload.overtime_note or "").strip()
+            b["overtime_created_by"] = user["id"]
+            b["overtime_created_at"] = iso(now_utc())
         await db.bookings.insert_one(b)
+        await _increment_coupon_use(cid, pricing.get("coupon_id"))
         b.pop("_id", None)
-        await audit(user, "create", "booking", b["id"])
+        if payload.gift_card_id:
+            from gift_cards_booking import attach_gift_card_to_new_booking
+            b = await attach_gift_card_to_new_booking(
+                db,
+                user,
+                booking=b,
+                gift_card_id=payload.gift_card_id.strip(),
+                patient_id=b.get("patient_id"),
+            )
+        if b.get("booking_type") != "block":
+            from audit_log import log_appointment_created
+            await log_appointment_created(db, user, b)
+            try:
+                from messaging_automation import safe_trigger_automation_rules
+                safe_trigger_automation_rules(
+                    db, os.environ.get("JWT_SECRET", ""), cid, "booking_created", booking=b,
+                )
+            except Exception:
+                pass
+        else:
+            await audit(user, "create", "booking", b["id"], {"booking_type": "block"})
         return b
 
     @api.get("/bookings/{bid}")
@@ -772,6 +1723,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         b = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Booking not found")
+        if user.get("role") in PERFORMER_SLOT_ROLES and user.get("id"):
+            uid = user["id"]
+            assigned = staff_ids_from_performers(b)
+            if uid not in assigned and b.get("performer_id") != uid:
+                raise HTTPException(status_code=404, detail="Booking not found")
         return b
 
     @api.put("/bookings/{bid}")
@@ -779,12 +1735,189 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         await assert_writeable(user)
-        upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+        existing = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if existing.get("status") in ("cancelled", "completed", "no_show"):
+            raise HTTPException(status_code=400, detail="Cannot edit a cancelled or completed booking")
+
+        raw = payload.model_dump(exclude_unset=True)
+        upd = {k: v for k, v in raw.items() if v is not None}
+        if "performer_id" in raw and raw["performer_id"] is None:
+            upd["performer_id"] = None
+
+        merged = {**existing, **upd}
+        cid = user.get("clinic_id")
+
+        if existing.get("booking_type") == "block" or existing.get("status") == "blocked":
+            if upd.get("patient_name"):
+                upd["block_reason"] = upd["patient_name"].strip()
+            schedule_changed = any(k in upd for k in ("scheduled_at", "duration_min", "performer_id"))
+            if schedule_changed:
+                sched_at = merged.get("scheduled_at")
+                if await _has_slot_conflict(
+                    cid,
+                    "Blocked",
+                    sched_at,
+                    int(merged.get("duration_min") or 30),
+                    merged.get("performer_id"),
+                    exclude_booking_id=bid,
+                    booking_type="block",
+                ):
+                    raise HTTPException(status_code=409, detail="This performer is already busy at this time")
+            if upd.get("performer_id"):
+                p = await db.users.find_one({"id": upd["performer_id"], "clinic_id": cid}, {"_id": 0, "role": 1})
+                if not p or p.get("role") not in ("doctor", "therapist"):
+                    raise HTTPException(status_code=400, detail="Invalid performer for time block")
+            r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
+            if r.matched_count == 0:
+                raise HTTPException(status_code=404, detail="Booking not found")
+            await audit(user, "update", "booking", bid, upd)
+            return await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+
+        booking_type = merged.get("booking_type") or "treatment"
+        package_id = merged.get("package_id")
+        if upd.get("booking_type") == "package" or upd.get("package_id") or (booking_type == "package" and "treatment" in upd):
+            flt: Dict[str, Any] = {"clinic_id": cid, "active": True}
+            if upd.get("package_id") or package_id:
+                flt["id"] = upd.get("package_id") or package_id
+            else:
+                flt["name"] = merged.get("treatment", "")
+            pkg = await db.packages.find_one(flt, {"_id": 0})
+            if not pkg:
+                raise HTTPException(status_code=400, detail="Package not found")
+            upd["booking_type"] = "package"
+            upd["package_id"] = pkg["id"]
+            upd["treatment"] = pkg["name"]
+            merged["booking_type"] = "package"
+            merged["package_id"] = pkg["id"]
+            merged["treatment"] = pkg["name"]
+            if "duration_min" not in upd:
+                upd["duration_min"] = int(pkg.get("duration_min") or merged.get("duration_min") or 60)
+                merged["duration_min"] = upd["duration_min"]
+        elif upd.get("booking_type") == "treatment":
+            upd["package_id"] = None
+            merged["package_id"] = None
+
+        performers_in_payload = "performers" in raw or "performer_id" in raw
+        if performers_in_payload and existing.get("booking_type") != "block":
+            treatment_doc = await _get_treatment_doc(
+                cid,
+                merged.get("treatment", ""),
+                merged.get("package_id"),
+                merged.get("booking_type"),
+            )
+            allowed_roles = normalize_allowed_performer_roles(treatment_doc)
+            allow_multiple = treatment_allows_multiple(treatment_doc)
+            raw_performers = (
+                [p.model_dump() for p in payload.performers]
+                if payload.performers is not None
+                else None
+            )
+            legacy_pid = merged.get("performer_id") if "performer_id" in raw else None
+            if raw_performers is None and legacy_pid is None:
+                raw_performers = get_performers(existing)
+            performers = await normalize_performers_input(
+                db,
+                cid,
+                raw_performers,
+                legacy_performer_id=legacy_pid or merged.get("performer_id"),
+                allowed_roles=list(CLINICAL_PERFORMER_ROLES),
+                primary_allowed_roles=allowed_roles,
+                allow_multiple=allow_multiple,
+                require_at_least_one=(merged.get("booking_type") == "treatment"),
+            )
+            upd["performers"] = performers
+            sync_legacy_performer_fields(upd)
+            merged["performers"] = upd["performers"]
+            merged["performer_id"] = upd.get("performer_id")
+
+        if upd.get("performer_id"):
+            p = await db.users.find_one({"id": upd["performer_id"], "clinic_id": cid}, {"_id": 0, "id": 1})
+            if not p:
+                raise HTTPException(status_code=400, detail="Performer not found in clinic")
+
+        schedule_changed = any(
+            k in upd
+            for k in ("scheduled_at", "duration_min", "treatment", "performer_id", "performers", "package_id", "booking_type")
+        )
+        if schedule_changed:
+            sched_at = merged.get("scheduled_at")
+            try:
+                sched_dt = _parse_iso(sched_at)
+                day_str = sched_dt.strftime("%Y-%m-%d")
+                c = await db.clinics.find_one({"id": cid}, {"_id": 0, "closed_dates": 1})
+                cd_match = next((cd for cd in ((c or {}).get("closed_dates") or []) if cd.get("date") == day_str), None)
+                if cd_match:
+                    raise HTTPException(status_code=409, detail=f"Clinic is closed on {day_str}" + (f" ({cd_match.get('reason')})" if cd_match.get("reason") else ""))
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+            performer_ids = staff_ids_from_performers(merged) if merged.get("performers") else (
+                [merged["performer_id"]] if merged.get("performer_id") else []
+            )
+            if performer_ids:
+                for sid in performer_ids:
+                    if await _has_slot_conflict(
+                        cid,
+                        merged.get("treatment", ""),
+                        sched_at,
+                        int(merged.get("duration_min") or 30),
+                        sid,
+                        exclude_booking_id=bid,
+                        package_id=merged.get("package_id"),
+                        booking_type=merged.get("booking_type"),
+                    ):
+                        raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
+            elif await _has_slot_conflict(
+                cid,
+                merged.get("treatment", ""),
+                sched_at,
+                int(merged.get("duration_min") or 30),
+                merged.get("performer_id"),
+                exclude_booking_id=bid,
+                package_id=merged.get("package_id"),
+                booking_type=merged.get("booking_type"),
+            ):
+                if merged.get("performer_id"):
+                    raise HTTPException(status_code=409, detail="Selected performer is already booked at this time")
+                raise HTTPException(status_code=409, detail="No available performer for this slot")
+
+        pricing_keys = ("treatment", "package_id", "booking_type", "coupon_code")
+        if any(k in upd for k in pricing_keys) or "coupon_code" in raw:
+            coupon_code = merged.get("coupon_code")
+            if "coupon_code" in raw and (raw["coupon_code"] is None or raw["coupon_code"] == ""):
+                coupon_code = None
+            subtotal = await _resolve_booking_subtotal(
+                cid,
+                merged.get("booking_type") or "treatment",
+                merged.get("treatment", ""),
+                merged.get("package_id"),
+            )
+            pricing = await _pricing_with_coupon(cid, subtotal, coupon_code)
+            upd.update(pricing)
+
         r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Booking not found")
-        await audit(user, "update", "booking", bid)
-        return await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if existing.get("booking_type") != "block" and existing.get("status") != "blocked":
+            from audit_log import log_appointment_rescheduled, log_performer_changes
+            await log_performer_changes(
+                db, user, bid, get_performers(existing), get_performers(updated),
+            )
+            if (
+                existing.get("scheduled_at") != updated.get("scheduled_at")
+                or existing.get("duration_min") != updated.get("duration_min")
+            ):
+                await log_appointment_rescheduled(db, user, bid, existing, updated)
+                try:
+                    from messaging import safe_trigger_booking_messaging
+                    safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], cid, updated, "rescheduled")
+                except Exception:
+                    pass
+        return updated
 
     @api.put("/bookings/{bid}/status")
     async def transition_status(bid: str, payload: BookingStatusIn, user: dict = Depends(get_current_user)):
@@ -793,12 +1926,58 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if payload.status not in BOOKING_STATUSES:
             raise HTTPException(status_code=400, detail="Invalid status")
         await assert_writeable(user)
+        existing = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if existing.get("status") == "blocked" and payload.status != "cancelled":
+            raise HTTPException(status_code=400, detail="Time blocks can only be cancelled")
         upd: Dict[str, Any] = {"status": payload.status, "status_updated_at": iso(now_utc())}
         r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Booking not found")
-        await audit(user, "status_change", "booking", bid, {"to": payload.status})
-        return await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if payload.status == "cancelled" and existing.get("booking_type") != "block":
+            from gift_cards_booking import release_gift_card_for_cancelled_booking
+            await release_gift_card_for_cancelled_booking(db, user, bid)
+            from audit_log import log_appointment_cancelled
+            await log_appointment_cancelled(db, user, bid, existing)
+        else:
+            await audit(user, "status_change", "booking", bid, {"to": payload.status})
+        updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if existing.get("booking_type") != "block":
+            try:
+                from messaging import safe_trigger_booking_messaging
+                if payload.status == "confirmed":
+                    safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "confirmed")
+                elif payload.status == "cancelled":
+                    safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "cancelled")
+            except Exception:
+                pass
+        return updated
+
+    @api.post("/bookings/{bid}/start-visit")
+    async def start_visit_from_booking(bid: str, user: dict = Depends(get_current_user)):
+        """Check in (if needed) and create a visit from this booking in one step."""
+        if user.get("role") not in ("super_admin", "fo", "manager"):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        await assert_writeable(user)
+        cid = user.get("clinic_id")
+        booking = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if booking.get("booking_type") == "block" or booking.get("status") == "blocked":
+            raise HTTPException(status_code=400, detail="Cannot start a visit from a time block")
+        clinic = await db.clinics.find_one({"id": cid}, {"_id": 0, "subscription": 1})
+        from saas import get_clinic_features
+        seed_emr = "emr" in get_clinic_features(clinic or {})
+        try:
+            visit = await create_visit_from_booking(
+                db, booking, cid, user["id"], check_in=True, seed_emr=seed_emr,
+            )
+        except ValueError as ex:
+            raise HTTPException(status_code=400, detail=str(ex)) from ex
+        await audit(user, "start_visit", "booking", bid, {"visit_id": visit["id"]})
+        updated_booking = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        return {"visit": visit, "booking": updated_booking}
 
     @api.post("/bookings/{bid}/wa-sent")
     async def mark_wa_sent(bid: str, payload: WaSentIn, user: dict = Depends(get_current_user)):
@@ -820,10 +1999,29 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         await assert_writeable(user)
-        r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": {"status": "cancelled", "status_updated_at": iso(now_utc())}})
+        await assert_writeable(user)
+        existing = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        r = await db.bookings.update_one(
+            scope(user, {"id": bid}),
+            {"$set": {"status": "cancelled", "status_updated_at": iso(now_utc())}},
+        )
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Booking not found")
-        await audit(user, "cancel", "booking", bid)
+        if existing.get("booking_type") != "block":
+            from gift_cards_booking import release_gift_card_for_cancelled_booking
+            await release_gift_card_for_cancelled_booking(db, user, bid)
+            from audit_log import log_appointment_cancelled
+            await log_appointment_cancelled(db, user, bid, existing)
+            try:
+                from messaging import safe_trigger_booking_messaging
+                cancelled = {**existing, "status": "cancelled"}
+                safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user.get("clinic_id"), cancelled, "cancelled")
+            except Exception:
+                pass
+        else:
+            await audit(user, "cancel", "booking", bid)
         return {"ok": True}
 
     # ---------- WhatsApp Templates ----------
@@ -847,8 +2045,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 "id": str(uuid.uuid4()),
                 "clinic_id": cid,
                 "key": t["key"],
+                "service_code": t["key"],
                 "name": t["name"],
                 "category": t.get("category", "general"),
+                "sub_category": "",
+                "business_unit": "Default",
+                "service_type": "None",
+                "tax_included": True,
+                "tax_group": "",
                 "performer_type": t.get("performer_type", "therapist"),
                 "duration_min": t["duration_min"],
                 "price_idr": t["price_idr"],
@@ -858,27 +2062,89 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 "created_at": iso(now_utc()),
             })
 
+    def _catalog_apply_search(flt: dict, q: Optional[str], search_fields: List[str]) -> dict:
+        out = dict(flt)
+        if q:
+            out["$or"] = [{field: {"$regex": q, "$options": "i"}} for field in search_fields]
+        return out
+
+    async def _catalog_list_paginated(
+        collection,
+        flt: dict,
+        page: int,
+        page_size: int,
+        sort_field: str = "name",
+        facet_field: Optional[str] = None,
+        clinic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        total = await collection.count_documents(flt)
+        skip = (page - 1) * page_size
+        items = await collection.find(flt, {"_id": 0}).sort(sort_field, 1).skip(skip).limit(page_size).to_list(page_size)
+        total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+        result: Dict[str, Any] = {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": total_pages,
+        }
+        if facet_field and clinic_id:
+            facets = await collection.distinct(facet_field, {"clinic_id": clinic_id})
+            result["facets"] = sorted(x for x in facets if x)
+        return result
+
     @api.get("/treatments-catalog")
-    async def treatments_catalog(user: dict = Depends(get_current_user), active_only: bool = False):
+    async def treatments_catalog(
+        user: dict = Depends(get_current_user),
+        active_only: bool = False,
+        q: Optional[str] = None,
+        category: Optional[str] = None,
+        page: Optional[int] = Query(None, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        include_facets: bool = False,
+    ):
+        _assert_catalog_view(user, "treatments")
         c = await get_active_clinic(user)
         cid = c["id"]
         await _seed_default_treatments(cid)
-        flt = {"clinic_id": cid}
+        flt: Dict[str, Any] = {"clinic_id": cid}
         if active_only:
             flt["active"] = True
-        rows = await db.treatments.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
+        if category:
+            flt["category"] = category
+        flt = _catalog_apply_search(
+            flt,
+            q,
+            ["name", "service_code", "key", "category", "sub_category", "business_unit"],
+        )
+        if page is not None:
+            return await _catalog_list_paginated(
+                db.treatments, flt, page, page_size, facet_field="category", clinic_id=cid,
+            )
+        rows = await db.treatments.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
+        if include_facets:
+            facets = await db.treatments.distinct("category", {"clinic_id": cid})
+            return {"items": rows, "facets": sorted(x for x in facets if x)}
         return rows
 
     @api.post("/treatments-catalog")
     async def create_treatment(payload: TreatmentCatalogIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo", "manager"):
-            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
         await assert_writeable(user)
+        await assert_feature(user, "treatments")
         cid = user.get("clinic_id")
         t = payload.model_dump()
         t["id"] = str(uuid.uuid4())
         t["clinic_id"] = cid
-        t["key"] = t["name"].lower().replace(" ", "_")[:32]
+        code = (t.get("service_code") or "").strip()
+        t["service_code"] = code or t["name"].lower().replace(" ", "_")[:32]
+        t["key"] = t["service_code"][:32]
+        t.setdefault("sub_category", "")
+        t.setdefault("business_unit", "Default")
+        t.setdefault("service_type", "None")
+        t.setdefault("tax_included", True)
+        t.setdefault("tax_group", "")
         t["created_at"] = iso(now_utc())
         t["created_by"] = user["id"]
         await db.treatments.insert_one(t)
@@ -888,11 +2154,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.put("/treatments-catalog/{tid}")
     async def update_treatment(tid: str, payload: TreatmentCatalogUpdateIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo", "manager"):
-            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
         await assert_writeable(user)
+        await assert_feature(user, "treatments")
         upd = {k: v for k, v in payload.model_dump().items() if v is not None}
-        if "name" in upd:
+        if "service_code" in upd and upd["service_code"]:
+            upd["key"] = upd["service_code"][:32]
+        elif "name" in upd:
             upd["key"] = upd["name"].lower().replace(" ", "_")[:32]
         r = await db.treatments.update_one(scope(user, {"id": tid}), {"$set": upd})
         if r.matched_count == 0:
@@ -902,16 +2171,663 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.delete("/treatments-catalog/{tid}")
     async def delete_treatment(tid: str, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo", "manager"):
-            raise HTTPException(status_code=403, detail="Only owner, FO, or manager can manage treatments")
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
         await assert_writeable(user)
+        await assert_feature(user, "treatments")
         r = await db.treatments.delete_one(scope(user, {"id": tid}))
         if r.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Treatment not found")
         await audit(user, "delete", "treatment", tid)
         return {"ok": True}
 
+    @api.get("/treatments-catalog/export")
+    async def export_treatments_catalog(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
+        await assert_feature(user, "treatments")
+        c = await get_active_clinic(user)
+        cid = c["id"]
+        await _seed_default_treatments(cid)
+        rows_db = await db.treatments.find({"clinic_id": cid}, {"_id": 0}).sort("name", 1).to_list(2000)
+        export_rows = [treatment_to_export_row(t) for t in rows_db]
+        if format.lower() == "csv":
+            csv_text = rows_to_csv(export_rows)
+            filename = f"treatments-{c.get('slug', 'clinic')}.csv"
+            return Response(
+                content=csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        xlsx_bytes = treatment_rows_to_xlsx(export_rows)
+        filename = f"treatments-{c.get('slug', 'clinic')}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @api.get("/treatments-catalog/import-template")
+    async def treatments_import_template(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
+        await assert_feature(user, "treatments")
+        if format.lower() == "csv":
+            csv_text = rows_to_csv([])
+            return Response(
+                content=csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": 'attachment; filename="treatments-import-template.csv"'},
+            )
+        xlsx_bytes = treatment_rows_to_xlsx([])
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="treatments-import-template.xlsx"'},
+        )
+
+    @api.post("/treatments-catalog/import")
+    async def import_treatments_catalog(
+        file: UploadFile = File(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_manage_treatments(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage treatments")
+        await assert_writeable(user)
+        await assert_feature(user, "treatments")
+        cid = user.get("clinic_id")
+        raw = await file.read()
+        fname = (file.filename or "").lower()
+        parsed: List[dict] = []
+        parse_errors: List[dict] = []
+        if fname.endswith(".xlsx") or fname.endswith(".xlsm") or raw[:2] == b"PK":
+            try:
+                parsed, parse_errors = parse_treatment_xlsx(raw)
+            except RuntimeError as ex:
+                raise HTTPException(status_code=500, detail=str(ex)) from ex
+        else:
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            parsed, parse_errors = parse_csv_text(text)
+        if not parsed and parse_errors:
+            raise HTTPException(status_code=400, detail=parse_errors[0]["message"])
+
+        existing_rows = await db.treatments.find({"clinic_id": cid}, {"_id": 0}).to_list(5000)
+        lookup = build_treatment_lookup(existing_rows)
+
+        created = 0
+        updated = 0
+        errors = list(parse_errors)
+
+        for i, row in enumerate(parsed, start=2):
+            match = find_treatment_match(row, lookup)
+            try:
+                doc = build_treatment_doc(row, cid, user["id"], existing=match)
+                if match:
+                    await db.treatments.update_one(
+                        {"clinic_id": cid, "id": match["id"]},
+                        {"$set": {k: v for k, v in doc.items() if k not in ("id", "clinic_id", "created_at", "created_by")}},
+                    )
+                    register_treatment_in_lookup(lookup, doc)
+                    updated += 1
+                else:
+                    await db.treatments.insert_one(doc)
+                    register_treatment_in_lookup(lookup, doc)
+                    created += 1
+            except Exception as ex:
+                errors.append({"row": i, "message": str(ex)})
+
+        await audit(user, "import", "treatment", "", {"created": created, "updated": updated, "errors": len(errors)})
+        return {"created": created, "updated": updated, "errors": errors, "total": len(parsed)}
+
+    @api.get("/packages-catalog/export")
+    async def export_packages_catalog(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_feature(user, "packages")
+        c = await get_active_clinic(user)
+        cid = c["id"]
+        rows_db = await db.packages.find({"clinic_id": cid}, {"_id": 0}).sort("name", 1).to_list(2000)
+        export_rows = [package_to_export_row(p) for p in rows_db]
+        if format.lower() == "csv":
+            csv_text = package_rows_to_csv(export_rows)
+            filename = f"packages-{c.get('slug', 'clinic')}.csv"
+            return Response(
+                content=csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        xlsx_bytes = package_rows_to_xlsx(export_rows)
+        filename = f"packages-{c.get('slug', 'clinic')}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @api.get("/packages-catalog/import-template")
+    async def packages_import_template(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_feature(user, "packages")
+        if format.lower() == "csv":
+            csv_text = package_rows_to_csv([])
+            return Response(
+                content=csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": 'attachment; filename="packages-import-template.csv"'},
+            )
+        xlsx_bytes = package_rows_to_xlsx([])
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="packages-import-template.xlsx"'},
+        )
+
+    @api.post("/packages-catalog/import")
+    async def import_packages_catalog(
+        file: UploadFile = File(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_writeable(user)
+        await assert_feature(user, "packages")
+        cid = user.get("clinic_id")
+        raw = await file.read()
+        fname = (file.filename or "").lower()
+        parsed: List[dict] = []
+        parse_errors: List[dict] = []
+        if fname.endswith(".xlsx") or fname.endswith(".xlsm") or raw[:2] == b"PK":
+            try:
+                parsed, parse_errors = parse_package_xlsx(raw)
+            except RuntimeError as ex:
+                raise HTTPException(status_code=500, detail=str(ex)) from ex
+        else:
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            parsed, parse_errors = parse_package_csv(text)
+        if not parsed and parse_errors:
+            raise HTTPException(status_code=400, detail=parse_errors[0]["message"])
+
+        existing_rows = await db.packages.find({"clinic_id": cid}, {"_id": 0}).to_list(5000)
+        by_code = {(p.get("package_code") or p.get("key") or "").lower(): p for p in existing_rows if (p.get("package_code") or p.get("key"))}
+        by_name = {p.get("name", "").lower(): p for p in existing_rows if p.get("name")}
+
+        created = 0
+        updated = 0
+        errors = list(parse_errors)
+
+        for i, row in enumerate(parsed, start=2):
+            code_key = row["package_code"].lower()
+            match = by_code.get(code_key) or by_name.get(row["name"].lower())
+            try:
+                doc = build_package_doc(row, cid, user["id"], existing=match)
+                if match:
+                    await db.packages.update_one(
+                        {"clinic_id": cid, "id": match["id"]},
+                        {"$set": {k: v for k, v in doc.items() if k not in ("id", "clinic_id")}},
+                    )
+                    by_code[code_key] = doc
+                    by_name[row["name"].lower()] = doc
+                    updated += 1
+                else:
+                    await db.packages.insert_one(doc)
+                    by_code[code_key] = doc
+                    by_name[row["name"].lower()] = doc
+                    created += 1
+            except Exception as ex:
+                errors.append({"row": i, "message": str(ex)})
+
+        await audit(user, "import", "package", "", {"created": created, "updated": updated, "errors": len(errors)})
+        return {"created": created, "updated": updated, "errors": errors, "total": len(parsed)}
+
+    @api.get("/packages-catalog")
+    async def packages_catalog(
+        user: dict = Depends(get_current_user),
+        active_only: bool = False,
+        q: Optional[str] = None,
+        package_type: Optional[str] = None,
+        page: Optional[int] = Query(None, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+    ):
+        _assert_catalog_view(user, "packages")
+        c = await get_active_clinic(user)
+        cid = c["id"]
+        flt: Dict[str, Any] = {"clinic_id": cid}
+        if active_only:
+            flt["active"] = True
+        if package_type:
+            flt["package_type"] = package_type
+        flt = _catalog_apply_search(
+            flt,
+            q,
+            ["name", "package_code", "key", "category", "package_type", "business_unit"],
+        )
+        if page is not None:
+            return await _catalog_list_paginated(
+                db.packages, flt, page, page_size, facet_field="package_type", clinic_id=cid,
+            )
+        rows = await db.packages.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
+        return rows
+
+    @api.post("/packages-catalog")
+    async def create_package(payload: PackageCatalogIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_writeable(user)
+        await assert_feature(user, "packages")
+        cid = user.get("clinic_id")
+        from package_engine import normalize_catalog_components, normalize_catalog_doc, normalize_package_type
+
+        p = payload.model_dump(exclude_none=True)
+        ptype = p.get("package_type") or "series_package"
+        components = await normalize_catalog_components(
+            db, cid, ptype,
+            [c if isinstance(c, dict) else c for c in (p.get("components") or [])],
+            sessions_total=p.get("sessions_total", 6),
+            series_treatment_id=p.get("series_treatment_id"),
+        )
+        p["components"] = components
+        p["id"] = str(uuid.uuid4())
+        p["clinic_id"] = cid
+        code = (p.get("package_code") or "").strip()
+        p["package_code"] = code or p["name"][:32]
+        p["key"] = p["package_code"][:32]
+        p.setdefault("category", "Default")
+        p.setdefault("business_unit", "Default")
+        p["created_at"] = iso(now_utc())
+        p["created_by"] = user["id"]
+        p = normalize_catalog_doc(p)
+        await db.packages.insert_one(p)
+        p.pop("_id", None)
+        await audit(user, "create", "package", p["id"], {"name": p["name"]})
+        return p
+
+    @api.put("/packages-catalog/{pid}")
+    async def update_package(pid: str, payload: PackageCatalogUpdateIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_writeable(user)
+        await assert_feature(user, "packages")
+        cid = user.get("clinic_id")
+        from package_engine import normalize_catalog_components, normalize_catalog_doc, normalize_package_type
+
+        existing = await db.packages.find_one(scope(user, {"id": pid}), {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Package not found")
+
+        upd = {k: v for k, v in payload.model_dump(exclude_none=True).items() if v is not None}
+        ptype = upd.get("package_type") or existing.get("package_type") or "series_package"
+        rebuild_components = any(k in upd for k in ("components", "series_treatment_id", "sessions_total", "package_type"))
+        if rebuild_components:
+            comp_in = upd.get("components")
+            if comp_in is None and normalize_package_type(ptype) != "series_package":
+                comp_in = existing.get("components")
+            series_tid = upd.get("series_treatment_id")
+            if not series_tid and normalize_package_type(ptype) == "series_package":
+                series_tid = ((existing.get("components") or [{}])[0].get("treatment_id"))
+            components = await normalize_catalog_components(
+                db, cid, ptype, comp_in,
+                sessions_total=upd.get("sessions_total", existing.get("sessions_total", 6)),
+                series_treatment_id=series_tid,
+            )
+            upd["components"] = components
+        if "package_code" in upd and upd["package_code"]:
+            upd["key"] = upd["package_code"][:32]
+        elif "name" in upd:
+            upd["key"] = (upd.get("package_code") or upd["name"])[:32]
+        upd = normalize_catalog_doc({**existing, **upd})
+        await db.packages.update_one(scope(user, {"id": pid}), {"$set": upd})
+        await audit(user, "update", "package", pid, upd)
+        return await db.packages.find_one(scope(user, {"id": pid}), {"_id": 0})
+
+    @api.delete("/packages-catalog/{pid}")
+    async def delete_package(pid: str, user: dict = Depends(get_current_user)):
+        if not _can_manage_packages(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage packages catalog")
+        await assert_writeable(user)
+        await assert_feature(user, "packages")
+        r = await db.packages.delete_one(scope(user, {"id": pid}))
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Package not found")
+        await audit(user, "delete", "package", pid)
+        return {"ok": True}
+
+    def _can_view_products(user: dict) -> bool:
+        if user.get("role") in ("super_admin", "fo", "manager"):
+            return True
+        return user_has_permission(user, "inventory.view") or user_has_permission(user, "inventory.usage_record")
+
+    def _can_manage_products(user: dict) -> bool:
+        return user_has_permission(user, "products.manage")
+
+    async def _require_products_feature(user: dict) -> None:
+        await assert_feature(user, "products")
+
+    @api.get("/products-catalog")
+    async def products_catalog(
+        user: dict = Depends(get_current_user),
+        active_only: bool = False,
+        active: Optional[bool] = Query(None),
+        q: Optional[str] = None,
+        category: Optional[str] = None,
+        product_type: Optional[str] = None,
+        stock_status: Optional[str] = Query(None, description="out | low | in"),
+        page: Optional[int] = Query(None, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+    ):
+        if not _can_view_products(user):
+            raise HTTPException(status_code=403, detail="Not allowed to view products")
+        await _require_products_feature(user)
+        c = await get_active_clinic(user)
+        cid = c["id"]
+        flt: Dict[str, Any] = {"clinic_id": cid}
+        if active is not None:
+            flt["active"] = active
+        elif active_only:
+            flt["active"] = True
+        if category:
+            flt["category"] = category
+        if product_type:
+            flt["product_type"] = product_type
+        ss = (stock_status or "").strip().lower()
+        if ss == "out":
+            flt["$expr"] = {"$lte": [{"$ifNull": ["$current_stock", 0]}, 0]}
+        elif ss == "low":
+            flt["$expr"] = {
+                "$and": [
+                    {"$gt": [{"$ifNull": ["$current_stock", 0]}, 0]},
+                    {"$lte": [{"$ifNull": ["$current_stock", 0]}, {"$ifNull": ["$minimum_stock", 0]}]},
+                ]
+            }
+        elif ss == "in":
+            flt["$expr"] = {"$gt": [{"$ifNull": ["$current_stock", 0]}, {"$ifNull": ["$minimum_stock", 0]}]}
+        flt = _catalog_apply_search(
+            flt,
+            q,
+            ["name", "product_code", "key", "brand", "category", "sub_category", "business_unit", "product_type", "amount", "unit", "notes"],
+        )
+        if page is not None:
+            return await _catalog_list_paginated(
+                db.products, flt, page, page_size, facet_field="category", clinic_id=cid,
+            )
+        rows = await db.products.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
+        return rows
+
+    @api.post("/products-catalog")
+    async def create_product(payload: ProductCatalogIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage products")
+        await _require_products_feature(user)
+        await assert_writeable(user)
+        cid = user.get("clinic_id")
+        p = payload.model_dump()
+        p["id"] = str(uuid.uuid4())
+        p["clinic_id"] = cid
+        code = (p.get("product_code") or "").strip()
+        p["product_code"] = code or p["name"][:32]
+        p["key"] = p["product_code"][:32]
+        p.setdefault("brand", "")
+        p.setdefault("sub_category", "")
+        p.setdefault("amount", "")
+        p.setdefault("current_stock", 0)
+        p.setdefault("minimum_stock", 0)
+        p.setdefault("unit", "pcs")
+        p.setdefault("notes", "")
+        p.setdefault("pos_enabled", True)
+        p.setdefault("track_stock", True)
+        if p.get("sale_price_idr") is None:
+            p["sale_price_idr"] = 0
+        if p.get("cost_price_idr") is None:
+            p["cost_price_idr"] = int(p.get("mrp_idr") or 0)
+        if p.get("mrp_idr") is None:
+            p["mrp_idr"] = p.get("cost_price_idr") or 0
+        p["stock_updated_at"] = iso(now_utc())
+        p["created_at"] = iso(now_utc())
+        p["created_by"] = user["id"]
+        await db.products.insert_one(p)
+        p.pop("_id", None)
+        await audit(user, "create", "product", p["id"], {"name": p["name"]})
+        return p
+
+    @api.put("/products-catalog/{pid}")
+    async def update_product(pid: str, payload: ProductCatalogUpdateIn, user: dict = Depends(get_current_user)):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage products")
+        await _require_products_feature(user)
+        await assert_writeable(user)
+        upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if "product_code" in upd and upd["product_code"]:
+            upd["key"] = upd["product_code"][:32]
+        elif "name" in upd:
+            upd["key"] = (upd.get("product_code") or upd["name"])[:32]
+        if upd:
+            upd["stock_updated_at"] = iso(now_utc())
+        r = await db.products.update_one(scope(user, {"id": pid}), {"$set": upd})
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+        await audit(user, "update", "product", pid, upd)
+        return await db.products.find_one(scope(user, {"id": pid}), {"_id": 0})
+
+    @api.delete("/products-catalog/{pid}")
+    async def delete_product(pid: str, user: dict = Depends(get_current_user)):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to manage products")
+        await _require_products_feature(user)
+        await assert_writeable(user)
+        r = await db.products.delete_one(scope(user, {"id": pid}))
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+        await audit(user, "delete", "product", pid)
+        return {"ok": True}
+
+    @api.get("/products-catalog/export")
+    async def export_products_catalog(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to export products")
+        await _require_products_feature(user)
+        c = await get_active_clinic(user)
+        cid = c["id"]
+        rows_db = await db.products.find({"clinic_id": cid}, {"_id": 0}).sort("name", 1).to_list(5000)
+        export_rows = [product_to_export_row(p) for p in rows_db]
+        if format.lower() == "csv":
+            csv_text = product_rows_to_csv(export_rows)
+            filename = f"products-{c.get('slug', 'clinic')}.csv"
+            return Response(
+                content=csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        xlsx_bytes = product_rows_to_xlsx(export_rows)
+        filename = f"products-{c.get('slug', 'clinic')}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @api.get("/products-catalog/import-template")
+    async def products_import_template(
+        user: dict = Depends(get_current_user),
+        format: str = Query("xlsx", description="xlsx or csv"),
+    ):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to download import template")
+        await _require_products_feature(user)
+        if format.lower() == "csv":
+            return Response(
+                content=product_rows_to_csv([]),
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": 'attachment; filename="products-import-template.csv"'},
+            )
+        return Response(
+            content=product_rows_to_xlsx([]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="products-import-template.xlsx"'},
+        )
+
+    @api.post("/products-catalog/import")
+    async def import_products_catalog(
+        file: UploadFile = File(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_manage_products(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions to import products")
+        await _require_products_feature(user)
+        await assert_writeable(user)
+        cid = user.get("clinic_id")
+        raw = await file.read()
+        fname = (file.filename or "").lower()
+        parsed: List[dict] = []
+        parse_errors: List[dict] = []
+        if fname.endswith(".xlsx") or fname.endswith(".xlsm") or raw[:2] == b"PK":
+            try:
+                parsed, parse_errors = parse_product_xlsx(raw)
+            except RuntimeError as ex:
+                raise HTTPException(status_code=500, detail=str(ex)) from ex
+        else:
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            parsed, parse_errors = parse_product_csv(text)
+        if not parsed and parse_errors:
+            raise HTTPException(status_code=400, detail=parse_errors[0]["message"])
+
+        existing_rows = await db.products.find({"clinic_id": cid}, {"_id": 0}).to_list(10000)
+        lookup = build_product_lookup(existing_rows)
+
+        created = 0
+        updated = 0
+        errors = list(parse_errors)
+
+        for i, row in enumerate(parsed, start=2):
+            match = find_product_match(row, lookup)
+            try:
+                doc = build_product_doc(row, cid, user["id"], existing=match)
+                if match:
+                    await db.products.update_one(
+                        {"clinic_id": cid, "id": match["id"]},
+                        {"$set": {k: v for k, v in doc.items() if k not in ("id", "clinic_id", "created_at", "created_by")}},
+                    )
+                    register_product_in_lookup(lookup, doc)
+                    updated += 1
+                else:
+                    await db.products.insert_one(doc)
+                    register_product_in_lookup(lookup, doc)
+                    created += 1
+            except Exception as ex:
+                errors.append({"row": i, "message": str(ex)})
+
+        await audit(user, "import", "product", "", {"created": created, "updated": updated, "errors": len(errors)})
+        return {"created": created, "updated": updated, "errors": errors, "total": len(parsed)}
+
     # ---------- Dashboard (Owner / FO KPIs) ----------
+    @api.get("/dashboard/clinical")
+    async def clinical_dashboard(user: dict = Depends(get_current_user)):
+        """Assigned-only dashboard for Doctor / Therapist / Nurse."""
+        from permissions import user_has_permission
+
+        if not user_has_permission(user, "schedule.view_own") and not user_has_permission(user, "visits.view_own"):
+            raise HTTPException(status_code=403, detail="Not allowed")
+        cid = user.get("clinic_id")
+        uid = user.get("id")
+        if not cid or not uid:
+            return {
+                "today_bookings": [],
+                "upcoming_bookings": [],
+                "awaiting_notes": [],
+                "recent_visits": [],
+            }
+
+        def _visit_flt(extra: Optional[dict] = None) -> dict:
+            f = scope(user, extra or {})
+            if user_has_permission(user, "visits.view"):
+                return f
+            if user_has_permission(user, "visits.view_own"):
+                f.update(visit_staff_filter(uid))
+            return f
+        today = now_utc().strftime("%Y-%m-%d")
+        now_iso = iso(now_utc())
+        bflt: Dict[str, Any] = {
+            **scope(user),
+            **booking_staff_filter(uid),
+            "booking_type": {"$ne": "block"},
+        }
+        today_bookings = await db.bookings.find(
+            {
+                **bflt,
+                "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+                "status": {"$nin": ["cancelled", "no_show", "blocked"]},
+            },
+            {"_id": 0},
+        ).sort("scheduled_at", 1).to_list(50)
+        upcoming_bookings = await db.bookings.find(
+            {
+                **bflt,
+                "scheduled_at": {"$gte": now_iso},
+                "status": {"$in": APPOINTMENT_QUEUE_STATUSES + ["checked_in"]},
+            },
+            {"_id": 0},
+        ).sort("scheduled_at", 1).to_list(20)
+        role = user.get("role")
+        vflt = _visit_flt({"status": {"$in": ["in_progress", "submitted"]}})
+        visit_rows = await db.visits.find(vflt, {"_id": 0}).sort("created_at", -1).to_list(50)
+        awaiting_notes: List[Dict[str, Any]] = []
+        for v in visit_rows:
+            if v.get("status") not in ("in_progress",):
+                continue
+            needs = False
+            if role == "doctor":
+                rec = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                needs = not (rec and rec.get("submitted"))
+            elif role in ("therapist", "nurse"):
+                rec = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                needs = not (rec and rec.get("submitted"))
+            else:
+                cr = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                tr = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                needs = not ((cr and cr.get("submitted")) or (tr and tr.get("submitted")))
+            if needs:
+                p = await db.patients.find_one({"id": v.get("patient_id")}, {"_id": 0, "full_name": 1})
+                awaiting_notes.append({
+                    "visit_id": v["id"],
+                    "patient_name": (p or {}).get("full_name") or v.get("patient_name") or "",
+                    "chief_complaint": v.get("chief_complaint") or "",
+                    "status": v.get("status"),
+                })
+        recent_flt = _visit_flt({})
+        recent_visits = await db.visits.find(recent_flt, {"_id": 0}).sort("created_at", -1).to_list(6)
+        for v in recent_visits:
+            p = await db.patients.find_one({"id": v.get("patient_id")}, {"_id": 0, "full_name": 1})
+            v["patient_name"] = (p or {}).get("full_name") or "Unknown"
+        return {
+            "today_bookings": today_bookings,
+            "upcoming_bookings": upcoming_bookings,
+            "awaiting_notes": awaiting_notes,
+            "recent_visits": recent_visits,
+        }
+
     @api.get("/dashboard/me-queue")
     async def me_queue(user: dict = Depends(get_current_user)):
         """Role-aware 'what should I do next' queue."""
@@ -922,41 +2838,169 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         role = user.get("role")
         items: List[Dict[str, Any]] = []
 
+        uid = user.get("id")
         if role in ("doctor",):
-            # Pending clinical work: in_progress visits with no doctor signature
-            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+            visit_flt = {"clinic_id": cid, "status": "in_progress"}
+            visit_flt.update(visit_staff_filter(uid))
+            visits = await db.visits.find(visit_flt, {"_id": 0}).sort("created_at", -1).to_list(50)
             for v in visits:
-                rec = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "signature": 1})
-                needs_doctor = not (rec and rec.get("signature"))
-                if needs_doctor:
-                    items.append({"kind": "visit_clinical", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Awaiting clinical form", "sub": v.get("chief_complaint") or "—"})
-        elif role == "therapist":
-            # Visits in progress with no therapist record yet
-            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
-            for v in visits:
-                rec = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "signature": 1})
-                needs = not (rec and rec.get("signature"))
-                if needs:
-                    items.append({"kind": "visit_therapist", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Awaiting therapist form", "sub": v.get("visit_type") or "—"})
-            # Plus today's confirmed/checked_in bookings
-            bks = await db.bookings.find({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$in": ["confirmed", "checked_in"]}}, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
+                rec = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                if not (rec and rec.get("submitted")):
+                    p = await db.patients.find_one({"id": v.get("patient_id")}, {"_id": 0, "full_name": 1})
+                    items.append({
+                        "kind": "visit_clinical",
+                        "visit_id": v["id"],
+                        "patient_name": (p or {}).get("full_name") or v.get("patient_name", ""),
+                        "label": "Awaiting clinical notes",
+                        "sub": v.get("chief_complaint") or "—",
+                    })
+            bks = await db.bookings.find({
+                "clinic_id": cid,
+                **booking_staff_filter(uid),
+                "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+                "status": {"$in": APPOINTMENT_QUEUE_STATUSES},
+                "booking_type": {"$ne": "block"},
+            }, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
             for b in bks:
-                items.append({"kind": "booking", "booking_id": b["id"], "patient_name": b["patient_name"], "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}", "sub": b["status"].replace("_", " ")})
+                if is_time_block(b):
+                    continue
+                sub = b["status"].replace("_", " ")
+                if b.get("visit_id"):
+                    sub = "Visit started"
+                items.append({
+                    "kind": "booking",
+                    "booking_id": b["id"],
+                    "visit_id": b.get("visit_id"),
+                    "patient_name": b["patient_name"],
+                    "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}",
+                    "sub": sub,
+                })
+        elif role == "therapist":
+            visit_flt = {"clinic_id": cid, "status": "in_progress"}
+            visit_flt.update(visit_staff_filter(uid))
+            visits = await db.visits.find(visit_flt, {"_id": 0}).sort("created_at", -1).to_list(50)
+            for v in visits:
+                rec = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                if not (rec and rec.get("submitted")):
+                    p = await db.patients.find_one({"id": v.get("patient_id")}, {"_id": 0, "full_name": 1})
+                    items.append({
+                        "kind": "visit_therapist",
+                        "visit_id": v["id"],
+                        "patient_name": (p or {}).get("full_name") or v.get("patient_name", ""),
+                        "label": "Awaiting treatment notes",
+                        "sub": v.get("chief_complaint") or "—",
+                    })
+            bks = await db.bookings.find({
+                "clinic_id": cid,
+                **booking_staff_filter(uid),
+                "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+                "status": {"$in": APPOINTMENT_QUEUE_STATUSES},
+                "booking_type": {"$ne": "block"},
+            }, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
+            for b in bks:
+                if is_time_block(b):
+                    continue
+                sub = b["status"].replace("_", " ")
+                if b.get("visit_id"):
+                    sub = "Visit started"
+                items.append({
+                    "kind": "booking",
+                    "booking_id": b["id"],
+                    "visit_id": b.get("visit_id"),
+                    "patient_name": b["patient_name"],
+                    "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}",
+                    "sub": sub,
+                })
+        elif role == "nurse":
+            visit_flt = {"clinic_id": cid, "status": "in_progress"}
+            visit_flt.update(visit_staff_filter(uid))
+            visits = await db.visits.find(visit_flt, {"_id": 0}).sort("created_at", -1).to_list(50)
+            for v in visits:
+                items.append({
+                    "kind": "visit_therapist",
+                    "visit_id": v["id"],
+                    "patient_name": v.get("patient_name", ""),
+                    "label": "Assigned visit in progress",
+                    "sub": v.get("chief_complaint") or "—",
+                })
+            bflt = {
+                "clinic_id": cid,
+                "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+                "status": {"$in": APPOINTMENT_QUEUE_STATUSES},
+                "booking_type": {"$ne": "block"},
+            }
+            bflt.update(booking_staff_filter(uid))
+            bks = await db.bookings.find(bflt, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
+            for b in bks:
+                if is_time_block(b):
+                    continue
+                sub = b["status"].replace("_", " ")
+                if b.get("visit_id"):
+                    sub = "Visit started"
+                items.append({
+                    "kind": "booking",
+                    "booking_id": b["id"],
+                    "visit_id": b.get("visit_id"),
+                    "patient_name": b["patient_name"],
+                    "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}",
+                    "sub": sub,
+                })
         elif role == "fo":
             # Today's bookings that need confirmation or check-in
             bks = await db.bookings.find({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$in": ["booked", "confirmed"]}}, {"_id": 0}).sort("scheduled_at", 1).to_list(50)
             for b in bks:
-                next_label = "Confirm" if b["status"] == "booked" else "Check in"
-                items.append({"kind": "booking", "booking_id": b["id"], "patient_name": b["patient_name"], "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}", "sub": next_label})
+                if b.get("visit_id"):
+                    continue
+                next_label = "Confirm" if b["status"] == "booked" else "Start visit"
+                items.append({
+                    "kind": "booking",
+                    "booking_id": b["id"],
+                    "patient_name": b["patient_name"],
+                    "label": f"{b['treatment']} at {b['scheduled_at'][11:16]}",
+                    "sub": next_label,
+                })
             # Plus completed-doctor visits ready for FO completion
-            visits = await db.visits.find({"clinic_id": cid, "status": "in_progress"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+            visits = await db.visits.find(
+                {"clinic_id": cid, "status": {"$in": ["in_progress", "submitted"]}},
+                {"_id": 0},
+            ).sort("created_at", -1).to_list(50)
             for v in visits:
-                items.append({"kind": "visit_fo", "visit_id": v["id"], "patient_name": v.get("patient_name", ""), "label": "Visit in progress", "sub": "Mark complete after care"})
+                p = await db.patients.find_one({"id": v.get("patient_id")}, {"_id": 0, "full_name": 1})
+                pname = (p or {}).get("full_name") or v.get("patient_name") or ""
+                is_submitted = v.get("status") == "submitted"
+                if not is_submitted:
+                    cr = await db.clinical_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                    tr = await db.therapist_records.find_one({"visit_id": v["id"]}, {"_id": 0, "submitted": 1})
+                    is_submitted = (cr and cr.get("submitted")) or (tr and tr.get("submitted"))
+                inv = await db.invoices.find_one(
+                    {"visit_id": v["id"], "clinic_id": cid, "payment_status": {"$nin": ["cancelled", "paid"]}},
+                    {"_id": 0, "payment_status": 1},
+                )
+                unpaid = bool(inv) or v.get("payment_status") not in ("paid",)
+                if is_submitted and unpaid:
+                    sub = "Collect payment"
+                elif is_submitted:
+                    sub = "Ready to close"
+                else:
+                    sub = "Care in progress"
+                items.append({
+                    "kind": "visit_fo",
+                    "visit_id": v["id"],
+                    "booking_id": v.get("booking_id"),
+                    "patient_name": pname,
+                    "label": "Visit in progress",
+                    "sub": sub,
+                })
         elif role in ("manager", "super_admin"):
             # Manager / Owner overview — show all pending items lightly
             pending_bk = await db.bookings.count_documents({"clinic_id": cid, "status": "booked"})
             in_progress = await db.visits.count_documents({"clinic_id": cid, "status": "in_progress"})
-            today_bk = await db.bookings.count_documents({"clinic_id": cid, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$ne": "cancelled"}})
+            today_bk = await db.bookings.count_documents({
+                "clinic_id": cid,
+                "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+                "status": {"$nin": ["cancelled", "no_show", "blocked"]},
+                "booking_type": {"$ne": "block"},
+            })
             items.append({"kind": "summary", "label": f"{today_bk} bookings today", "sub": "View bookings page", "link": "/bookings"})
             items.append({"kind": "summary", "label": f"{pending_bk} pending confirmations", "sub": "FO needs to confirm", "link": "/bookings"})
             items.append({"kind": "summary", "label": f"{in_progress} visits in progress", "sub": "Doctor/therapist work pending", "link": "/visits"})
@@ -966,12 +3010,13 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
     # ---------- Patient stats & transactions ----------
     @api.get("/patients/{pid}/stats")
     async def patient_stats(pid: str, user: dict = Depends(get_current_user)):
+        from server import assert_patient_access, apply_staff_visit_filter
         p = await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0})
         if not p:
             raise HTTPException(status_code=404, detail="Patient not found")
-        # Total spent: sum of price * quantity across treatment_items for this patient
-        # treatment_items hang off visits; find visit ids first.
-        visit_ids = [v["id"] async for v in db.visits.find({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0, "id": 1})]
+        await assert_patient_access(db, user, pid)
+        vflt = await apply_staff_visit_filter(db, user, {"patient_id": pid})
+        visit_ids = [v["id"] async for v in db.visits.find(vflt, {"_id": 0, "id": 1})]
         total_spent = 0.0
         item_count = 0
         if visit_ids:
@@ -983,39 +3028,30 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 total_spent = float(r.get("total", 0) or 0)
                 item_count = int(r.get("n", 0) or 0)
         visits_total = len(visit_ids)
-        last_visit = await db.visits.find_one({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0, "visit_date": 1, "created_at": 1}, sort=[("created_at", -1)])
-        # Compute loyalty tier from clinic config
-        clinic = await db.clinics.find_one({"id": user.get("clinic_id")}, {"_id": 0, "loyalty_tiers": 1})
-        tiers = (clinic or {}).get("loyalty_tiers") or []
-        loyalty = None
-        next_tier = None
-        for t in sorted(tiers, key=lambda x: x.get("min_spend_idr", 0)):
-            if total_spent >= float(t.get("min_spend_idr", 0)):
-                loyalty = t
-            else:
-                if next_tier is None:
-                    next_tier = t
+        last_visit = await db.visits.find_one(vflt, {"_id": 0, "visit_date": 1, "created_at": 1}, sort=[("created_at", -1)])
+        from visit_workflow import clinic_loyalty_tiers, resolve_patient_loyalty
+
+        cid = user.get("clinic_id")
+        tiers = await clinic_loyalty_tiers(db, cid)
+        loyalty_fields = resolve_patient_loyalty(total_spent, tiers)
         return {
             "total_spent_idr": total_spent,
             "visits_total": visits_total,
             "treatment_items_total": item_count,
             "last_visit_at": (last_visit or {}).get("visit_date") or (last_visit or {}).get("created_at"),
             "avg_per_visit_idr": (total_spent / visits_total) if visits_total else 0,
-            "loyalty_tier": loyalty,
-            "next_tier": next_tier,
-            "next_tier_progress": (
-                {"current": total_spent, "needed": float(next_tier.get("min_spend_idr", 0)) - total_spent}
-                if next_tier else None
-            ),
+            **loyalty_fields,
         }
 
     @api.get("/patients/{pid}/transactions")
     async def patient_transactions(pid: str, user: dict = Depends(get_current_user)):
-        # Verify patient access scope
+        from server import assert_patient_access, apply_staff_visit_filter
         p = await db.patients.find_one(scope(user, {"id": pid}), {"_id": 0, "id": 1})
         if not p:
             raise HTTPException(status_code=404, detail="Patient not found")
-        visits = await db.visits.find({"clinic_id": user.get("clinic_id"), "patient_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        await assert_patient_access(db, user, pid)
+        vflt = await apply_staff_visit_filter(db, user, {"patient_id": pid})
+        visits = await db.visits.find(vflt, {"_id": 0}).sort("created_at", -1).to_list(500)
         out = []
         for v in visits:
             items = await db.treatment_items.find({"clinic_id": user.get("clinic_id"), "visit_id": v["id"]}, {"_id": 0}).to_list(50)
@@ -1033,6 +3069,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
     # ---------- Dashboard (Owner / FO KPIs) ----------
     @api.get("/dashboard/owner")
     async def owner_dashboard(user: dict = Depends(get_current_user)):
+        if not _can_view_owner_dashboard(user):
+            raise HTTPException(status_code=403, detail="Insufficient permissions for owner dashboard")
         c = await get_active_clinic(user)
         today = now_utc().strftime("%Y-%m-%d")
         month_start = now_utc().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -1041,7 +3079,12 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
         flt = {"clinic_id": c["id"]}
 
-        bookings_today = await db.bookings.count_documents({**flt, "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"}, "status": {"$ne": "cancelled"}})
+        bookings_today = await db.bookings.count_documents({
+            **flt,
+            "scheduled_at": {"$gte": f"{today}T00:00:00", "$lte": f"{today}T23:59:59"},
+            "status": {"$nin": ["cancelled", "no_show", "blocked"]},
+            "booking_type": {"$ne": "block"},
+        })
         upcoming_bookings = await db.bookings.count_documents({**flt, "scheduled_at": {"$gte": iso(now_utc())}, "status": {"$in": ["booked", "confirmed"]}})
         pending_confirm = await db.bookings.count_documents({**flt, "status": "booked"})
 
@@ -1099,6 +3142,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         """
         if user.get("role") not in ("super_admin", "manager"):
             raise HTTPException(status_code=403, detail="Only owner or manager can view reports")
+        await assert_feature(user, "reports")
         c = await get_active_clinic(user)
         now = now_utc()
         # Compute first day of month, then back N months
@@ -1141,5 +3185,28 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "total_items": total_items,
             "average_monthly": avg,
         }
+
+    import os
+    from online_booking_payment import register_online_booking_payment
+    from audit_log import log_appointment_created as _log_appt_created
+
+    register_online_booking_payment(
+        api,
+        db,
+        get_current_user,
+        audit,
+        os.environ["JWT_SECRET"],
+        assert_feature=assert_feature,
+        public_booking_helpers={
+            "parse_iso": _parse_iso,
+            "public_online_bookable_filter": _public_online_bookable_filter,
+            "has_slot_conflict": _has_slot_conflict,
+            "auto_pick_performer": _auto_pick_performer,
+            "log_appointment_created": _log_appt_created,
+        },
+    )
+
+    from messaging import register_messaging
+    register_messaging(api, db, get_current_user, audit, os.environ["JWT_SECRET"], assert_feature=assert_feature)
 
     return api

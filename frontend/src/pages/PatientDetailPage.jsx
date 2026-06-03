@@ -1,36 +1,166 @@
-import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import api from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import api, { fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
+import {
+  ACTIVITY_COLORS,
+  ACTIVITY_LABELS,
+  canEditConsent,
+  fmtDate,
+  fmtDay,
+  fmtIDR,
+  visibleTabs,
+} from "@/lib/patientProfile";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Calendar, Image as ImageIcon, Wallet, Receipt, TrendingUp, Award } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Calendar,
+  Image as ImageIcon,
+  Wallet,
+  Receipt,
+  Award,
+  Trash2,
+  Clock,
+  FileText,
+  Package,
+  Shield,
+} from "lucide-react";
+import PatientPackagesPanel from "@/components/patient/PatientPackagesPanel";
+import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
+import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
+import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
 
-const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-2 text-sm rounded-full whitespace-nowrap transition-colors ${
+        active
+          ? "bg-[#2D3A33] text-white"
+          : "bg-[#F3F1EB] text-[#5C6C62] hover:bg-[#EAE6D7]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Empty({ message }) {
+  return <div className="bl-card p-8 text-center text-[#5C6C62] text-sm">{message}</div>;
+}
 
 export default function PatientDetailPage() {
   const { pid } = useParams();
   const { user } = useAuth();
   const nav = useNavigate();
-  const [patient, setPatient] = useState(null);
-  const [timeline, setTimeline] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [transactions, setTransactions] = useState([]);
-  const [openVisit, setOpenVisit] = useState(false);
-  const [vForm, setVForm] = useState({ visit_type:"doctor", assigned_to:"", chief_complaint:"" });
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const load = async () => {
-    const [p, t, u, s, tx] = await Promise.all([
-      api.get(`/patients/${pid}`),
-      api.get(`/patients/${pid}/timeline`),
-      api.get(`/users`).catch(()=>({data:[]})),
-      api.get(`/patients/${pid}/stats`).catch(()=>({data:null})),
-      api.get(`/patients/${pid}/transactions`).catch(()=>({data:[]})),
-    ]);
-    setPatient(p.data); setTimeline(t.data); setUsers(u.data);
-    setStats(s.data); setTransactions(tx.data);
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [pid]);
+  const [patient, setPatient] = useState(null);
+  const [access, setAccess] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
+
+  const [bookings, setBookings] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [timelineVisits, setTimelineVisits] = useState([]);
+  const [photos, setPhotos] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [consents, setConsents] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+
+  const [openVisit, setOpenVisit] = useState(false);
+  const [vForm, setVForm] = useState({ visit_type: "doctor", assigned_to: "", chief_complaint: "" });
+  const [consentForm, setConsentForm] = useState({ consent_status: "unsigned", consent_notes: "" });
+  const [consentBusy, setConsentBusy] = useState(false);
+
+  const tabs = useMemo(() => visibleTabs(access), [access]);
+  const tab = searchParams.get("tab") || "overview";
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : "overview";
+
+  const setTab = (id) => setSearchParams({ tab: id }, { replace: true });
+
+  const loadCore = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, a, s, u] = await Promise.all([
+        api.get(`/patients/${pid}`),
+        api.get(`/patients/${pid}/profile/access`),
+        api.get(`/patients/${pid}/stats`).catch(() => ({ data: null })),
+        api.get("/users").catch(() => ({ data: [] })),
+      ]);
+      setPatient(p.data);
+      setAccess(a.data);
+      setStats(s.data);
+      setUsers(u.data || []);
+      setConsentForm({
+        consent_status: p.data.consent_status || "unsigned",
+        consent_notes: p.data.consent_notes || "",
+      });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not load patient");
+      setPatient(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [pid]);
+
+  const loadTabData = useCallback(async (tabId, tabAccess) => {
+    if (!tabAccess) return;
+    setTabLoading(true);
+    try {
+      if (tabId === "overview") {
+        const tx = await api.get(`/patients/${pid}/transactions`).catch(() => ({ data: [] }));
+        setTransactions(tx.data || []);
+      }
+      if (tabId === "appointments" && tabAccess.appointments) {
+        const r = await api.get("/bookings", { params: { patient_id: pid, appointments_only: true } });
+        setBookings(r.data || []);
+      }
+      if ((tabId === "visits" || tabId === "clinical_notes") && tabAccess.visits) {
+        const [v, t] = await Promise.all([
+          api.get("/visits", { params: { patient_id: pid } }),
+          tabId === "clinical_notes" ? api.get(`/patients/${pid}/timeline`) : Promise.resolve({ data: [] }),
+        ]);
+        setVisits(v.data || []);
+        if (tabId === "clinical_notes") setTimelineVisits(t.data || []);
+      }
+      if (tabId === "photos" && tabAccess.photos) {
+        const r = await api.get(`/patients/${pid}/photos`);
+        setPhotos(r.data || []);
+      }
+      if (tabId === "invoices" && tabAccess.invoices) {
+        const r = await api.get("/invoices", { params: { patient_id: pid, limit: 100 } });
+        setInvoices(r.data || []);
+      }
+      if (tabId === "consents") {
+        const r = await api.get(`/patients/${pid}/consents`);
+        setConsents(r.data);
+      }
+      if (tabId === "timeline" && tabAccess.timeline) {
+        const r = await api.get(`/patients/${pid}/activity`);
+        const payload = r.data;
+        setActivity(Array.isArray(payload) ? payload : (payload?.items || payload?.events || []));
+      }
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      const msg = typeof detail === "string" ? detail : "Could not load tab data";
+      toast.error(msg);
+      if (tabId === "timeline") setActivity([]);
+    } finally {
+      setTabLoading(false);
+    }
+  }, [pid]);
+
+  useEffect(() => { loadCore(); }, [loadCore]);
+  useEffect(() => {
+    if (!access || !patient) return;
+    loadTabData(activeTab, access);
+  }, [activeTab, access, patient, loadTabData]);
 
   const createVisit = async (e) => {
     e.preventDefault();
@@ -44,9 +174,424 @@ export default function PatientDetailPage() {
     }
   };
 
-  if (!patient) return <div className="p-10 text-[#5C6C62]">Loading…</div>;
+  const deletePatient = async () => {
+    if (!window.confirm(`Permanently delete "${patient.full_name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/patients/${pid}`);
+      toast.success("Patient deleted");
+      nav("/patients");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to delete patient");
+    }
+  };
 
-  const filteredAssignees = users.filter(u => vForm.visit_type === "doctor" ? u.role === "doctor" : u.role === "therapist");
+  const saveConsent = async (e) => {
+    e.preventDefault();
+    if (!canEditConsent(user)) return;
+    setConsentBusy(true);
+    try {
+      const r = await api.put(`/patients/${pid}`, {
+        ...patient,
+        consent_status: consentForm.consent_status,
+        consent_notes: consentForm.consent_notes,
+      });
+      setPatient(r.data);
+      toast.success("Consent updated");
+      loadTabData("consents", access);
+      if (access?.timeline) loadTabData("timeline", access);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not update consent");
+    } finally {
+      setConsentBusy(false);
+    }
+  };
+
+  if (loading) return <div className="p-10 text-[#5C6C62]">Loading…</div>;
+  if (!patient) return <div className="p-10 text-[#B14A2C]">Patient not found or access denied.</div>;
+
+  const filteredAssignees = users.filter((u) =>
+    vForm.visit_type === "doctor" ? u.role === "doctor" : u.role === "therapist",
+  );
+
+  const renderOverview = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 space-y-6">
+        {stats && (
+          <div className="bl-card p-5" data-testid="patient-spend-summary">
+            <div className="label-eyebrow mb-3 flex items-center gap-1.5">
+              <Wallet className="w-3.5 h-3.5" /> Summary
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="text-[#5C6C62]">Lifetime spend</div>
+                <div className="font-display text-xl text-[#2D3A33] mt-1">{fmtIDR(stats.total_spent_idr)}</div>
+              </div>
+              <div>
+                <div className="text-[#5C6C62]">Visits</div>
+                <div className="font-medium text-[#2D3A33] mt-1">{stats.visits_total}</div>
+              </div>
+              <div>
+                <div className="text-[#5C6C62]">Loyalty status</div>
+                <div className="mt-1.5">
+                  {stats.loyalty_tier ? (
+                    <div>
+                      <LoyaltyBadge tier={stats.loyalty_tier} size="md" />
+                      {stats.loyalty_tier.benefit && (
+                        <div className="text-xs text-[#5C6C62] mt-1.5 line-clamp-2">{stats.loyalty_tier.benefit}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <LoyaltyBadge tier={null} size="md" />
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-[#5C6C62]">Last visit</div>
+                <div className="font-medium text-[#2D3A33] mt-1">{stats.last_visit_at ? fmtDay(stats.last_visit_at) : "—"}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="bl-card p-5">
+          <div className="label-eyebrow mb-3">Patient info</div>
+          <div className="grid sm:grid-cols-2 gap-4 text-sm">
+            <div><span className="text-[#5C6C62]">DOB</span><div className="font-medium">{patient.date_of_birth || patient.dob || "—"}</div></div>
+            <div><span className="text-[#5C6C62]">Gender</span><div className="font-medium capitalize">{patient.gender || "—"}</div></div>
+            <div className="sm:col-span-2"><span className="text-[#5C6C62]">Address</span><div className="font-medium">{patient.address || "—"}</div></div>
+            <div><span className="text-[#5C6C62]">Allergies</span><div className="font-medium">{patient.allergies || "—"}</div></div>
+            <div><span className="text-[#5C6C62]">Consent</span><div className="font-medium capitalize">{patient.consent_status || "unsigned"}</div></div>
+            <div className="sm:col-span-2"><span className="text-[#5C6C62]">Medical history</span><div className="font-medium whitespace-pre-wrap">{patient.medical_history || "—"}</div></div>
+          </div>
+        </div>
+
+        {transactions.length > 0 && (
+          <div className="bl-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-[#EAE6D7] label-eyebrow flex items-center gap-1.5">
+              <Receipt className="w-3.5 h-3.5" /> Recent treatment history
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+                  <tr>
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Visit</th>
+                    <th className="px-5 py-3 text-right">Subtotal</th>
+                    <th className="px-5 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.slice(0, 8).map((t) => (
+                    <tr key={t.visit_id} className="border-t border-[#EAE6D7]">
+                      <td className="px-5 py-3">{fmtDay(t.visit_date)}</td>
+                      <td className="px-5 py-3 capitalize">{t.visit_type} · {t.status?.replace("_", " ")}</td>
+                      <td className="px-5 py-3 text-right">{fmtIDR(t.subtotal_idr)}</td>
+                      <td className="px-5 py-3 text-right"><Link to={`/visits/${t.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Open</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <aside className="space-y-4">
+        {stats && (
+          <div
+            className="bl-card p-5 relative overflow-hidden"
+            data-testid="loyalty-card"
+            style={stats.loyalty_tier
+              ? { background: `linear-gradient(135deg, ${stats.loyalty_tier.color}22 0%, white 60%)`, borderColor: stats.loyalty_tier.color }
+              : undefined}
+          >
+            <div
+              className="label-eyebrow flex items-center gap-1.5"
+              style={stats.loyalty_tier ? { color: stats.loyalty_tier.color } : undefined}
+            >
+              <Award className="w-3.5 h-3.5" /> Loyalty
+            </div>
+            <div className="mt-3 space-y-3 text-sm">
+              <div>
+                <div className="text-[#5C6C62] text-xs">Current tier</div>
+                {stats.loyalty_tier ? (
+                  <div className="font-display text-2xl mt-1 tracking-wide" style={{ color: stats.loyalty_tier.color }}>
+                    {stats.loyalty_tier.name}
+                  </div>
+                ) : (
+                  <div className="mt-1.5"><LoyaltyBadge tier={null} size="md" /></div>
+                )}
+              </div>
+              <div>
+                <div className="text-[#5C6C62] text-xs">Lifetime spend</div>
+                <div className="font-medium text-[#2D3A33] mt-0.5">{fmtIDR(stats.total_spent_idr)}</div>
+              </div>
+              {stats.loyalty_tier?.benefit && (
+                <div>
+                  <div className="text-[#5C6C62] text-xs">Benefits</div>
+                  <div className="text-[#2D3A33] mt-0.5">{stats.loyalty_tier.benefit}</div>
+                </div>
+              )}
+              {stats.next_tier_label && (
+                <div>
+                  <div className="text-[#5C6C62] text-xs">Next tier</div>
+                  <div className="font-medium text-[#2D3A33] mt-0.5">{stats.next_tier_label}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {access?.timeline && (
+          <div className="bl-card p-5">
+            <div className="label-eyebrow mb-3 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Quick timeline</div>
+            <button type="button" onClick={() => setTab("timeline")} className="text-sm text-[#2D3A33] underline-offset-2 hover:underline">
+              View full activity timeline →
+            </button>
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+
+  const renderAppointments = () => (
+    <div className="space-y-3" data-testid="patient-appointments">
+      {tabLoading && <Empty message="Loading appointments…" />}
+      {!tabLoading && bookings.length === 0 && <Empty message="No appointments for this patient." />}
+      {!tabLoading && bookings.map((b) => (
+        <div key={b.id} className="bl-card p-5 flex flex-wrap items-center gap-4 justify-between">
+          <div>
+            <div className="font-medium text-[#2D3A33]">{b.treatment || "Appointment"}</div>
+            <div className="text-sm text-[#5C6C62] mt-1 flex flex-wrap gap-3">
+              <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{fmtDate(b.scheduled_at)}</span>
+              <span className="bl-chip">{b.status}</span>
+            </div>
+          </div>
+          {b.status === "checked_in" || b.status === "booked" ? (
+            <Link to="/bookings" className="bl-btn-ghost text-sm">View in schedule</Link>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderVisits = () => (
+    <div className="space-y-3" data-testid="patient-visits">
+      {tabLoading && <Empty message="Loading visits…" />}
+      {!tabLoading && visits.length === 0 && <Empty message="No visits yet." />}
+      {!tabLoading && visits.map((v) => (
+        <div key={v.id} className="bl-card p-5 flex flex-wrap items-center gap-4 justify-between">
+          <div>
+            <div className="font-medium capitalize text-[#2D3A33]">{v.visit_type} visit</div>
+            <div className="text-sm text-[#5C6C62] mt-1">{v.chief_complaint || "—"}</div>
+            <div className="mt-2 flex gap-2 text-xs"><span className="bl-chip">{v.status?.replace("_", " ")}</span><span>{fmtDay(v.visit_date || v.created_at)}</span></div>
+          </div>
+          <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm" data-testid={`open-visit-${v.id}`}>Open visit</Link>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderClinicalNotes = () => (
+    <div className="space-y-3" data-testid="patient-clinical-notes">
+      {tabLoading && <Empty message="Loading clinical notes…" />}
+      {!tabLoading && timelineVisits.length === 0 && <Empty message="No clinical documentation yet." />}
+      {!tabLoading && timelineVisits.map((v) => {
+        const doctor = v.clinical_record;
+        const therapist = v.therapist_record;
+        const hasNote = doctor || therapist;
+        if (!hasNote) return null;
+        return (
+          <div key={v.id} className="bl-card p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="font-medium text-[#2D3A33] capitalize">{v.visit_type} · {fmtDay(v.visit_date || v.created_at)}</div>
+                {doctor && (
+                  <div className="mt-3 text-sm">
+                    <div className="label-eyebrow">Doctor note</div>
+                    <div className="text-[#5C6C62] mt-1">{doctor.diagnosis || doctor.chief_complaint || "—"}</div>
+                    <span className="bl-chip mt-2 inline-block">{doctor.note_status || (doctor.submitted ? "completed" : "draft")}</span>
+                  </div>
+                )}
+                {therapist && (
+                  <div className="mt-3 text-sm">
+                    <div className="label-eyebrow">Treatment note</div>
+                    <div className="text-[#5C6C62] mt-1">{therapist.body_concern || therapist.treatment_plan || "—"}</div>
+                    <span className="bl-chip mt-2 inline-block">{therapist.note_status || (therapist.submitted ? "completed" : "draft")}</span>
+                  </div>
+                )}
+              </div>
+              <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm">Open visit</Link>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderPhotos = () => (
+    <div data-testid="patient-photos">
+      {tabLoading && <Empty message="Loading photos…" />}
+      {!tabLoading && photos.length === 0 && <Empty message="No before/after photos yet." />}
+      {!tabLoading && photos.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {photos.map((ph) => (
+            <div key={ph.id} className="bl-card overflow-hidden">
+              <div className="aspect-[3/4] bg-[#F3F1EB]">
+                <img src={fileUrl(ph.storage_path)} alt={ph.angle} className="w-full h-full object-cover" />
+              </div>
+              <div className="p-3 text-xs text-[#5C6C62]">
+                <div className="font-medium text-[#2D3A33] capitalize">{(ph.photo_type || "photo").replace("_", " ")} · {ph.angle}</div>
+                <div className="mt-1">{fmtDay(ph.created_at)}</div>
+                {ph.visit_id && (
+                  <Link to={`/visits/${ph.visit_id}`} className="inline-block mt-2 text-[var(--bl-primary)]">View visit</Link>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderInvoices = () => (
+    <div className="bl-card overflow-hidden" data-testid="patient-invoices">
+      {tabLoading && <Empty message="Loading invoices…" />}
+      {!tabLoading && invoices.length === 0 && <Empty message="No invoices for this patient." />}
+      {!tabLoading && invoices.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+              <tr>
+                <th className="px-5 py-3">Date</th>
+                <th className="px-5 py-3">Invoice</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 text-right">Total</th>
+                <th className="px-5 py-3 text-right">Paid</th>
+                <th className="px-5 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="border-t border-[#EAE6D7]">
+                  <td className="px-5 py-3">{fmtDay(inv.created_at)}</td>
+                  <td className="px-5 py-3 font-medium">{inv.invoice_number || inv.id.slice(0, 8)}</td>
+                  <td className="px-5 py-3"><span className="bl-chip">{inv.payment_status}</span></td>
+                  <td className="px-5 py-3 text-right">{fmtIDR(inv.total_amount)}</td>
+                  <td className="px-5 py-3 text-right">{fmtIDR(inv.amount_paid)}</td>
+                  <td className="px-5 py-3 text-right">
+                    {inv.visit_id ? <Link to={`/visits/${inv.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Visit</Link> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderConsents = () => (
+    <div className="grid lg:grid-cols-2 gap-6" data-testid="patient-consents">
+      <div className="bl-card p-5">
+        <div className="label-eyebrow mb-3 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Current consent</div>
+        <div className="text-sm space-y-2">
+          <div><span className="text-[#5C6C62]">Status</span><div className="font-medium capitalize">{consents?.current?.consent_status || patient.consent_status || "unsigned"}</div></div>
+          <div><span className="text-[#5C6C62]">Signed at</span><div className="font-medium">{consents?.current?.consent_signed_at ? fmtDate(consents.current.consent_signed_at) : "—"}</div></div>
+          <div><span className="text-[#5C6C62]">Notes</span><div className="font-medium whitespace-pre-wrap">{consents?.current?.consent_notes || patient.consent_notes || "—"}</div></div>
+        </div>
+        {canEditConsent(user) && (
+          <form onSubmit={saveConsent} className="mt-5 space-y-3 border-t border-[#EAE6D7] pt-5">
+            <select className="bl-input text-sm" value={consentForm.consent_status} onChange={(e) => setConsentForm({ ...consentForm, consent_status: e.target.value })}>
+              <option value="unsigned">Unsigned</option>
+              <option value="signed">Signed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <textarea className="bl-input text-sm min-h-[80px]" placeholder="Consent notes" value={consentForm.consent_notes} onChange={(e) => setConsentForm({ ...consentForm, consent_notes: e.target.value })} />
+            <button type="submit" disabled={consentBusy} className="bl-btn-primary text-sm">Save consent</button>
+          </form>
+        )}
+      </div>
+      {(consents?.forms || []).length > 0 && (
+        <div className="bl-card p-5 lg:col-span-2">
+          <div className="label-eyebrow mb-3">Digital consent forms</div>
+          <div className="space-y-3">
+            {(consents.forms || []).map((f) => (
+              <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 border border-[#EAE6D7] rounded-xl p-4">
+                <div>
+                  <div className="font-medium text-[#2D3A33]">{f.treatment_name_snapshot}</div>
+                  <div className="text-xs text-[#5C6C62] mt-1">{f.signed_at ? fmtDate(f.signed_at) : fmtDate(f.created_at)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ConsentStatusBadge status={f.status} />
+                  {f.visit_id && <Link to={`/visits/${f.visit_id}?tab=consent`} className="text-sm" style={{ color: "var(--bl-primary)" }}>View visit</Link>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="bl-card p-5">
+        <div className="label-eyebrow mb-3">Consent history</div>
+        {(consents?.history || []).length === 0 ? (
+          <p className="text-sm text-[#5C6C62]">No consent changes recorded yet.</p>
+        ) : (
+          <div className="space-y-3 max-h-[420px] overflow-y-auto">
+            {(consents?.history || []).map((h) => (
+              <div key={h.id} className="border-b border-[#EAE6D7] pb-3 last:border-0">
+                <div className="text-sm font-medium capitalize">{h.action}</div>
+                <div className="text-xs text-[#5C6C62] mt-1">{fmtDate(h.created_at)} · {h.user_email}</div>
+                {h.reason && <div className="text-xs text-[#5C6C62] mt-1">{h.reason}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderTimeline = () => (
+    <div className="space-y-3" data-testid="patient-timeline">
+      {tabLoading && <Empty message="Loading timeline…" />}
+      {!tabLoading && activity.length === 0 && <Empty message="No activity recorded yet." />}
+      {!tabLoading && activity.map((ev, idx) => (
+        <div key={`${ev.kind}-${ev.record_id}-${idx}`} className="bl-card p-5 flex gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-[#F3F1EB] flex items-center justify-center shrink-0">
+            {ev.kind === "photo" ? <ImageIcon className="w-5 h-5 text-[#5C6C62]" /> :
+             ev.kind === "invoice" ? <Receipt className="w-5 h-5 text-[#5C6C62]" /> :
+             ev.kind === "package_purchase" || ev.kind === "package_usage" ? <Package className="w-5 h-5 text-[#5C6C62]" /> :
+             ev.kind === "clinical_note" ? <FileText className="w-5 h-5 text-[#5C6C62]" /> :
+             ev.kind === "consent" ? <Shield className="w-5 h-5 text-[#5C6C62]" /> :
+             <Calendar className="w-5 h-5 text-[#5C6C62]" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-[#2D3A33]">{ev.title}</span>
+              <span className={`bl-chip ${ACTIVITY_COLORS[ev.kind] || "info"}`}>{ACTIVITY_LABELS[ev.kind] || ev.kind}</span>
+              {ev.status && <span className="text-xs text-[#5C6C62] capitalize">{ev.status.replace("_", " ")}</span>}
+            </div>
+            {ev.subtitle && <div className="text-sm text-[#5C6C62] mt-1 line-clamp-2">{ev.subtitle}</div>}
+            <div className="text-xs text-[#A89F8B] mt-2">{fmtDate(ev.at)}</div>
+          </div>
+          {ev.visit_id && (
+            <Link to={`/visits/${ev.visit_id}`} className="bl-btn-ghost text-sm shrink-0 self-center">Visit</Link>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  const tabContent = {
+    overview: renderOverview(),
+    appointments: renderAppointments(),
+    visits: renderVisits(),
+    clinical_notes: renderClinicalNotes(),
+    photos: renderPhotos(),
+    packages: <PatientPackagesPanel patientId={pid} compact />,
+    wallet: access?.wallet ? <PatientWalletPanel patientId={pid} /> : <Empty message="No access to wallet." />,
+    invoices: renderInvoices(),
+    consents: renderConsents(),
+    timeline: renderTimeline(),
+  };
 
   return (
     <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto">
@@ -54,189 +599,68 @@ export default function PatientDetailPage() {
         <ArrowLeft className="w-4 h-4" /> All patients
       </Link>
 
-      <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="flex items-end justify-between flex-wrap gap-4">
-            <div>
-              <div className="label-eyebrow">Patient profile</div>
-              <h1 className="font-display text-4xl tracking-tight font-light mt-2 text-[#2D3A33]" data-testid="patient-name">{patient.full_name}</h1>
-              <p className="mt-1 text-[#5C6C62]">{patient.gender ? `${patient.gender} · ` : ""}{patient.phone || "—"}{patient.email ? ` · ${patient.email}`:""}</p>
-            </div>
-            {can(user, "create_visit") && (
-              <button onClick={()=>setOpenVisit(true)} className="bl-btn-primary inline-flex items-center gap-2" data-testid="new-visit-button">
-                <Plus className="w-4 h-4" /> New visit
-              </button>
-            )}
+      <div className="mt-6 flex items-end justify-between flex-wrap gap-4">
+        <div>
+          <div className="label-eyebrow">Patient profile</div>
+          <div className="flex flex-wrap items-center gap-3 mt-2">
+            <h1 className="font-display text-4xl tracking-tight font-light text-[#2D3A33]" data-testid="patient-name">{patient.full_name}</h1>
+            {stats && <LoyaltyBadge tier={stats.loyalty_tier} size="md" />}
           </div>
-
-          <div className="mt-8">
-            <div className="label-eyebrow mb-4">History timeline</div>
-            <div className="space-y-4" data-testid="patient-timeline">
-              {timeline.length === 0 && <div className="bl-card p-6 text-center text-[#5C6C62]">No visits yet for this patient.</div>}
-              {timeline.map((v) => (
-                <div key={v.id} className="bl-card p-5 flex flex-col md:flex-row md:items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-[#F3F1EB] flex flex-col items-center justify-center shrink-0">
-                    <span className="font-display text-lg text-[#2D3A33] leading-none">{new Date(v.visit_date || v.created_at).getDate()}</span>
-                    <span className="text-[10px] uppercase tracking-widest text-[#5C6C62] mt-1">{new Date(v.visit_date || v.created_at).toLocaleString("en-US",{month:"short"})}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-[#2D3A33] capitalize">{v.visit_type} visit</span>
-                      <span className={`bl-chip ${v.status === "completed" ? "success" : "info"}`}>{v.status.replace("_"," ")}</span>
-                    </div>
-                    <div className="mt-1 text-sm text-[#5C6C62] line-clamp-2">
-                      {v.clinical_record?.diagnosis || v.therapist_record?.body_concern || v.chief_complaint || "—"}
-                    </div>
-                    <div className="mt-2 flex gap-3 text-xs text-[#5C6C62]">
-                      <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3"/>{new Date(v.visit_date || v.created_at).toLocaleDateString()}</span>
-                      <span className="inline-flex items-center gap-1"><ImageIcon className="w-3 h-3"/>{v.photo_count || 0} photos</span>
-                    </div>
-                  </div>
-                  <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm shrink-0" data-testid={`open-visit-${v.id}`}>Open visit</Link>
-                </div>
-              ))}
-            </div>
-          </div>
+          <p className="mt-1 text-[#5C6C62]">
+            {patient.gender ? `${patient.gender} · ` : ""}{patient.phone || "—"}{patient.email ? ` · ${patient.email}` : ""}
+          </p>
         </div>
-
-        <aside className="space-y-4">
-          {stats?.loyalty_tier && (
-            <div className="bl-card p-5 relative overflow-hidden" data-testid="loyalty-badge" style={{ background: `linear-gradient(135deg, ${stats.loyalty_tier.color}22 0%, white 60%)`, borderColor: stats.loyalty_tier.color }}>
-              <div className="label-eyebrow flex items-center gap-1.5" style={{ color: stats.loyalty_tier.color }}>
-                <Award className="w-3.5 h-3.5" /> Loyalty status
-              </div>
-              <div className="font-display text-2xl mt-1.5 tracking-wide" style={{ color: stats.loyalty_tier.color }} data-testid="loyalty-tier-name">{stats.loyalty_tier.name}</div>
-              {stats.loyalty_tier.benefit && (
-                <div className="text-xs text-[#2D3A33] mt-1.5 leading-relaxed">{stats.loyalty_tier.benefit}</div>
-              )}
-              {stats.next_tier && (
-                <div className="mt-3 pt-3 border-t" style={{ borderColor: `${stats.loyalty_tier.color}33` }}>
-                  <div className="text-[10px] uppercase tracking-wider text-[#5C6C62]">Next tier</div>
-                  <div className="text-xs text-[#2D3A33] mt-1">
-                    <span className="font-medium">{stats.next_tier.name}</span> · {fmtIDR(stats.next_tier_progress.needed)} to go
-                  </div>
-                </div>
-              )}
-            </div>
+        <div className="flex flex-wrap gap-2">
+          {can(user, "create_visit") && (
+            <button onClick={() => setOpenVisit(true)} className="bl-btn-primary inline-flex items-center gap-2" data-testid="new-visit-button">
+              <Plus className="w-4 h-4" /> New visit
+            </button>
           )}
-          {stats && !stats.loyalty_tier && stats.next_tier && (
-            <div className="bl-card p-5 bg-[#FDFBF7]" data-testid="loyalty-badge-none">
-              <div className="label-eyebrow flex items-center gap-1.5"><Award className="w-3.5 h-3.5" /> Loyalty status</div>
-              <div className="text-sm text-[#5C6C62] mt-2">Not yet a loyalty member.</div>
-              <div className="text-xs text-[#2D3A33] mt-1.5">
-                {fmtIDR(stats.next_tier_progress.needed)} more spend to reach <span className="font-medium">{stats.next_tier.name}</span>.
-              </div>
-            </div>
-          )}
-          {stats && (
-            <div className="bl-card p-5" data-testid="patient-spend-summary">
-              <div className="label-eyebrow mb-3 flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5" /> Lifetime spend</div>
-              <div className="font-display text-3xl text-[#2D3A33]" data-testid="patient-total-spent">{fmtIDR(stats.total_spent_idr)}</div>
-              <div className="mt-1 text-xs text-[#5C6C62]">
-                {stats.visits_total} visit{stats.visits_total !== 1 ? "s" : ""} · avg {fmtIDR(stats.avg_per_visit_idr)}/visit
-              </div>
-              <div className="mt-3 pt-3 border-t border-[#EAE6D7] grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <div className="text-[#5C6C62]">Items billed</div>
-                  <div className="font-medium text-[#2D3A33] mt-0.5">{stats.treatment_items_total}</div>
-                </div>
-                <div>
-                  <div className="text-[#5C6C62]">Last visit</div>
-                  <div className="font-medium text-[#2D3A33] mt-0.5">{stats.last_visit_at ? new Date(stats.last_visit_at).toLocaleDateString() : "—"}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="bl-card p-5">
-            <div className="label-eyebrow mb-3">Patient info</div>
-            <div className="space-y-2 text-sm">
-              <div><span className="text-[#5C6C62]">DOB</span><div className="font-medium">{patient.date_of_birth || patient.dob || "—"}</div></div>
-              <div><span className="text-[#5C6C62]">Address</span><div className="font-medium">{patient.address || "—"}</div></div>
-              <div><span className="text-[#5C6C62]">Allergies</span><div className="font-medium">{patient.allergies || "—"}</div></div>
-              <div><span className="text-[#5C6C62]">Medical history</span><div className="font-medium whitespace-pre-wrap">{patient.medical_history || "—"}</div></div>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      {/* Transactions list */}
-      <div className="mt-10">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <div className="label-eyebrow flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" /> Transactions</div>
-            <h2 className="font-display text-2xl text-[#2D3A33] mt-1">Treatment history</h2>
-          </div>
-        </div>
-        <div className="bl-card overflow-hidden" data-testid="patient-transactions">
-          {transactions.length === 0 ? (
-            <div className="p-8 text-center text-[#5C6C62] text-sm">No transactions recorded yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px]">
-                <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
-                  <tr>
-                    <th className="px-5 py-3">Date</th>
-                    <th className="px-5 py-3">Visit</th>
-                    <th className="px-5 py-3">Items</th>
-                    <th className="px-5 py-3 text-right">Subtotal</th>
-                    <th className="px-5 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map(t => (
-                    <tr key={t.visit_id} className="border-t border-[#EAE6D7]" data-testid={`tx-row-${t.visit_id}`}>
-                      <td className="px-5 py-3 text-sm text-[#2D3A33] whitespace-nowrap">{new Date(t.visit_date).toLocaleDateString()}</td>
-                      <td className="px-5 py-3 text-sm">
-                        <span className="capitalize text-[#2D3A33]">{t.visit_type}</span>
-                        <span className={`ml-2 bl-chip ${t.status === "completed" ? "success" : "info"}`}>{t.status.replace("_", " ")}</span>
-                      </td>
-                      <td className="px-5 py-3 text-sm text-[#5C6C62]">
-                        <ul className="space-y-0.5">
-                          {t.items.map((it, i) => (
-                            <li key={i}>· {it.name} <span className="text-[10px] uppercase tracking-wider text-[#A89F8B] ml-1">{it.category}</span></li>
-                          ))}
-                          {t.items.length === 0 && <span className="italic text-[#A89F8B]">no items</span>}
-                        </ul>
-                      </td>
-                      <td className="px-5 py-3 text-right font-medium text-[#2D3A33]">{fmtIDR(t.subtotal_idr)}</td>
-                      <td className="px-5 py-3 text-right"><Link to={`/visits/${t.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Open →</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {can(user, "delete_patient") && (
+            <button type="button" onClick={deletePatient} className="bl-btn-ghost inline-flex items-center gap-2 text-[#B14A2C]" data-testid="delete-patient-button">
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
           )}
         </div>
       </div>
+
+      <div className="mt-8 flex gap-2 overflow-x-auto pb-1">
+        {tabs.map((t) => (
+          <TabButton key={t.id} active={activeTab === t.id} onClick={() => setTab(t.id)}>
+            {t.label}
+          </TabButton>
+        ))}
+      </div>
+
+      <div className="mt-6">{tabContent[activeTab]}</div>
 
       {openVisit && (
-        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={()=>setOpenVisit(false)}>
-          <div className="bl-card max-w-md w-full p-7" onClick={(e)=>e.stopPropagation()}>
+        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenVisit(false)}>
+          <div className="bl-card max-w-md w-full p-7" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-display text-2xl text-[#2D3A33]">New visit</h2>
             <p className="text-sm text-[#5C6C62] mt-1">For {patient.full_name}</p>
             <form onSubmit={createVisit} className="mt-5 space-y-4" data-testid="new-visit-form">
               <div>
                 <label className="label-eyebrow block mb-1">Visit type</label>
-                <select className="bl-input" value={vForm.visit_type} onChange={e=>setVForm({...vForm, visit_type: e.target.value, assigned_to:""})}>
+                <select className="bl-input" value={vForm.visit_type} onChange={(e) => setVForm({ ...vForm, visit_type: e.target.value, assigned_to: "" })}>
                   <option value="doctor">Doctor (face / injectable)</option>
                   <option value="therapist">Therapist (body / laser / facial)</option>
                 </select>
               </div>
               <div>
                 <label className="label-eyebrow block mb-1">Assign to</label>
-                <select className="bl-input" value={vForm.assigned_to} onChange={e=>setVForm({...vForm,assigned_to:e.target.value})}>
+                <select className="bl-input" value={vForm.assigned_to} onChange={(e) => setVForm({ ...vForm, assigned_to: e.target.value })}>
                   <option value="">Unassigned</option>
-                  {filteredAssignees.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  {filteredAssignees.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="label-eyebrow block mb-1">Chief complaint</label>
-                <textarea className="bl-input min-h-[80px]" value={vForm.chief_complaint} onChange={e=>setVForm({...vForm,chief_complaint:e.target.value})} />
+                <textarea className="bl-input min-h-[80px]" value={vForm.chief_complaint} onChange={(e) => setVForm({ ...vForm, chief_complaint: e.target.value })} />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="submit" className="bl-btn-primary" data-testid="visit-create-submit">Create visit</button>
-                <button type="button" onClick={()=>setOpenVisit(false)} className="bl-btn-ghost">Cancel</button>
+                <button type="button" onClick={() => setOpenVisit(false)} className="bl-btn-ghost">Cancel</button>
               </div>
             </form>
           </div>

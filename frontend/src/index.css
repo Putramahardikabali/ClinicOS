@@ -77,6 +77,25 @@ h1, h2, h3, h4, h5, .font-display {
 }
 .bl-input:focus { outline: none; border-color: var(--bl-primary); box-shadow: 0 0 0 3px rgba(138, 154, 134, 0.18); }
 
+/* Search icon inside inputs — overrides .bl-input padding shorthand */
+.bl-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 1;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: #5C6C62;
+}
+
+.bl-input.bl-input--with-search-icon,
+input.bl-input--with-search-icon {
+  padding-left: 2.5rem !important;
+}
+
 .bl-btn-primary {
   background: var(--bl-primary);
   color: #FFFFFF;
@@ -189,4 +208,118 @@ h1, h2, h3, h4, h5, .font-display {
 }
 @media (min-width: 1024px) {
   .bl-page-header { position: static; }
+}
+
+#emergent-badge,
+a[href*="app.emergent.sh"],
+a[href*="emergent-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* POS receipt — screen hidden, visible only when printing */
+.pos-receipt-print-area {
+  display: none;
+}
+
+.gift-card-print-area {
+  display: none;
+}
+
+@media print {
+  body.pos-receipt-printing * {
+    visibility: hidden;
+  }
+
+  body.pos-receipt-printing .pos-receipt-print-area,
+  body.pos-receipt-printing .pos-receipt-print-area * {
+    visibility: visible;
+  }
+
+  body.pos-receipt-printing .pos-receipt-print-area {
+    display: block !important;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 12mm 10mm;
+    background: #fff;
+    z-index: 99999;
+    box-sizing: border-box;
+  }
+
+  body.pos-receipt-printing .pos-receipt-doc {
+    max-width: 100% !important;
+  }
+
+  body.gift-card-printing * {
+    visibility: hidden;
+  }
+
+  body.gift-card-printing .gift-card-print-area,
+  body.gift-card-printing .gift-card-print-area * {
+    visibility: visible;
+  }
+
+  body.gift-card-printing .gift-card-print-area {
+    display: block !important;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 12mm 10mm;
+    background: #fff;
+    z-index: 99999;
+    box-sizing: border-box;
+  }
+
+  body.gift-card-printing .gift-card-print-doc {
+    max-width: 100% !important;
+  }
+
+  body.gift-card-printing .pos-gift-card-print-page,
+  body.gift-card-printing .pos-gift-card-print-page-first {
+    page-break-before: always;
+    break-before: page;
+    padding-top: 8mm;
+  }
+
+  body.gift-card-printing .pos-gift-card-print-page-first:first-child {
+    page-break-before: auto;
+    break-before: auto;
+    padding-top: 0;
+  }
+
+  body.closing-report-printing * {
+    visibility: hidden;
+  }
+
+  body.closing-report-printing .closing-report-print-area,
+  body.closing-report-printing .closing-report-print-area * {
+    visibility: visible;
+  }
+
+  body.closing-report-printing .closing-report-print-area {
+    display: block !important;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 12mm 10mm;
+    background: #fff;
+    z-index: 99999;
+    box-sizing: border-box;
+  }
+
+  @page {
+    margin: 10mm;
+    size: auto;
+  }
 }
