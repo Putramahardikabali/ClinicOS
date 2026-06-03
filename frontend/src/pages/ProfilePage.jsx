@@ -165,7 +165,7 @@ export default function ProfilePage() {
       </div>
 
       <div className="mt-7">
-        <InstallAppPrompt />
+        <InstallAppPrompt persistent />
         {loading && tab === "account" && (
           <div className="text-sm text-[#5C6C62] py-6">Loading account settings…</div>
         )}

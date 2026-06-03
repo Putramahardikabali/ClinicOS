@@ -182,7 +182,11 @@ function SaLoginPage() {
           <div>
             <div className="font-display text-xl" style={{ color: "#F5F2EA" }}>Platform Admin</div>
             <div className="text-xs" style={{ color: "#8FA89E" }}>
-              {step === "credentials" ? "Restricted access" : step === "totp" ? "Two-factor authentication" : "Recovery code"}
+              {step === "credentials"
+                ? "Restricted access for ClinicOS platform administrators."
+                : step === "totp"
+                  ? "Two-factor authentication"
+                  : "Recovery code"}
             </div>
           </div>
         </div>

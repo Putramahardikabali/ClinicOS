@@ -68,53 +68,86 @@ export default function VisitsPage() {
         Open a visit to document notes, treatments, consent, and photos. Your list only shows visits you are allowed to access.
       </p>
 
-      <div className="mt-6 bl-card p-4 flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="label-eyebrow block mb-1">From</label>
-          <input type="date" className="bl-input" value={fromDate} onChange={(e) => setFromDate(e.target.value)} data-testid="visits-from-date" />
-        </div>
-        <div>
-          <label className="label-eyebrow block mb-1">To</label>
-          <input type="date" className="bl-input" value={toDate} onChange={(e) => setToDate(e.target.value)} data-testid="visits-to-date" />
-        </div>
-        {canFilterPerformer && (
-          <div>
-            <label className="label-eyebrow block mb-1">Performer</label>
-            <select className="bl-input min-w-[160px]" value={performerFilter} onChange={(e) => setPerformerFilter(e.target.value)} data-testid="visits-performer-filter">
-              <option value="">All performers</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-              ))}
-            </select>
+      <div className="mt-6 bl-card p-4 space-y-4" data-testid="visits-filters">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${canFilterPerformer ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
+          <div className="min-w-0">
+            <label className="label-eyebrow block mb-1.5">From</label>
+            <input
+              type="date"
+              className="bl-input w-full min-h-[44px]"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              data-testid="visits-from-date"
+            />
           </div>
-        )}
-        <div className="flex flex-wrap gap-2 items-center pb-0.5">
-          <span className="label-eyebrow mr-1">Status</span>
-          {["", "in_progress", "submitted", "completed"].map((s) => (
-            <button
-              key={s || "all"}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`bl-chip whitespace-nowrap ${statusFilter === s ? "info" : ""}`}
-              data-testid={`filter-${s || "all"}`}
-            >
-              {s === "" ? "All" : s.replace("_", " ")}
-            </button>
-          ))}
+          <div className="min-w-0">
+            <label className="label-eyebrow block mb-1.5">To</label>
+            <input
+              type="date"
+              className="bl-input w-full min-h-[44px]"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              data-testid="visits-to-date"
+            />
+          </div>
+          {canFilterPerformer && (
+            <div className="min-w-0 sm:col-span-2 lg:col-span-2">
+              <label className="label-eyebrow block mb-1.5">Performer</label>
+              <select
+                className="bl-input w-full min-h-[44px]"
+                value={performerFilter}
+                onChange={(e) => setPerformerFilter(e.target.value)}
+                data-testid="visits-performer-filter"
+              >
+                <option value="">All performers</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2 items-center pb-0.5">
-          <span className="label-eyebrow mr-1">Type</span>
-          {["", "doctor", "therapist", "nurse"].map((t) => (
-            <button
-              key={t || "all-type"}
-              type="button"
-              onClick={() => setTypeFilter(t)}
-              className={`bl-chip whitespace-nowrap capitalize ${typeFilter === t ? "info" : ""}`}
-              data-testid={`type-filter-${t || "all"}`}
-            >
-              {t === "" ? "All" : t}
-            </button>
-          ))}
+        <div>
+          <div className="label-eyebrow mb-2">Status</div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: "", label: "All" },
+              { value: "in_progress", label: "In progress" },
+              { value: "submitted", label: "Submitted" },
+              { value: "completed", label: "Completed" },
+            ].map(({ value, label }) => (
+              <button
+                key={value || "all"}
+                type="button"
+                onClick={() => setStatusFilter(value)}
+                className={`bl-chip ${statusFilter === value ? "info" : ""}`}
+                data-testid={`filter-${value || "all"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="label-eyebrow mb-2">Type</div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: "", label: "All" },
+              { value: "doctor", label: "Doctor" },
+              { value: "therapist", label: "Therapist" },
+              { value: "nurse", label: "Nurse" },
+            ].map(({ value, label }) => (
+              <button
+                key={value || "all-type"}
+                type="button"
+                onClick={() => setTypeFilter(value)}
+                className={`bl-chip ${typeFilter === value ? "info" : ""}`}
+                data-testid={`type-filter-${value || "all"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

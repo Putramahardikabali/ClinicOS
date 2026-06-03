@@ -626,126 +626,183 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         </form>
       )}
 
-      <div className="bl-card overflow-hidden" data-testid="treatment-items-table">
-        <table className="w-full text-sm">
-          <thead className="bg-[#F8F5EC]">
-            <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
-              {workflowMode ? (
-                <>
-                  <th className="px-5 py-3" data-testid="treatment-col-header">Treatment</th>
-                  <th className="px-5 py-3">Product</th>
-                  <th className="px-5 py-3">Area</th>
-                  <th className="px-5 py-3">Qty</th>
-                  {canSeePrice && <th className="px-5 py-3 text-right">Total</th>}
-                  <th className="px-5 py-3 text-right">Actions</th>
-                </>
-              ) : (
-                <>
-                  <th className="px-5 py-3">Category</th>
-                  <th className="px-5 py-3">Name</th>
-                  <th className="px-5 py-3">Product</th>
-                  <th className="px-5 py-3">Area</th>
-                  <th className="px-5 py-3">Performer</th>
-                  <th className="px-5 py-3">Qty</th>
-                  {canSeePrice && <th className="px-5 py-3 text-right">Price</th>}
-                  <th className="px-5 py-3"></th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 && (
-              <tr>
-                <td
-                  colSpan={
-                    workflowMode
-                      ? 4 + (canSeePrice ? 1 : 0) + 1
-                      : 6 + (canSeePrice ? 1 : 0) + 1
-                  }
-                  className="text-center py-8 text-[#5C6C62]"
-                >
-                  No treatment items added
-                </td>
-              </tr>
-            )}
-            {items.map((it) => {
-              const usage = usageByTreatment.get(it.id);
-              const treatmentName = it.name || bookedLabel || "—";
-              const productLabel = productUsageName(usage, it.product_used);
-              const qtyLabel = `${Number(it.quantity ?? 1)} ${it.unit_type || "session"}`;
-              const lineTotal = Number(it.price || 0) * Number(it.quantity || 1);
-              return (
-              <tr key={it.id} className="border-t border-[#EAE6D7]" data-testid={`treatment-row-${it.id}`}>
+      {items.length === 0 && (
+        <div className="bl-card p-8 text-center text-[#5C6C62] md:hidden">No treatment items added</div>
+      )}
+
+      <div className="md:hidden space-y-3" data-testid="treatment-items-mobile">
+        {items.map((it) => {
+          const usage = usageByTreatment.get(it.id);
+          const treatmentName = it.name || bookedLabel || "—";
+          const productLabel = productUsageName(usage, it.product_used);
+          const qtyLabel = `${Number(it.quantity ?? 1)} ${it.unit_type || "session"}`;
+          const lineTotal = Number(it.price || 0) * Number(it.quantity || 1);
+          return (
+            <div key={it.id} className="bl-card p-4 space-y-3" data-testid={`treatment-card-${it.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="label-eyebrow">Treatment</div>
+                  <div className="font-medium text-[#2D3A33]">{treatmentName}</div>
+                </div>
+                {editable && (
+                  <button
+                    type="button"
+                    onClick={() => del(it.id)}
+                    className="text-[#B14A2C] p-2 -mr-2 shrink-0"
+                    aria-label="Delete item"
+                    data-testid={`treatment-delete-${it.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="label-eyebrow text-[10px]">Product</div>
+                  <div className="text-[#2D3A33]">{productLabel || "—"}</div>
+                </div>
+                <div>
+                  <div className="label-eyebrow text-[10px]">Area</div>
+                  <div className="text-[#5C6C62]">{it.area_treated || "—"}</div>
+                </div>
+                <div>
+                  <div className="label-eyebrow text-[10px]">Qty</div>
+                  <div className="text-[#5C6C62]">{qtyLabel}</div>
+                </div>
+                {canSeePrice && (
+                  <div>
+                    <div className="label-eyebrow text-[10px]">Total</div>
+                    <div className="font-medium text-[#2D3A33]">{fmtIDR(lineTotal)}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block bl-card overflow-hidden rounded-xl" data-testid="treatment-items-table">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead className="bg-[#F8F5EC]">
+              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
                 {workflowMode ? (
                   <>
-                    <td className="px-5 py-3 font-medium text-[#2D3A33]" data-testid={`treatment-row-treatment-${it.id}`}>
-                      {treatmentName}
-                    </td>
-                    <td className="px-5 py-3 text-[#2D3A33]" data-testid={`treatment-row-product-${it.id}`}>
-                      {productLabel}
-                      {usage?.dose_notes && (
-                        <div className="text-xs text-[#5C6C62] mt-0.5">{usage.dose_notes}</div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-[#5C6C62]">{it.area_treated || "—"}</td>
-                    <td className="px-5 py-3 text-[#5C6C62]">{qtyLabel}</td>
-                    {canSeePrice && (
-                      <td className="px-5 py-3 text-right font-medium">{fmtIDR(lineTotal)}</td>
-                    )}
-                    <td className="px-5 py-3 text-right">
-                      {editable && (
-                        <button
-                          type="button"
-                          onClick={() => del(it.id)}
-                          className="text-[#B14A2C] hover:text-[#8a3a22]"
-                          aria-label="Delete item"
-                          data-testid={`treatment-delete-${it.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
+                    <th className="px-5 py-3" data-testid="treatment-col-header">Treatment</th>
+                    <th className="px-5 py-3">Product</th>
+                    <th className="px-5 py-3">Area</th>
+                    <th className="px-5 py-3">Qty</th>
+                    {canSeePrice && <th className="px-5 py-3 text-right">Total</th>}
+                    <th className="px-5 py-3 text-right">Actions</th>
                   </>
                 ) : (
                   <>
-                    <td className="px-5 py-3">
-                      <span className="bl-chip">{it.category}</span>
-                    </td>
-                    <td className="px-5 py-3 font-medium">{it.name}</td>
-                    <td className="px-5 py-3 font-medium text-[#2D3A33]">
-                      {productUsageName(usage, it.product_used) || "—"}
-                      {usage?.dose_notes && (
-                        <div className="text-xs text-[#5C6C62] mt-0.5 font-normal">{usage.dose_notes}</div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-[#5C6C62]">{it.area_treated || "—"}</td>
-                    <td className="px-5 py-3 text-[#5C6C62]">
-                      {it.performer_name_snapshot
-                        ? `${it.performer_name_snapshot}${it.performer_role_snapshot ? ` (${ROLE_LABEL[it.performer_role_snapshot] || it.performer_role_snapshot})` : ""}`
-                        : "—"}
-                    </td>
-                    <td className="px-5 py-3 text-[#5C6C62]">{qtyLabel}</td>
-                    {canSeePrice && (
-                      <td className="px-5 py-3 text-right font-medium">{fmtIDR(lineTotal)}</td>
-                    )}
-                    <td className="px-5 py-3 text-right">
-                      {editable && (
-                        <button
-                          type="button"
-                          onClick={() => del(it.id)}
-                          className="text-[#B14A2C] hover:text-[#8a3a22]"
-                          data-testid={`treatment-delete-${it.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
+                    <th className="px-5 py-3">Category</th>
+                    <th className="px-5 py-3">Name</th>
+                    <th className="px-5 py-3">Product</th>
+                    <th className="px-5 py-3">Area</th>
+                    <th className="px-5 py-3">Performer</th>
+                    <th className="px-5 py-3">Qty</th>
+                    {canSeePrice && <th className="px-5 py-3 text-right">Price</th>}
+                    <th className="px-5 py-3"></th>
                   </>
                 )}
               </tr>
-            );})}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={
+                      workflowMode
+                        ? 4 + (canSeePrice ? 1 : 0) + 1
+                        : 6 + (canSeePrice ? 1 : 0) + 1
+                    }
+                    className="text-center py-8 text-[#5C6C62]"
+                  >
+                    No treatment items added
+                  </td>
+                </tr>
+              )}
+              {items.map((it) => {
+                const usage = usageByTreatment.get(it.id);
+                const treatmentName = it.name || bookedLabel || "—";
+                const productLabel = productUsageName(usage, it.product_used);
+                const qtyLabel = `${Number(it.quantity ?? 1)} ${it.unit_type || "session"}`;
+                const lineTotal = Number(it.price || 0) * Number(it.quantity || 1);
+                return (
+                <tr key={it.id} className="border-t border-[#EAE6D7]" data-testid={`treatment-row-${it.id}`}>
+                  {workflowMode ? (
+                    <>
+                      <td className="px-5 py-3 font-medium text-[#2D3A33]" data-testid={`treatment-row-treatment-${it.id}`}>
+                        {treatmentName}
+                      </td>
+                      <td className="px-5 py-3 text-[#2D3A33]" data-testid={`treatment-row-product-${it.id}`}>
+                        {productLabel}
+                        {usage?.dose_notes && (
+                          <div className="text-xs text-[#5C6C62] mt-0.5">{usage.dose_notes}</div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-[#5C6C62]">{it.area_treated || "—"}</td>
+                      <td className="px-5 py-3 text-[#5C6C62]">{qtyLabel}</td>
+                      {canSeePrice && (
+                        <td className="px-5 py-3 text-right font-medium">{fmtIDR(lineTotal)}</td>
+                      )}
+                      <td className="px-5 py-3 text-right">
+                        {editable && (
+                          <button
+                            type="button"
+                            onClick={() => del(it.id)}
+                            className="text-[#B14A2C] hover:text-[#8a3a22]"
+                            aria-label="Delete item"
+                            data-testid={`treatment-delete-${it.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-5 py-3">
+                        <span className="bl-chip">{it.category}</span>
+                      </td>
+                      <td className="px-5 py-3 font-medium">{it.name}</td>
+                      <td className="px-5 py-3 font-medium text-[#2D3A33]">
+                        {productUsageName(usage, it.product_used) || "—"}
+                        {usage?.dose_notes && (
+                          <div className="text-xs text-[#5C6C62] mt-0.5 font-normal">{usage.dose_notes}</div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-[#5C6C62]">{it.area_treated || "—"}</td>
+                      <td className="px-5 py-3 text-[#5C6C62]">
+                        {it.performer_name_snapshot
+                          ? `${it.performer_name_snapshot}${it.performer_role_snapshot ? ` (${ROLE_LABEL[it.performer_role_snapshot] || it.performer_role_snapshot})` : ""}`
+                          : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-[#5C6C62]">{qtyLabel}</td>
+                      {canSeePrice && (
+                        <td className="px-5 py-3 text-right font-medium">{fmtIDR(lineTotal)}</td>
+                      )}
+                      <td className="px-5 py-3 text-right">
+                        {editable && (
+                          <button
+                            type="button"
+                            onClick={() => del(it.id)}
+                            className="text-[#B14A2C] hover:text-[#8a3a22]"
+                            data-testid={`treatment-delete-${it.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              );})}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

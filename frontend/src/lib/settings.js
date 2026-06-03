@@ -5,8 +5,8 @@ import { useAuth } from "@/lib/auth";
 const SettingsContext = createContext(null);
 
 const FALLBACK_BRANDING = {
-  clinic_name: "Body Lab Bali",
-  tagline: "Aesthetic Clinic · Internal EMR",
+  clinic_name: "ClinicOS",
+  tagline: "Clinic management",
   logo_path: "",
   primary_color: "#8A9A86",
   primary_hover: "#748470",

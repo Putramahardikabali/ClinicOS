@@ -19,7 +19,11 @@ if (document.body) {
 
 (async () => {
   await loadPlatformBranding();
-  if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
+  const enableSw =
+    process.env.NODE_ENV === "production"
+    || process.env.REACT_APP_APP_ENV === "production"
+    || process.env.REACT_APP_APP_ENV === "production_beta";
+  if ("serviceWorker" in navigator && enableSw) {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("/service-worker.js").catch(() => {});
     });

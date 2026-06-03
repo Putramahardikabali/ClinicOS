@@ -14,7 +14,7 @@ import mimetypes
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File, Form, Query, Header, Response
-from fastapi.responses import Response as FastResponse
+from fastapi.responses import FileResponse, Response as FastResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
@@ -78,6 +78,11 @@ if not USE_LOCAL_UPLOADS:
     USE_LOCAL_UPLOADS = APP_ENV in {"development", "dev", "production_beta"} or IS_PRODUCTION
 
 UPLOAD_ROOT = Path(UPLOAD_DIR).resolve()
+try:
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+except OSError as exc:
+    log = logging.getLogger("emr")
+    log.warning("Could not create upload directory %s: %s", UPLOAD_ROOT, exc)
 
 ROLES = ["super_admin", "doctor", "therapist", "fo", "manager"]
 
@@ -522,22 +527,39 @@ def _public_file_url(path: str) -> str:
     return f"/uploads/{rel}"
 
 def _write_local_upload(path: str, data: bytes) -> None:
-    rel = _safe_rel_path(path)
-    abs_path = (UPLOAD_ROOT / rel).resolve()
-    if UPLOAD_ROOT not in abs_path.parents and abs_path != UPLOAD_ROOT:
-        raise HTTPException(status_code=400, detail="Invalid upload target")
+    abs_path = _upload_abs_path(path)
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(data)
 
-def _read_local_upload(path: str) -> tuple[bytes, str]:
-    rel = _safe_rel_path(path)
+def _upload_abs_path(rel: str) -> Path:
+    rel = _safe_rel_path(rel)
     abs_path = (UPLOAD_ROOT / rel).resolve()
     if UPLOAD_ROOT not in abs_path.parents and abs_path != UPLOAD_ROOT:
         raise HTTPException(status_code=400, detail="Invalid file path")
+    return abs_path
+
+def _read_local_upload(path: str) -> tuple[bytes, str]:
+    abs_path = _upload_abs_path(path)
     if not abs_path.exists() or not abs_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     guessed = mimetypes.guess_type(abs_path.name)[0] or "application/octet-stream"
     return abs_path.read_bytes(), guessed
+
+def _is_public_upload_rel_path(rel: str) -> bool:
+    parts = _safe_rel_path(rel).split("/")
+    return len(parts) >= 2 and parts[1] in ("branding", "templates", "platform")
+
+async def _resolve_clinic_id_for_upload(rel: str) -> Optional[str]:
+    parts = _safe_rel_path(rel).split("/")
+    if len(parts) >= 3 and parts[1] == "visits":
+        visit = await db.visits.find_one({"id": parts[2]}, {"_id": 0, "clinic_id": 1})
+        if visit:
+            return visit.get("clinic_id")
+    if parts:
+        clinic = await db.clinics.find_one({"slug": parts[0]}, {"_id": 0, "id": 1})
+        if clinic:
+            return clinic.get("id")
+    return None
 
 def init_storage():
     global storage_key
@@ -2179,7 +2201,7 @@ async def delete_photo(vid: str, pid: str, user: dict = Depends(require_roles("s
     return {"ok": True}
 
 async def _assert_file_access(rec: dict, auth: Optional[str], authorization: Optional[str]) -> None:
-    if rec.get("photo_type") == "branding":
+    if rec.get("photo_type") in ("branding", "platform_branding"):
         return
     token = None
     if authorization and authorization.startswith("Bearer "):
@@ -2198,24 +2220,45 @@ async def _assert_file_access(rec: dict, auth: Optional[str], authorization: Opt
         if file_cid and owner and owner.get("clinic_id") != file_cid:
             raise HTTPException(status_code=403, detail="Access denied")
 
-@api.get("/uploads/{path:path}")
-async def serve_upload(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
-    rec = await db.photos.find_one({"storage_path": path}, {"_id": 0})
-    if not rec:
+async def _serve_upload_response(
+    path: str,
+    auth: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    rel = _safe_rel_path(path)
+    abs_path = _upload_abs_path(rel)
+    if not abs_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    await _assert_file_access(rec, auth, authorization)
-    data, ct = get_object(path)
-    return FastResponse(content=data, media_type=rec.get("content_type", ct))
+
+    rec = await db.photos.find_one({"storage_path": rel}, {"_id": 0})
+    content_type = None
+    if rec:
+        await _assert_file_access(rec, auth, authorization)
+        content_type = rec.get("content_type")
+    elif _is_public_upload_rel_path(rel):
+        pass
+    else:
+        clinic_id = await _resolve_clinic_id_for_upload(rel)
+        await _assert_file_access(
+            {"clinic_id": clinic_id, "photo_type": "clinical"},
+            auth,
+            authorization,
+        )
+
+    if USE_LOCAL_UPLOADS:
+        media = content_type or mimetypes.guess_type(abs_path.name)[0] or "application/octet-stream"
+        return FileResponse(abs_path, media_type=media)
+
+    data, guessed = get_object(rel)
+    return FastResponse(content=data, media_type=content_type or guessed)
+
+@api.get("/uploads/{path:path}")
+async def serve_upload_api(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
+    return await _serve_upload_response(path, auth, authorization)
 
 @api.get("/files/{path:path}")
-async def serve_file(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
-    # Backward-compatible alias to /uploads/{path}.
-    rec = await db.photos.find_one({"storage_path": path}, {"_id": 0})
-    if not rec:
-        raise HTTPException(status_code=404, detail="File not found")
-    await _assert_file_access(rec, auth, authorization)
-    data, ct = get_object(path)
-    return FastResponse(content=data, media_type=rec.get("content_type", ct))
+async def serve_file_api(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
+    return await _serve_upload_response(path, auth, authorization)
 
 @api.get("/branding")
 async def public_branding():
@@ -2615,6 +2658,15 @@ async def dynamic_manifest():
         "background_color": pb.get("background_color") or "#FDFBF7",
         "icons": icons,
     }
+
+@app.get("/uploads/{path:path}")
+async def serve_upload_root(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
+    """Public upload URLs (PUBLIC_UPLOAD_BASE_URL) — not under /api."""
+    return await _serve_upload_response(path, auth, authorization)
+
+@app.get("/files/{path:path}")
+async def serve_files_root(path: str, auth: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
+    return await _serve_upload_response(path, auth, authorization)
 
 app.include_router(api)
 

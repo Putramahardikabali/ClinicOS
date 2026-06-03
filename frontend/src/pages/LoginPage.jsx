@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { useSettings, logoUrl } from "@/lib/settings";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
+const APP_NAME = "ClinicOS";
+const APP_TAGLINE = "Clinic management for modern clinics";
+
 export default function LoginPage() {
   const { login, user, complete2faVerify, complete2faRecovery } = useAuth();
-  const { branding } = useSettings();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -81,55 +82,52 @@ export default function LoginPage() {
   const formTitle = step === "credentials" ? "Welcome back." : step === "totp" ? "Two-factor authentication" : "Recovery code";
   const formSubtitle =
     step === "credentials"
-      ? "Enter your credentials to access the EMR."
+      ? "Sign in to manage your clinic operations."
       : step === "totp"
         ? "Enter the 6-digit code from your authenticator app."
         : "Enter one of your recovery codes. Each code works once.";
 
+  const brandMark = (
+    <div className="flex items-center gap-3">
+      <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "var(--bl-primary)" }}>
+        <Sparkles className="w-6 h-6 text-white" strokeWidth={1.5} />
+      </div>
+      <div>
+        <div className="font-display text-2xl text-[#2D3A33]">{APP_NAME}</div>
+        <div className="text-sm font-medium" style={{ color: "var(--bl-accent)" }}>{APP_TAGLINE}</div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-[#FDFBF7]">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-[#F3F1EB] border-r border-[#EAE6D7]">
-        <div className="flex items-center gap-3">
-          {branding?.logo_path ? (
-            <img src={logoUrl(branding.logo_path)} alt="logo" className="w-11 h-11 rounded-2xl object-cover" />
-          ) : (
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
-              <Sparkles className="w-6 h-6 text-white" strokeWidth={1.5} />
-            </div>
-          )}
-          <div>
-            <div className="font-display text-2xl text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
-            <div className="text-sm font-medium" style={{ color: "var(--bl-accent)" }}>{branding?.tagline || "Aesthetic Clinic · Internal EMR"}</div>
-          </div>
-        </div>
+        {brandMark}
 
         <div>
-          <div className="label-eyebrow">Modern clinical records</div>
+          <div className="label-eyebrow">Clinical operations platform</div>
           <h1 className="font-display text-5xl tracking-tight font-light mt-3 text-[#2D3A33] leading-[1.05]">
             Where <span style={{ color: "var(--bl-primary)" }}>care</span><br />meets clarity.
           </h1>
           <p className="mt-6 max-w-md text-[#5C6C62] leading-relaxed">
-            A secure internal medical record system designed for our doctors, therapists,
-            front office and management.
+            A secure workspace for doctors, therapists, front office, and management — bookings, visits, billing, and more in one place.
           </p>
         </div>
 
         <div className="text-xs text-[#5C6C62]">
-          © {new Date().getFullYear()} {branding?.clinic_name || "Body Lab Bali"}. Confidential clinical records.
+          © {new Date().getFullYear()} {APP_NAME}. Confidential clinical records.
         </div>
       </div>
 
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md">
-          <div className="lg:hidden mb-8 flex items-center gap-2">
-            {branding?.logo_path ? (
-              <img src={logoUrl(branding.logo_path)} alt="logo" className="w-9 h-9 rounded-xl object-cover" />
-            ) : (
+          <div className="lg:hidden mb-8">
+            <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
-            )}
-            <div className="font-display text-xl text-[#2D3A33]">{branding?.clinic_name || "Body Lab Bali"}</div>
+              <div className="font-display text-xl text-[#2D3A33]">{APP_NAME}</div>
+            </div>
           </div>
 
           <div className="label-eyebrow">Sign in</div>
@@ -141,11 +139,11 @@ export default function LoginPage() {
               <div>
                 <label className="label-eyebrow block mb-2">Email</label>
                 <input
-                  className="bl-input"
+                  className="bl-input w-full"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@bodylab.id"
+                  placeholder="you@clinic.com"
                   required
                   data-testid="login-email-input"
                 />
@@ -153,7 +151,7 @@ export default function LoginPage() {
               <div>
                 <label className="label-eyebrow block mb-2">Password</label>
                 <input
-                  className="bl-input"
+                  className="bl-input w-full"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -173,7 +171,7 @@ export default function LoginPage() {
               <div>
                 <label className="label-eyebrow block mb-2">Authenticator code</label>
                 <input
-                  className="bl-input text-center text-lg tracking-widest"
+                  className="bl-input text-center text-lg tracking-widest w-full"
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   maxLength={6}
@@ -200,7 +198,7 @@ export default function LoginPage() {
               <div>
                 <label className="label-eyebrow block mb-2">Recovery code</label>
                 <input
-                  className="bl-input uppercase"
+                  className="bl-input uppercase w-full"
                   value={recoveryCode}
                   onChange={(e) => setRecoveryCode(e.target.value.toUpperCase())}
                   required
@@ -222,10 +220,13 @@ export default function LoginPage() {
           {step === "credentials" && (
             <>
               <p className="mt-8 text-sm text-center text-[#5C6C62]">
-                New to ClinicOS? <Link to="/register" className="font-medium" style={{ color: "var(--bl-primary)" }} data-testid="login-register-link">Start your free trial →</Link>
+                New to ClinicOS?{" "}
+                <Link to="/register" className="font-medium" style={{ color: "var(--bl-primary)" }} data-testid="login-register-link">
+                  Start your free trial →
+                </Link>
               </p>
               <p className="mt-3 text-xs text-[#5C6C62] text-center">
-                Lost access? Contact your clinic Super Admin.
+                Lost access? Contact your clinic administrator.
               </p>
             </>
           )}

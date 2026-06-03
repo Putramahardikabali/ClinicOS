@@ -271,6 +271,9 @@ class TestPhotos:
         r2 = requests.get(f"{API}/files/{path}?auth={tokens['fo']}", timeout=30)
         assert r2.status_code == 200
         assert len(r2.content) > 0
+        r2b = requests.get(f"{BASE_URL}/uploads/{path}?auth={tokens['fo']}", timeout=30)
+        assert r2b.status_code == 200
+        assert len(r2b.content) > 0
         r3 = requests.get(f"{API}/files/{path}", timeout=30)
         assert r3.status_code == 401
 

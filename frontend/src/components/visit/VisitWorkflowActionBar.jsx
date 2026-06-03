@@ -13,7 +13,7 @@ export default function VisitWorkflowActionBar({
 }) {
   return (
     <div
-      className="fixed left-0 right-0 z-50 border-t border-[#EAE6D7] bg-[#FDFBF7]/95 backdrop-blur-md bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] lg:bottom-0"
+      className="fixed left-0 right-0 z-50 border-t border-[#EAE6D7] bg-[#FDFBF7]/95 backdrop-blur-md bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-0"
       data-testid="visit-workflow-action-bar"
     >
       <div

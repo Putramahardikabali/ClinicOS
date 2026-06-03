@@ -272,7 +272,7 @@ export default function AppShell({ children }) {
         </header>
 
         <div
-          className={`flex-1 lg:pb-0 ${isVisitWorkflowPage ? "pb-[11.5rem]" : "pb-24"}`}
+          className={`flex-1 lg:pb-0 ${isVisitWorkflowPage ? "pb-[12.5rem]" : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"}`}
           data-visit-workflow={isVisitWorkflowPage ? "true" : undefined}
         >
           {children}
@@ -327,20 +327,10 @@ export default function AppShell({ children }) {
                 </div>
               </div>
 
-              {/* Overflow nav (items not in bottom bar) */}
-              {user && (
-                <Link
-                  to="/account"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center justify-between py-3 border-b border-[#EAE6D7]"
-                >
-                  <span className="flex items-center gap-3">
-                    <UserIcon className="w-5 h-5 text-[#5C6C62]" strokeWidth={1.6} />
-                    <span className="text-[#2D3A33]">My profile</span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-[#5C6C62]" />
-                </Link>
-              )}
+              <div className="mb-4">
+                <InstallAppPrompt compact />
+              </div>
+
               {visibleNav.filter(n => !bottomItems.find(b => b.to === n.to)).map(n => {
                 const Icon = n.icon;
                 return (

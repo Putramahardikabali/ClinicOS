@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { SettingsProvider } from "@/lib/settings";
 import { ClinicProvider, useClinic } from "@/lib/clinic";
+import { InstallAppProvider } from "@/lib/installApp";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import OnboardingPage from "@/pages/OnboardingPage";
@@ -107,6 +108,7 @@ export default function App() {
     <AuthProvider>
       <SettingsProvider>
         <ClinicProvider>
+          <InstallAppProvider>
           <BrowserRouter>
             <Toaster position="top-right" richColors />
             <Routes>
@@ -159,6 +161,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
+          </InstallAppProvider>
         </ClinicProvider>
       </SettingsProvider>
     </AuthProvider>
