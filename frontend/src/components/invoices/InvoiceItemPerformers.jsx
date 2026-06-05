@@ -64,13 +64,13 @@ export default function InvoiceItemPerformers({
   return (
     <div className="space-y-2" data-testid={`invoice-item-performers-${item.id}`}>
       <div>
-        <label className="label-eyebrow block mb-1">Primary performer *</label>
+        <label className="label-eyebrow block mb-1">Assigned staff *</label>
         <select
           className="bl-input text-sm"
           value={primaryId}
           onChange={(e) => applyPerformers(e.target.value, assistants)}
         >
-          <option value="">Select performer…</option>
+          <option value="">Select assigned staff…</option>
           {staff.filter((s) => CLINICAL_PERFORMER_ROLES.includes(s.role)).map((p) => (
             <option key={p.id} value={p.id}>{p.name} ({p.role})</option>
           ))}
@@ -131,7 +131,7 @@ export default function InvoiceItemPerformers({
         className="text-xs text-[#52796F] underline"
         onClick={() => applyPerformers(primaryId, [...assistants, emptyAdditionalPerformerRow()])}
       >
-        Add performer
+        Add staff
       </button>
     </div>
   );

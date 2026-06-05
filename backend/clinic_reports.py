@@ -777,7 +777,7 @@ def register_clinic_reports(
 
         new_patients = await db.patients.find(
             {"clinic_id": cid, "created_at": {"$gte": start_iso, "$lte": end_iso}},
-            {"_id": 0, "id": 1, "full_name": 1, "source": 1, "created_at": 1},
+            {"_id": 0, "id": 1, "full_name": 1, "patient_source": 1, "created_at": 1},
         ).to_list(5000)
         new_ids = {p["id"] for p in new_patients}
 
@@ -841,7 +841,7 @@ def register_clinic_reports(
                 "patients_with_expired_packages": expired_packages_patients,
                 "follow_up_notes_count": len(follow_up),
             },
-            "new_patients": [{"name": p.get("full_name"), "source": p.get("source"), "date": (p.get("created_at") or "")[:10]} for p in new_patients[:100]],
+            "new_patients": [{"name": p.get("full_name"), "patient_source": p.get("patient_source"), "date": (p.get("created_at") or "")[:10]} for p in new_patients[:100]],
             "top_spending": top_spend,
         }
 

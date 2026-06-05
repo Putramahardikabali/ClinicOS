@@ -53,7 +53,7 @@ export default function OverviewCharts({ charts }) {
     type: "appointment",
   }));
   const visitStatus = (c.visit_status || []).map((r) => ({
-    name: `Visit: ${String(r.status || "").replace(/_/g, " ")}`,
+    name: `Session: ${String(r.status || "").replace(/_/g, " ")}`,
     count: r.count,
     type: "visit",
   }));
@@ -77,7 +77,7 @@ export default function OverviewCharts({ charts }) {
         </ResponsiveContainer>
       </ChartCard>
 
-      <ChartCard title="Appointment & visit status" subtitle="Counts in selected date range" empty={!statusCombined.length}>
+      <ChartCard title="Appointment & session status" subtitle="Counts in selected date range" empty={!statusCombined.length}>
         <ResponsiveContainer>
           <BarChart data={statusCombined} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#EAE6D7" horizontal={false} />

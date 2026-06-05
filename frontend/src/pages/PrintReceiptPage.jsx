@@ -38,7 +38,7 @@ export default function PrintReceiptPage() {
 
         <div className="mt-6 text-sm space-y-1">
           <div><span className="text-[#5C6C62]">Patient:</span> <strong>{visit.patient?.full_name}</strong></div>
-          <div><span className="text-[#5C6C62]">Visit:</span> {visit.id.slice(0, 8)}…</div>
+          <div><span className="text-[#5C6C62]">Session record:</span> {visit.id.slice(0, 8)}…</div>
           {visit.booking && <div><span className="text-[#5C6C62]">Appointment:</span> {visit.booking.treatment}</div>}
         </div>
 
@@ -70,7 +70,7 @@ export default function PrintReceiptPage() {
           {visit.payment_notes && <div className="mt-1">Note: {visit.payment_notes}</div>}
         </div>
 
-        <p className="mt-10 text-center text-xs text-[#8A9A86]">Thank you for your visit.</p>
+        <p className="mt-10 text-center text-xs text-[#8A9A86]">Thank you for choosing us.</p>
       </div>
     </div>
   );

@@ -52,7 +52,7 @@ export default function VisitStepOverview({
         </div>
 
         <div className="bl-card p-5">
-          <div className="label-eyebrow mb-3">Visit details</div>
+          <div className="label-eyebrow mb-3">Treatment session details</div>
           <div className="text-sm space-y-1.5">
             <div><span className="text-[#5C6C62]">Type:</span> <span className="capitalize">{visit.visit_type}</span></div>
             <div><span className="text-[#5C6C62]">Date:</span> {new Date(visit.visit_date || visit.created_at).toLocaleString()}</div>
@@ -85,11 +85,11 @@ export default function VisitStepOverview({
         </div>
 
         <div className="bl-card p-5 lg:col-span-2">
-          <div className="label-eyebrow mb-3">Performers &amp; treatment</div>
+          <div className="label-eyebrow mb-3">Assigned staff &amp; treatment</div>
           <div className="text-sm space-y-2">
             {primary && (
               <div>
-                <span className="text-[#5C6C62]">Primary performer:</span>{" "}
+                <span className="text-[#5C6C62]">Assigned staff:</span>{" "}
                 <span className="font-medium text-[#2D3A33]">
                   {primary.staff_name_snapshot || visit.assigned_user?.name}
                   {(primary.staff_role_snapshot || visit.assigned_user?.role) && (
@@ -100,7 +100,7 @@ export default function VisitStepOverview({
             )}
             {additional.length > 0 && (
               <div>
-                <span className="text-[#5C6C62]">Additional performers:</span>{" "}
+                <span className="text-[#5C6C62]">Additional staff:</span>{" "}
                 {additional.map((p, i) => (
                   <span key={p.staff_id || i}>
                     {i > 0 ? ", " : ""}

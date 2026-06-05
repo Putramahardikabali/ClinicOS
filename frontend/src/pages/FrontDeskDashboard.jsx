@@ -124,7 +124,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
           <div className="flex flex-wrap gap-2">
             {hasPermission(user, "appointments.create") && !readOnly && (
               <Link to="/bookings?new=1" className="bl-btn-primary text-sm inline-flex items-center gap-1.5" data-testid="fd-new-booking">
-                <Plus className="w-4 h-4" /> New booking
+                <Plus className="w-4 h-4" /> New appointment
               </Link>
             )}
             {hasPermission(user, "patients.create") && !readOnly && (
@@ -137,7 +137,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
                 <ShoppingCart className="w-4 h-4" /> POS sale
               </Link>
             )}
-            <Link to="/bookings" className="bl-btn-ghost text-sm">Find booking</Link>
+            <Link to="/bookings" className="bl-btn-ghost text-sm">Find appointment</Link>
           </div>
         </div>
       )}
@@ -178,7 +178,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
         <section className="xl:col-span-2 bl-card overflow-hidden" data-testid="fd-appointment-timeline">
           <div className="px-5 py-4 border-b flex justify-between items-center">
             <h2 className="font-display text-lg">Appointment timeline</h2>
-            <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>All bookings →</Link>
+            <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>All appointments →</Link>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
@@ -187,7 +187,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
                   <th className="px-4 py-2">Time</th>
                   <th className="px-4 py-2">Patient</th>
                   <th className="px-4 py-2">Treatment</th>
-                  <th className="px-4 py-2">Performer</th>
+                  <th className="px-4 py-2">Staff</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Payment</th>
                   <th className="px-4 py-2">Consent</th>

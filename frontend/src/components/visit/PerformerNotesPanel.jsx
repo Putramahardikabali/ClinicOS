@@ -33,9 +33,9 @@ export default function PerformerNotesPanel({ visit, onSaved, roleFilter = null 
   return (
     <div className="space-y-6 mt-8 pt-8 border-t border-[#EAE6D7]">
       <div>
-        <div className="label-eyebrow">Additional performers</div>
-        <h3 className="font-display text-lg text-[#2D3A33] mt-1">Per-performer notes</h3>
-        <p className="text-sm text-[#5C6C62] mt-1">Assistant and secondary performers document their own session notes here.</p>
+        <div className="label-eyebrow">Additional staff</div>
+        <h3 className="font-display text-lg text-[#2D3A33] mt-1">Per-staff notes</h3>
+        <p className="text-sm text-[#5C6C62] mt-1">Assistant and secondary staff document their own session notes here.</p>
       </div>
       {slots.map((slot) => (
         <PerformerNoteCard
@@ -86,7 +86,7 @@ function PerformerNoteCard({ visit, slot, note, user, templates, onSaved }) {
         submit,
         edit_reason: editReason || undefined,
       });
-      toast.success(submit ? "Performer note submitted" : "Saved");
+      toast.success(submit ? "Staff note submitted" : "Saved");
       onSaved?.();
     } catch (e) {
       const detail = e?.response?.data?.detail || "Failed to save";
@@ -156,7 +156,7 @@ function PerformerNoteCard({ visit, slot, note, user, templates, onSaved }) {
       )}
 
       {!editable && !isOwn && (
-        <p className="text-xs text-[#5C6C62]">View only — assigned performer can edit their note.</p>
+        <p className="text-xs text-[#5C6C62]">View only — assigned staff can edit their note.</p>
       )}
 
       <EditReasonDialog

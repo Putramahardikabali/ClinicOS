@@ -12,6 +12,12 @@ import {
   fetchReport,
   visibleReportSections,
 } from "@/lib/reports";
+import { formatPatientSource } from "@/lib/patientProfile";
+
+function formatReportPatientSource(value) {
+  if (!value || !String(value).trim()) return "Unknown / Not recorded";
+  return formatPatientSource(value);
+}
 import OverviewCharts from "@/components/reports/OverviewCharts";
 
 function SummaryCard({ label, value, sub }) {
@@ -78,7 +84,7 @@ function SectionBody({ section, data }) {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <SummaryCard label="Paid revenue" value={formatIdr(s.paid_revenue_idr)} sub={`${s.paid_invoices ?? 0} invoices`} />
           <SummaryCard label="Outstanding" value={formatIdr(s.outstanding_balance_idr)} />
-          <SummaryCard label="Completed visits" value={String(s.completed_visits ?? 0)} />
+          <SummaryCard label="Completed treatment sessions" value={String(s.completed_visits ?? 0)} />
           <SummaryCard label="New patients" value={String(s.new_patients ?? 0)} />
           <SummaryCard label="Active packages" value={String(s.active_packages ?? 0)} />
           <SummaryCard label="Package sessions used" value={String(s.package_sessions_used ?? 0)} />
@@ -126,11 +132,11 @@ function SectionBody({ section, data }) {
           </div>
         </div>
         <div className="mt-4 bl-card p-4">
-          <h3 className="font-display text-base mb-1">Performer associated revenue</h3>
+          <h3 className="font-display text-base mb-1">Staff associated revenue</h3>
           <p className="text-xs text-[#5C6C62] mb-3">Per-line attribution — not added to clinic total (no double counting).</p>
           <DataTable
             columns={[
-              { key: "performer", label: "Performer" },
+              { key: "performer", label: "Staff" },
               { key: "associated_revenue_idr", label: "Associated revenue", right: true, render: (r) => formatIdr(r.associated_revenue_idr) },
             ]}
             rows={data.performer_associated_revenue}
@@ -317,7 +323,7 @@ function SectionBody({ section, data }) {
             <KeyValueList items={(data.by_category || []).map((r) => ({ label: r.category, count: r.count }))} />
           </div>
           <div className="bl-card p-4">
-            <h3 className="font-display text-base mb-3">By performer</h3>
+            <h3 className="font-display text-base mb-3">By staff</h3>
             <KeyValueList items={(data.by_performer || []).map((r) => ({ label: r.performer, count: r.count }))} />
           </div>
           <div className="bl-card p-4">
@@ -345,7 +351,7 @@ function SectionBody({ section, data }) {
     return (
       <>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          <SummaryCard label="Assistant performer count" value={String(s.assistant_performer_count ?? 0)} />
+          <SummaryCard label="Assistant staff count" value={String(s.assistant_performer_count ?? 0)} />
           <SummaryCard label="Nurse-assisted treatments" value={String(s.nurse_assisted_count ?? 0)} />
         </div>
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -354,7 +360,7 @@ function SectionBody({ section, data }) {
             <KeyValueList items={(data.appointments_by_staff || []).map((r) => ({ label: r.staff, count: r.count }))} />
           </div>
           <div className="bl-card p-4">
-            <h3 className="font-display text-base mb-3">Visits by staff</h3>
+            <h3 className="font-display text-base mb-3">Treatment sessions by staff</h3>
             <KeyValueList items={(data.visits_by_staff || []).map((r) => ({ label: r.staff, count: r.count }))} />
           </div>
           <div className="bl-card p-4">
@@ -368,7 +374,7 @@ function SectionBody({ section, data }) {
         </div>
         <div className="mt-4 bl-card p-4">
           <h3 className="font-display text-base mb-1">Associated revenue by staff</h3>
-          <p className="text-xs text-[#5C6C62] mb-3">Per-line attribution from invoice item performers — clinic total is deduplicated.</p>
+          <p className="text-xs text-[#5C6C62] mb-3">Per-line attribution from invoice item staff — clinic total is deduplicated.</p>
           <DataTable
             columns={[
               { key: "staff", label: "Staff" },
@@ -426,8 +432,8 @@ function SectionBody({ section, data }) {
           <SummaryCard label="Cancelled" value={String(s.cancelled ?? 0)} />
           <SummaryCard label="No-show" value={String(s.no_show ?? 0)} />
           <SummaryCard label="Rescheduled" value={String(s.rescheduled ?? 0)} />
-          <SummaryCard label="Visits completed" value={String(s.visits_completed ?? 0)} />
-          <SummaryCard label="Visits in progress" value={String(s.visits_in_progress ?? 0)} />
+          <SummaryCard label="Treatment sessions completed" value={String(s.visits_completed ?? 0)} />
+          <SummaryCard label="Treatment sessions in progress" value={String(s.visits_in_progress ?? 0)} />
         </div>
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bl-card p-4">
@@ -439,7 +445,7 @@ function SectionBody({ section, data }) {
             <KeyValueList items={(data.by_treatment || []).map((r) => ({ label: r.treatment, count: r.count }))} />
           </div>
           <div className="bl-card p-4">
-            <h3 className="font-display text-base mb-3">By performer</h3>
+            <h3 className="font-display text-base mb-3">By staff</h3>
             <KeyValueList items={(data.by_performer || []).map((r) => ({ label: r.performer, count: r.count }))} />
           </div>
         </div>
@@ -452,7 +458,7 @@ function SectionBody({ section, data }) {
       <>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <SummaryCard label="New patients" value={String(s.new_patients ?? 0)} />
-          <SummaryCard label="Returning visits" value={String(s.returning_visit_count ?? 0)} />
+          <SummaryCard label="Returning sessions" value={String(s.returning_visit_count ?? 0)} />
           <SummaryCard label="Total active patients" value={String(s.total_active_patients ?? 0)} />
           <SummaryCard label="Active packages" value={String(s.patients_with_active_packages ?? 0)} />
           <SummaryCard label="Expired packages" value={String(s.patients_with_expired_packages ?? 0)} />
@@ -464,7 +470,7 @@ function SectionBody({ section, data }) {
             <DataTable
               columns={[
                 { key: "name", label: "Name" },
-                { key: "source", label: "Source", render: (r) => r.source || "—" },
+                { key: "patient_source", label: "Source", render: (r) => formatReportPatientSource(r.patient_source) },
                 { key: "date", label: "Date" },
               ]}
               rows={data.new_patients}
@@ -495,7 +501,7 @@ function SectionBody({ section, data }) {
           <SummaryCard label="Notes completed" value={String(s.clinical_notes_completed ?? 0)} />
           <SummaryCard label="Locked notes" value={String(s.locked_notes ?? 0)} />
           <SummaryCard label="Edited after lock" value={String(s.notes_edited_after_lock ?? 0)} />
-          <SummaryCard label="Visits missing notes" value={String(s.visits_missing_notes ?? 0)} />
+          <SummaryCard label="Treatment sessions missing notes" value={String(s.visits_missing_notes ?? 0)} />
         </div>
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bl-card p-4">
@@ -551,7 +557,7 @@ function SectionBody({ section, data }) {
             />
           </div>
           <div className="bl-card p-4">
-            <h3 className="font-display text-base mb-3">Usage by staff / performer</h3>
+            <h3 className="font-display text-base mb-3">Usage by staff</h3>
             <DataTable
               columns={[
                 { key: "staff", label: "Staff" },
@@ -634,7 +640,7 @@ function SectionBody({ section, data }) {
           <SummaryCard label="Total records" value={String(data.count ?? 0)} />
         </div>
         <div className="mt-6 bl-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#EAE6D7] font-display">Online booking payments</div>
+          <div className="px-4 py-3 border-b border-[#EAE6D7] font-display">Online appointment payments</div>
           <DataTable
             columns={[
               { key: "created_at", label: "Created", render: (r) => (r.created_at || "").replace("T", " ").slice(0, 16) },
@@ -643,10 +649,10 @@ function SectionBody({ section, data }) {
               { key: "payment_requirement", label: "Type", render: (r) => String(r.payment_requirement || "—").replace(/_/g, " ") },
               { key: "amount_due", label: "Amount due", right: true, render: (r) => formatIdr(r.amount_due) },
               { key: "amount_paid", label: "Paid", right: true, render: (r) => formatIdr(r.amount_paid) },
-              { key: "booking_id", label: "Booking" },
+              { key: "booking_id", label: "Appointment" },
             ]}
             rows={data.items}
-            empty="No online booking payments yet."
+            empty="No online appointment payments yet."
           />
         </div>
       </>

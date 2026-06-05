@@ -176,7 +176,7 @@ function StaffRow({
               : clickable
                 ? `Book ${staff.name} at ${timeStr}`
                 : overtimeClickable
-                  ? "Outside working hours — overtime booking"
+                  ? "Outside working hours — overtime appointment"
                   : reason || "Unavailable";
 
             if (clickable) {
@@ -484,7 +484,7 @@ export default function BookingsScheduleView({
               className={`w-2.5 h-2.5 rounded-sm border ${k === "blocked" ? "border-dashed" : ""}`}
               style={{ background: v.bg, borderColor: v.border }}
             />
-            {k === "blocked" ? "Time block" : k.replace("_", " ")}
+            {k === "blocked" ? "Blocked time" : k.replace("_", " ")}
           </span>
         ))}
       </div>

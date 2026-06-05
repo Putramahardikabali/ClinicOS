@@ -8,7 +8,29 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from nationalities import normalize_nationality_fields
+from patient_profile import normalize_patient_source
 from saas import iso, now_utc
+
+
+def _normalize_import_nationality(row: dict) -> Tuple[Optional[str], Optional[str]]:
+    code = (row.get("nationality_code") or "").strip()
+    name = (row.get("nationality") or "").strip()
+    if not code and not name:
+        return None, None
+    nc, nn = normalize_nationality_fields(code or None, name or None)
+    if nc is None and nn is None and code:
+        nc, nn = normalize_nationality_fields(None, name or None)
+    if nc is None and nn is None:
+        return None, None
+    return (nc or None), (nn or None)
+
+
+def _normalize_import_source(raw: str) -> Optional[str]:
+    if not (raw or "").strip():
+        return None
+    normalized = normalize_patient_source(raw)
+    return normalized if normalized is not None else None
 
 EXPORT_COLUMNS = [
     "FirstName",
@@ -18,6 +40,10 @@ EXPORT_COLUMNS = [
     "membershipname",
     "lastvisit",
     "guestIconInformation",
+    "Nationality",
+    "NationalityCode",
+    "PatientSource",
+    "SourceDetail",
 ]
 
 
@@ -78,6 +104,14 @@ def _resolve_header(norm: str) -> Optional[str]:
         return "last_visit"
     if "guest" in norm and "icon" in norm:
         return "guest_icon_information"
+    if norm in ("nationality", "country", "citizenship"):
+        return "nationality"
+    if norm in ("nationalitycode", "nationality code", "country code", "countrycode"):
+        return "nationality_code"
+    if norm in ("patientsource", "patient source", "source", "lead source", "leadsource"):
+        return "patient_source"
+    if norm in ("sourcedetail", "source detail", "referral detail", "referraldetail"):
+        return "source_detail"
     return None
 
 
@@ -167,6 +201,10 @@ def patient_to_export_row(p: dict) -> Dict[str, Any]:
         "membershipname": p.get("membership_name") or "",
         "lastvisit": format_last_visit_export(p.get("last_visit") or ""),
         "guestIconInformation": p.get("guest_icon_information") or "",
+        "Nationality": p.get("nationality") or "",
+        "NationalityCode": p.get("nationality_code") or "",
+        "PatientSource": p.get("patient_source") or "",
+        "SourceDetail": p.get("source_detail") or "",
     }
 
 
@@ -223,6 +261,10 @@ def _rows_from_table(all_rows: List[tuple]) -> Tuple[List[dict], List[dict]]:
             "membership_name": data.get("membership_name", "").strip(),
             "last_visit": parse_last_visit(data.get("last_visit", "")),
             "guest_icon_information": data.get("guest_icon_information", "").strip(),
+            "nationality": data.get("nationality", "").strip(),
+            "nationality_code": data.get("nationality_code", "").strip(),
+            "patient_source": data.get("patient_source", "").strip(),
+            "source_detail": data.get("source_detail", "").strip(),
         })
     return parsed, errors
 
@@ -304,6 +346,16 @@ def build_patient_doc(row: dict, clinic_id: str, user_id: str, existing: Optiona
         doc["date_of_birth"] = existing.get("date_of_birth")
         doc["email"] = existing.get("email")
         doc["address"] = existing.get("address")
+        imp_code, imp_name = _normalize_import_nationality(row)
+        if imp_name is not None or imp_code is not None:
+            doc["nationality"] = imp_name
+            doc["nationality_code"] = imp_code
+        else:
+            doc["nationality"] = existing.get("nationality")
+            doc["nationality_code"] = existing.get("nationality_code")
+        raw_source = row.get("patient_source") or ""
+        doc["patient_source"] = _normalize_import_source(raw_source) if raw_source.strip() else existing.get("patient_source")
+        doc["source_detail"] = row.get("source_detail") or existing.get("source_detail")
         doc["medical_history"] = existing.get("medical_history")
         doc["allergies"] = existing.get("allergies")
         doc["notes"] = existing.get("notes")
@@ -315,6 +367,11 @@ def build_patient_doc(row: dict, clinic_id: str, user_id: str, existing: Optiona
         doc["date_of_birth"] = None
         doc["email"] = None
         doc["address"] = None
+        imp_code, imp_name = _normalize_import_nationality(row)
+        doc["nationality"] = imp_name
+        doc["nationality_code"] = imp_code
+        doc["patient_source"] = _normalize_import_source(row.get("patient_source") or "")
+        doc["source_detail"] = row.get("source_detail") or None
         doc["medical_history"] = None
         doc["allergies"] = None
         doc["notes"] = None

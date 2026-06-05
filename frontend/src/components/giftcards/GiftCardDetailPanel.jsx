@@ -126,10 +126,10 @@ export default function GiftCardDetailPanel({
 
               {(detail.status === "reserved" || detail.reserved_booking_id) && (
                 <div className="bl-card p-4 space-y-2" data-testid="gift-card-reserved-section">
-                  <p className="label-eyebrow">Reserved for upcoming booking</p>
+                  <p className="label-eyebrow">Reserved for upcoming appointment</p>
                   {detail.reserved_booking ? (
                     <>
-                      <p className="text-sm font-medium">{detail.reserved_booking.treatment || "Booking"}</p>
+                      <p className="text-sm font-medium">{detail.reserved_booking.treatment || "Appointment"}</p>
                       {detail.reserved_booking.scheduled_at && (
                         <p className="text-xs text-[#5C6C62]">
                           {new Date(detail.reserved_booking.scheduled_at).toLocaleString()}
@@ -147,7 +147,7 @@ export default function GiftCardDetailPanel({
                       to="/bookings"
                       className="text-sm text-[var(--bl-primary)] font-medium inline-flex items-center gap-1 hover:underline"
                     >
-                      View booking
+                      View appointment
                       <ExternalLink className="w-3.5 h-3.5" />
                     </Link>
                   )}
@@ -168,7 +168,7 @@ export default function GiftCardDetailPanel({
                 <div className="bl-card p-4">
                   <p className="label-eyebrow mb-2">Redeemed via</p>
                   {detail.redeemed_booking_id && (
-                    <p className="text-sm">Booking: <span className="font-mono">{detail.redeemed_booking_id}</span></p>
+                    <p className="text-sm">Appointment: <span className="font-mono">{detail.redeemed_booking_id}</span></p>
                   )}
                   {detail.redeemed_invoice_id && (
                     <p className="text-sm mt-1">Invoice: <span className="font-mono">{detail.redeemed_invoice_id}</span></p>

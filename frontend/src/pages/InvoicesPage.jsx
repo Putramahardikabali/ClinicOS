@@ -240,7 +240,7 @@ export default function InvoicesPage() {
     <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto" data-testid="invoices-page">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="label-eyebrow">Front office · Billing</div>
+          <div className="label-eyebrow">Front desk · Billing</div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">
             Invoices
           </h1>
@@ -404,10 +404,10 @@ export default function InvoicesPage() {
             <p className="text-sm text-[#5C6C62] mt-2 max-w-sm mx-auto">
               {status
                 ? `No invoices match the selected filter on this date.`
-                : "Open a visit from the queue or visits list to create an invoice when a patient checks out."}
+                : "Open a treatment session from the queue or session records list to create an invoice when a patient checks out."}
             </p>
             <Link to="/visits" className="inline-block mt-4 text-sm" style={{ color: "var(--bl-primary)" }}>
-              Go to visits to create invoice →
+              Go to session records to create invoice →
             </Link>
           </div>
         ) : (
@@ -417,7 +417,7 @@ export default function InvoicesPage() {
                 <tr>
                   <th className="px-5 py-3">Invoice</th>
                   <th className="px-5 py-3">Patient</th>
-                  <th className="px-5 py-3">Visit</th>
+                  <th className="px-5 py-3">Session record</th>
                   <th className="px-5 py-3">Created</th>
                   <th className="px-5 py-3 text-right">Total</th>
                   <th className="px-5 py-3 text-right">Balance</th>
@@ -439,7 +439,7 @@ export default function InvoicesPage() {
                     <td className="px-5 py-3.5">
                       {inv.visit_id ? (
                         <Link to={`/visits/${inv.visit_id}`} className="text-xs underline text-[#52796F]">
-                          {inv.visit?.visit_type || "Visit"}
+                          {inv.visit?.visit_type || "Session record"}
                         </Link>
                       ) : (
                         <span className="text-[#A89F8B]">—</span>
@@ -482,7 +482,7 @@ export default function InvoicesPage() {
         <div className="mt-8">
           <div className="flex items-center gap-2 mb-3">
             <CreditCard className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />
-            <div className="label-eyebrow">Submitted visits — ready for payment</div>
+            <div className="label-eyebrow">Submitted treatment sessions — ready for payment</div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {submittedVisits.slice(0, 6).map((v) => (
@@ -490,7 +490,7 @@ export default function InvoicesPage() {
                 <div className="min-w-0">
                   <div className="font-medium text-[#2D3A33] truncate">{v.patient_name || "Patient"}</div>
                   <div className="text-xs text-[#5C6C62] mt-0.5 capitalize">
-                    {v.visit_type} visit · submitted
+                    {v.visit_type} treatment session · submitted
                   </div>
                 </div>
                 <Link to={`/invoices/visit/${v.id}`} className="bl-btn-primary text-sm inline-flex items-center gap-2 shrink-0">

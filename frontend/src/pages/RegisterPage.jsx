@@ -46,7 +46,7 @@ export default function RegisterPage() {
             Run your <span style={{ color: "var(--bl-primary)" }}>clinic</span>,<br/>not your spreadsheets.
           </h1>
           <ul className="mt-7 space-y-3 text-[#2D3A33]">
-            {["Multi-role EMR with digital signatures", "Online booking page for your patients", "Photo & face-mapping documentation", "Treatment, billing, reports & more"].map((t, i) => (
+            {["Multi-role patient chart with digital signatures", "Online appointment page for your patients", "Photo & face-mapping documentation", "Treatment, billing, reports & more"].map((t, i) => (
               <li key={i} className="flex items-center gap-2"><Check className="w-4 h-4" style={{ color: "var(--bl-primary)" }} /> {t}</li>
             ))}
           </ul>

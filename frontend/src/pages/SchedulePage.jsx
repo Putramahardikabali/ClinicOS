@@ -82,9 +82,9 @@ export default function SchedulePage() {
                   {(b.status || "").replace("_", " ")}
                 </span>
                 {b.visit_id ? (
-                  <Link to={`/visits/${b.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Visit</Link>
+                  <Link to={`/visits/${b.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Session record</Link>
                 ) : (
-                  <span className="text-xs text-[#A89F8B]">No visit yet</span>
+                  <span className="text-xs text-[#A89F8B]">No session record yet</span>
                 )}
               </div>
             </li>
@@ -100,7 +100,7 @@ export default function SchedulePage() {
         <div>
           <div className="label-eyebrow">My work</div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Schedule</h1>
-          <p className="mt-2 text-[#5C6C62]">Bookings where you are primary or additional performer.</p>
+          <p className="mt-2 text-[#5C6C62]">Appointments where you are primary or additional assigned staff.</p>
         </div>
         <button type="button" onClick={load} disabled={loading} className="bl-btn-ghost inline-flex items-center gap-2 text-sm">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -140,7 +140,7 @@ export default function SchedulePage() {
       {!loading && rows.length === 0 && (
         <div className="mt-8 bl-card p-8 text-center text-[#5C6C62]">
           <CalendarCheck className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          No assigned bookings in this date range.
+          No assigned appointments in this date range.
         </div>
       )}
     </div>

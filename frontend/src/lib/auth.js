@@ -90,7 +90,7 @@ export const ROLE_LABEL = {
   doctor: "Doctor",
   therapist: "Therapist",
   nurse: "Nurse",
-  fo: "Front Office",
+  fo: "Front desk",
   manager: "Manager",
   accounting: "Accounting",
   platform_admin: "Platform Admin",

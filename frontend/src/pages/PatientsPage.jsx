@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, can } from "@/lib/auth";
+import {
+  canEditFullPatientFields,
+  PATIENT_SOURCE_OPTIONS,
+  SOURCE_DETAIL_PLACEHOLDER,
+} from "@/lib/patientProfile";
+import NationalityCombobox from "@/components/patient/NationalityCombobox";
 import { toast } from "sonner";
 import { Plus, X, Download, Upload, FileSpreadsheet, ChevronLeft, ChevronRight, HelpCircle, MoreHorizontal } from "lucide-react";
 import { SearchFieldBar } from "@/components/ui/SearchInput";
@@ -170,7 +176,8 @@ export default function PatientsPage() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
-  const [form, setForm] = useState({ full_name:"", gender:"female", date_of_birth:"", phone:"", email:"", address:"", medical_history:"", allergies:"", notes:"" });
+  const [form, setForm] = useState({ full_name:"", gender:"female", date_of_birth:"", phone:"", email:"", address:"", nationality:"", nationality_code:"", patient_source:"", source_detail:"", medical_history:"", allergies:"", notes:"" });
+  const canEditFullFields = canEditFullPatientFields(user);
   const [busy, setBusy] = useState(false);
   const canExport = can(user, "export_patients");
   const canImport = can(user, "create_patient");
@@ -264,7 +271,7 @@ export default function PatientsPage() {
       await api.post("/patients", form);
       toast.success("Patient created");
       setOpen(false);
-      setForm({ full_name:"", gender:"female", date_of_birth:"", phone:"", email:"", address:"", medical_history:"", allergies:"", notes:"" });
+      setForm({ full_name:"", gender:"female", date_of_birth:"", phone:"", email:"", address:"", nationality:"", nationality_code:"", patient_source:"", source_detail:"", medical_history:"", allergies:"", notes:"" });
       setPage(1);
       load(q, 1);
     } catch (e) {
@@ -489,9 +496,35 @@ export default function PatientsPage() {
                 <input className="bl-input" value={form.address} onChange={e=>setForm({...form,address:e.target.value})} />
               </div>
               <div>
-                <label className="label-eyebrow block mb-1">Medical history</label>
-                <textarea className="bl-input min-h-[80px]" value={form.medical_history} onChange={e=>setForm({...form,medical_history:e.target.value})} />
+                <label className="label-eyebrow block mb-1">Nationality</label>
+                <NationalityCombobox
+                  value={form.nationality_code}
+                  onChange={(code, country) => setForm({
+                    ...form,
+                    nationality_code: code,
+                    nationality: country?.name || "",
+                  })}
+                  testId="patient-nationality-input"
+                />
               </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Patient source</label>
+                <select className="bl-input" value={form.patient_source} onChange={e=>setForm({...form, patient_source:e.target.value})} data-testid="patient-source-select">
+                  {PATIENT_SOURCE_OPTIONS.map((o) => (
+                    <option key={o.value || "none"} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Source detail</label>
+                <input className="bl-input" placeholder={SOURCE_DETAIL_PLACEHOLDER} value={form.source_detail} onChange={e=>setForm({...form, source_detail:e.target.value})} data-testid="patient-source-detail-input" />
+              </div>
+              {canEditFullFields && (
+                <div>
+                  <label className="label-eyebrow block mb-1">Medical history</label>
+                  <textarea className="bl-input min-h-[80px]" value={form.medical_history} onChange={e=>setForm({...form,medical_history:e.target.value})} />
+                </div>
+              )}
               <div>
                 <label className="label-eyebrow block mb-1">Allergies</label>
                 <input className="bl-input" value={form.allergies} onChange={e=>setForm({...form,allergies:e.target.value})} />

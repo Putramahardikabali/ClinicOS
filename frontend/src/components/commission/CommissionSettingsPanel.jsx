@@ -15,7 +15,7 @@ const ROLE_LABELS = { doctor: "Doctor", therapist: "Therapist", nurse: "Nurse" }
 const BASIS_LABELS = { paid: "net paid amount", net: "net amount", gross: "gross amount" };
 const TRIGGER_LABELS = {
   invoice_paid: "Invoice paid",
-  visit_completed: "Visit completed",
+  visit_completed: "Treatment session completed",
   both: "Invoice paid + visit completed",
   manual: "Manual only",
 };
@@ -281,7 +281,7 @@ export default function CommissionSettingsPanel() {
               <label className="label-eyebrow block mb-1">Trigger</label>
               <select className="bl-input" value={form.trigger} onChange={(e) => setForm({ ...form, trigger: e.target.value })}>
                 <option value="invoice_paid">Invoice paid</option>
-                <option value="visit_completed">Visit completed</option>
+                <option value="visit_completed">Treatment session completed</option>
                 <option value="both">Invoice paid + visit completed</option>
                 <option value="manual">Manual only</option>
               </select>

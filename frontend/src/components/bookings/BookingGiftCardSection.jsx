@@ -223,7 +223,7 @@ export default function BookingGiftCardSection({
           </div>
           {applied.gift_card_type === "treatment" && (
             <p className="text-xs text-[#2D3A33]">
-              Treatment is locked to this gift card. Pick date, time, and performer below.
+              Treatment is locked to this gift card. Pick date, time, and assigned provider below.
             </p>
           )}
           {applied.gift_card_type === "package" && !patientId && (

@@ -17,7 +17,7 @@ const EMPTY_REASONS = [
   "No active commission rule matches this staff member or treatment",
   "Invoice line item has no performer assigned",
   "Invoice is not paid yet",
-  "Visit is not completed, if the rule requires a completed visit",
+  "Treatment session is not completed, if the rule requires a completed session",
   "Current status or date filter may be hiding existing records — try All statuses and Earned date",
 ];
 

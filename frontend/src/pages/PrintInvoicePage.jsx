@@ -40,7 +40,7 @@ export default function PrintInvoicePage() {
           <thead>
             <tr className="border-b border-[#2D3A33] text-left text-xs uppercase tracking-wider text-[#5C6C62]">
               <th className="py-2">Item</th>
-              <th className="py-2">Performer</th>
+              <th className="py-2">Staff</th>
               <th className="py-2 text-right">Amount</th>
             </tr>
           </thead>

@@ -34,7 +34,7 @@ export default function ClinicalNoteGuidance({
         )}
         {status === "draft" && editable && (
           <p className="text-sm text-[#5C6C62] mt-2">
-            Use <strong>Save draft</strong> while documenting. <strong>Submit &amp; lock</strong> finalizes the note for this visit.
+            Use <strong>Save draft</strong> while documenting. <strong>Finish chart</strong> finalizes the note for this treatment session.
           </p>
         )}
       </div>
@@ -58,7 +58,7 @@ export default function ClinicalNoteGuidance({
               disabled={busy}
               data-testid={`${roleLabel.toLowerCase().replace(/\s+/g, "-")}-submit`}
             >
-              Submit &amp; lock
+              Finish chart
             </button>
             <span className="text-xs text-[#5C6C62] sm:max-w-[220px]">
               Finalizes this note. Editing later may require a reason.

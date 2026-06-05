@@ -26,7 +26,7 @@ export default function FormsPage() {
   return (
     <SettingsModuleLayout
       eyebrow="Clinical"
-      title="Visit Settings"
+      title="Session settings"
       description="Configure doctor/therapist visit forms, consent templates, mapping canvases, and visit unit types."
       tabs={tabs}
       defaultTab="doctor-form"

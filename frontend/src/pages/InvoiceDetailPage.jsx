@@ -323,10 +323,10 @@ export default function InvoiceDetailPage() {
     if (invoice?.visit_id && preview.status === "paid" && invoice.visit?.status !== "completed") {
       try {
         await api.put(`/visits/${invoice.visit_id}/status`, { status: "completed" });
-        toast.success("Visit closed");
+        toast.success("Treatment session closed");
         await load();
       } catch (e) {
-        toast.error(e?.response?.data?.detail || "Could not close visit");
+        toast.error(e?.response?.data?.detail || "Could not close treatment session");
       }
     }
   };
@@ -494,7 +494,7 @@ export default function InvoiceDetailPage() {
           <p className="text-sm text-[#5C6C62] mt-1">
             {invoice.patient?.full_name || "Patient"}
             {invoice.visit_id && (
-              <> · <Link to={`/visits/${invoice.visit_id}`} className="underline">Visit</Link></>
+              <> · <Link to={`/visits/${invoice.visit_id}`} className="underline">Session record</Link></>
             )}
           </p>
         </div>
@@ -560,7 +560,7 @@ export default function InvoiceDetailPage() {
             </div>
             <div className="sm:col-span-full">
               <label className="label-eyebrow block mb-1">
-                Performers{it.item_type === "treatment" ? " *" : ""}
+                Assigned staff{it.item_type === "treatment" ? " *" : ""}
               </label>
               <InvoiceItemPerformers
                 item={it}
@@ -616,7 +616,7 @@ export default function InvoiceDetailPage() {
           <>
             {defaultPerformer && (
               <p className="text-xs text-[#5C6C62]">
-                Default performer from visit: {defaultPerformer.performer_name_snapshot} ({defaultPerformer.performer_role_snapshot})
+                Default assigned staff from treatment session: {defaultPerformer.performer_name_snapshot} ({defaultPerformer.performer_role_snapshot})
               </p>
             )}
             <div className="pt-2 flex flex-wrap gap-2">
@@ -783,7 +783,7 @@ export default function InvoiceDetailPage() {
             </button>
           )}
           {closed && invoice.visit?.status !== "completed" && (
-            <button type="button" onClick={closeVisitIfPaid} className="bl-btn-ghost w-full">Close visit</button>
+            <button type="button" onClick={closeVisitIfPaid} className="bl-btn-ghost w-full">Close treatment session</button>
           )}
         </div>
       )}

@@ -58,9 +58,9 @@ const QUEUE_HEADERS = {
 
   therapist: "Your treatments to perform",
 
-  nurse: "Your assigned appointments & visits",
+  nurse: "Your assigned appointments & sessions",
 
-  fo: "Bookings to handle today",
+  fo: "Appointments to handle today",
 
 };
 
@@ -214,7 +214,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
       <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
 
-        <Stat icon={CalendarCheck} label="Bookings today" value={data.bookings_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-bookings-today" />
+        <Stat icon={CalendarCheck} label="Appointments today" value={data.bookings_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-bookings-today" />
 
         <Stat icon={Calendar} label="Upcoming" value={data.upcoming_bookings ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-upcoming" sub={`${data.pending_confirm ?? 0} need confirm`} />
 
@@ -238,9 +238,9 @@ function FrontOfficeDashboard({ user, clinic }) {
 
         <Stat icon={Stethoscope} label="In progress" value={data.in_progress ?? "—"} accent="bg-[#E5EEF5] text-[#2C5A77]" testid="kpi-in-progress" />
 
-        <Stat icon={Activity} label="Visits today" value={data.visits_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-visits-today" />
+        <Stat icon={Activity} label="Sessions today" value={data.visits_today ?? "—"} accent="bg-[#FBF3DB] text-[#8A6D1F]" testid="kpi-visits-today" />
 
-        <Stat icon={CheckCircle2} label="Total visits" value={data.total_visits ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" testid="kpi-total-visits" />
+        <Stat icon={CheckCircle2} label="Total sessions" value={data.total_visits ?? "—"} accent="bg-[#EDF3EF] text-[#52796F]" testid="kpi-total-visits" />
 
         <div className="bl-card p-5" data-testid="kpi-quick-book">
 
@@ -252,7 +252,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
             </div>
 
-            <div className="label-eyebrow">Public booking</div>
+            <div className="label-eyebrow">Public appointment page</div>
 
           </div>
 
@@ -280,7 +280,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
           <div className="flex items-center justify-between mb-4">
 
-            <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Today&apos;s bookings</h2>
+            <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Today&apos;s appointments</h2>
 
             <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>See all →</Link>
 
@@ -300,7 +300,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
                 <tbody>
 
-                  {bookings.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-[#5C6C62]">No bookings today</td></tr>}
+                  {bookings.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-[#5C6C62]">No appointments today</td></tr>}
 
                   {bookings.map(b => {
 
@@ -384,7 +384,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
         <div className="flex items-center justify-between mb-4">
 
-          <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Recent visits</h2>
+          <h2 className="font-display text-xl sm:text-2xl text-[#2D3A33]">Recent sessions</h2>
 
           <Link to="/visits" className="text-sm" style={{ color: "var(--bl-primary)" }}>See all →</Link>
 
@@ -408,7 +408,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
               <tbody>
 
-                {recent.length === 0 && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No visits yet</td></tr>}
+                {recent.length === 0 && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No sessions yet</td></tr>}
 
                 {recent.map(v => (
 
@@ -548,7 +548,7 @@ export default function DashboardPage() {
 
             <>
 
-              <Link to="/bookings" className="bl-btn-ghost" data-testid="dash-quick-bookings">Bookings</Link>
+              <Link to="/bookings" className="bl-btn-ghost" data-testid="dash-quick-bookings">Appointments</Link>
 
               {hasFeature(clinic, "billing") && hasPermission(user, "billing.view") && (
 
@@ -566,7 +566,7 @@ export default function DashboardPage() {
 
               <Link to="/schedule" className="bl-btn-ghost" data-testid="dash-quick-schedule">Schedule</Link>
 
-              <Link to="/visits" className="bl-btn-primary" data-testid="dash-quick-visits">Visits</Link>
+              <Link to="/visits" className="bl-btn-primary" data-testid="dash-quick-visits">Sessions</Link>
 
             </>
 

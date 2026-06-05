@@ -24,7 +24,7 @@ import {
 import {
   CalendarDays, Clock, Phone, MessageCircle, Copy, CheckCircle2, X, Plus,
   ArrowRight, ExternalLink, LayoutList, CalendarRange, Edit2, Ban,
-  ChevronDown, MoreHorizontal, Receipt, CalendarClock,
+  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
@@ -47,7 +47,7 @@ const STATUS_COLORS = {
   completed:   { label: "Completed",   cls: "success" },
   cancelled:   { label: "Cancelled",   cls: "" },
   no_show:     { label: "No show",     cls: "" },
-  blocked:     { label: "Time block",  cls: "" },
+  blocked:     { label: "Blocked time",  cls: "" },
   pending_payment: { label: "Pending payment", cls: "info" },
   payment_expired: { label: "Payment expired", cls: "" },
   payment_failed:  { label: "Payment failed",  cls: "" },
@@ -73,7 +73,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
         </p>
         <div className="grid grid-cols-1 gap-2">
           <button type="button" onClick={onBook} className="bl-btn-primary w-full inline-flex items-center justify-center gap-2" data-testid="slot-action-book">
-            <Plus className="w-4 h-4" /> New booking
+            <Plus className="w-4 h-4" /> New appointment
           </button>
           <button type="button" onClick={onBlock} className="bl-btn-ghost w-full inline-flex items-center justify-center gap-2 border border-[#EAE6D7]" data-testid="slot-action-block">
             <Ban className="w-4 h-4" /> Block time
@@ -119,7 +119,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
     e.preventDefault();
     if (!reason) { toast.error("Enter a reason for the block"); return; }
     if (!form.scheduled_date || !form.scheduled_time) { toast.error("Pick date and time"); return; }
-    if (!form.performer_id) { toast.error("Select staff"); return; }
+    if (!form.performer_id) { toast.error("Select assigned staff"); return; }
     setBusy(true);
     try {
       const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
@@ -136,11 +136,11 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
       };
       if (isEdit) {
         const r = await api.put(`/bookings/${booking.id}`, body);
-        toast.success("Time block updated");
+        toast.success("Blocked time updated");
         onSaved?.(r.data);
       } else {
         await api.post("/bookings", body);
-        toast.success("Time blocked");
+        toast.success("Time slot blocked");
         onSaved?.();
       }
       onClose();
@@ -160,7 +160,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
           <h3 className="font-display text-xl text-[#2D3A33]">{isEdit ? "Edit time block" : "Block time"}</h3>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F1EB]"><X className="w-5 h-5" /></button>
         </div>
-        <p className="mt-2 text-sm text-[#5C6C62]">Reserve this performer&apos;s calendar for breaks, meetings, or other non-appointment time.</p>
+        <p className="mt-2 text-sm text-[#5C6C62]">Reserve this staff member&apos;s calendar for breaks, meetings, or other non-appointment time.</p>
 
         <div className="mt-5 space-y-4">
           <div>
@@ -181,7 +181,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
           </div>
 
           <div>
-            <label className="label-eyebrow block mb-1.5">Staff</label>
+            <label className="label-eyebrow block mb-1.5">Assigned staff</label>
             {initial?.performer_id && !isEdit ? (
               <div className="bl-input bg-[#F8F5EC] text-[#2D3A33]">{performerName || "Selected from schedule"}</div>
             ) : (
@@ -259,6 +259,78 @@ const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 function formatBookingListTime(d, durationMin) {
   const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
   return `${time} · ${durationMin} min`;
+}
+
+function bookingPerformerLabel(b) {
+  const performers = b.performers || [];
+  if (performers.length) {
+    const primary = performers.find((p) => p.performer_type === "primary") || performers[0];
+    if (primary?.staff_name_snapshot) return primary.staff_name_snapshot;
+    const names = performers.map((p) => p.staff_name_snapshot).filter(Boolean);
+    if (names.length) return names.join(", ");
+  }
+  return b.performer_name_snapshot || b.performer_name || "Unassigned";
+}
+
+function BookingListCard({ booking, onOpen, onWa }) {
+  const block = isTimeBlock(booking);
+  const dt = new Date(booking.scheduled_at);
+  const sc = STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
+  const patientLabel = block ? (booking.block_reason || booking.patient_name) : booking.patient_name;
+  const treatmentLabel = block ? "Blocked time" : (booking.treatment || "—");
+  const providerLabel = bookingPerformerLabel(booking);
+
+  return (
+    <div className="bl-card p-4" data-testid={`booking-card-${booking.id}`}>
+      <button
+        type="button"
+        onClick={() => onOpen(booking)}
+        className="w-full text-left active:bg-[#FBF8EF] -m-1 p-1 rounded-xl"
+        data-testid={`booking-card-body-${booking.id}`}
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-[#F3F1EB] flex flex-col items-center justify-center shrink-0">
+            <span className="font-display text-base text-[#2D3A33] leading-none">{dt.getDate()}</span>
+            <span className="text-[9px] text-[#5C6C62] uppercase mt-0.5">{dt.toLocaleDateString(undefined, { month: "short" })}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-[#2D3A33] truncate">{patientLabel}</div>
+            <div className="text-xs text-[#5C6C62] mt-1">
+              {formatBookingListDate(dt)} · {formatBookingListTime(dt, booking.duration_min || 30)}
+            </div>
+            <div className="text-xs text-[#5C6C62] mt-1 truncate">{treatmentLabel}</div>
+            <div className="text-xs text-[#5C6C62] mt-0.5 truncate">Staff: {providerLabel}</div>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${sc.cls}`} data-testid={`booking-card-status-${booking.id}`}>
+                {sc.label}
+              </span>
+              {booking.is_overtime && !block && <OvertimeBadge />}
+            </div>
+          </div>
+        </div>
+      </button>
+      <div className="mt-3 pt-3 border-t border-[#EAE6D7] flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onOpen(booking); }}
+          className="bl-btn-primary text-sm flex-1 min-w-[7rem]"
+          data-testid={`booking-card-primary-${booking.id}`}
+        >
+          Open
+        </button>
+        {!block && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onWa(booking); }}
+            className="bl-btn-ghost text-sm inline-flex items-center gap-1.5"
+            data-testid={`booking-card-wa-${booking.id}`}
+          >
+            <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function BookingStepProgress({ current }) {
@@ -763,7 +835,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     const apErr = validateAdditionalPerformers(form.assistant_performers, form.performer_id);
     if (apErr) { toast.error(apErr); return; }
     if (!form.performer_id) {
-      toast.error("Select a performer");
+      toast.error("Select a provider");
       return;
     }
     const availErr = validatePerformerAvailability(
@@ -775,7 +847,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     );
     if (availErr) { toast.error(availErr); return; }
     if (availablePerformers !== null && availablePerformers.length > 0 && !form.performer_id) {
-      toast.error("Select an available primary performer");
+      toast.error("Select an available provider");
       return;
     }
     setBusy(true);
@@ -807,7 +879,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         body.gift_card_id = appliedGiftCard.gift_card_id;
       }
       await api.post("/bookings", body);
-      toast.success(overtimeMeta ? "Overtime booking created" : "Booking created");
+      toast.success(overtimeMeta ? "Overtime appointment created" : "Appointment created");
       onCreated();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to create");
@@ -820,7 +892,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="new-booking-modal">
       <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-xl text-[#2D3A33]">New booking</h3>
+          <h3 className="font-display text-xl text-[#2D3A33]">New appointment</h3>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F1EB]"><X className="w-5 h-5" /></button>
         </div>
 
@@ -851,7 +923,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         {step === "details" && (
           <div className="mt-5 space-y-4" data-testid="nb-step-details">
             <div>
-              <p className="text-xs text-[#5C6C62]">Step 2 of 3 · Booking details</p>
+              <p className="text-xs text-[#5C6C62]">Step 2 of 3 · Appointment details</p>
               <BookingStepProgress current="service" />
             </div>
             <button onClick={() => setStep("patient")} className="text-xs text-[#5C6C62] hover:text-[#2D3A33]">← Change patient</button>
@@ -877,7 +949,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
             )}
             {!newPatient && !String(form.patient_phone || "").trim() && (
               <div>
-                <label className="label-eyebrow block mb-1.5">Phone (required for booking)</label>
+                <label className="label-eyebrow block mb-1.5">Phone (required for appointment)</label>
                 <input
                   className="bl-input"
                   value={form.patient_phone}
@@ -984,8 +1056,8 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                 {customTime && (
                   <p className="text-xs text-[#A89F8B] mt-1">
                     {overtimeMeta
-                      ? "Overtime booking — availability rechecks when you change time or performer."
-                      : "Performer availability is still enforced on save."}
+                      ? "Overtime appointment — availability rechecks when you change time or assigned staff."
+                      : "Staff availability is still enforced on save."}
                   </p>
                 )}
               </div>
@@ -993,14 +1065,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
             {overtimeMeta && (
               <p className="text-xs text-[#5C6C62] -mt-2" data-testid="nb-overtime-notice">
-                Overtime booking · {overtimeMeta.reason}
+                Overtime appointment · {overtimeMeta.reason}
               </p>
             )}
 
             <div>
               <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                 <label className="label-eyebrow">
-                  Performer
+                  Assigned staff
                   {selectedService && <span className="text-[#A89F8B] normal-case ml-1">· {selectedService.performer_type}</span>}
                 </label>
                 {(() => {
@@ -1014,7 +1086,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                       onClick={() => setPrimaryPerformer(suggestedPerformerId, true)}
                       className="text-xs underline text-[#52796F] hover:text-[#2D3A33] flex items-center gap-1"
                       data-testid="nb-autopick"
-                      title={`Least-busy ${sug.role} today (${sug.bookings_today} booking${sug.bookings_today === 1 ? "" : "s"})`}
+                      title={`Least-busy ${sug.role} today (${sug.bookings_today} appointment${sug.bookings_today === 1 ? "" : "s"})`}
                     >
                       ✨ Auto-pick {sug.name}
                     </button>
@@ -1046,11 +1118,11 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                 const hint = !serviceSelected || !form.scheduled_date
                   ? "Select treatment and date first."
                   : !form.scheduled_time
-                    ? "Select a time to see available performers."
+                    ? "Select a time to see available providers."
                     : loadingPerformers
                       ? "Checking availability…"
                       : (list.length === 0
-                          ? "No available performer for this time. Try another time or check staff schedule."
+                          ? "No provider is available for this time. Try another time or check staff schedule."
                           : null);
                 return (
                   <>
@@ -1062,7 +1134,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                       required={list.length > 0}
                       data-testid="nb-performer"
                     >
-                      {list.length === 0 && <option value="">— No performer available —</option>}
+                      {list.length === 0 && <option value="">— No provider available —</option>}
                       {list.map(s => {
                         const ap = availablePerformers?.find(p => p.id === s.id);
                         const load = ap?.bookings_today ?? 0;
@@ -1081,7 +1153,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                     )}
                     {slotChosen && !loadingPerformers && eligibleStaff.length > 0 && availablePerformers !== null && availablePerformers.length < eligibleStaff.length && (
                       <div className="text-[11px] text-[#A89F8B] mt-1">
-                        {eligibleStaff.length - availablePerformers.length} {selectedTreatment?.performer_type || "performer"}(s) hidden — off-duty or already booked.
+                        {eligibleStaff.length - availablePerformers.length} {selectedTreatment?.performer_type || "staff"}(s) hidden — off-duty or already booked.
                       </div>
                     )}
                   </>
@@ -1166,7 +1238,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                   className="bl-btn-primary flex-1 disabled:opacity-50"
                   data-testid="new-booking-submit"
                 >
-                  {busy ? "Saving…" : "Create booking"}
+                  {busy ? "Saving…" : "Create appointment"}
                 </button>
                 <button type="button" onClick={onClose} className="bl-btn-ghost shrink-0">Cancel</button>
               </div>
@@ -1327,6 +1399,12 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   const sc = STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
   const next = block ? null : NEXT_STATUS[booking.status];
   const blockLabel = booking.block_reason || booking.patient_name;
+  const showStartVisitHint =
+    canManage
+    && !block
+    && !booking.visit_id
+    && ["booked", "confirmed", "checked_in"].includes(booking.status)
+    && !editing;
 
   const clearCouponState = () => {
     setAppliedCoupon(null);
@@ -1435,11 +1513,11 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
         coupon_code: appliedCoupon?.coupon_code || null,
       };
       const r = await api.put(`/bookings/${booking.id}`, payload);
-      toast.success("Booking updated");
+      toast.success("Appointment updated");
       onSaved?.(r.data);
       setEditing(false);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to update booking");
+      toast.error(e?.response?.data?.detail || "Failed to update appointment");
     } finally {
       setBusy(false);
     }
@@ -1454,8 +1532,8 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
       <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="label-eyebrow">{block ? "Time block" : "Appointment"}</div>
-            <h3 className="font-display text-xl text-[#2D3A33] mt-1">{editing && !block ? "Edit booking" : (block ? blockLabel : booking.patient_name)}</h3>
+            <div className="label-eyebrow">{block ? "Blocked time" : "Appointment"}</div>
+            <h3 className="font-display text-xl text-[#2D3A33] mt-1">{editing && !block ? "Edit appointment" : (block ? blockLabel : booking.patient_name)}</h3>
             {!editing && (
               <div className="text-sm text-[#5C6C62] mt-1">
                 {block ? (
@@ -1549,7 +1627,7 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
               </div>
             </div>
             <div>
-              <label className="label-eyebrow block mb-1.5">Performer</label>
+              <label className="label-eyebrow block mb-1.5">Assigned staff</label>
               <select
                 className="bl-input"
                 value={form.performer_id}
@@ -1666,7 +1744,7 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 <div className="text-[#5C6C62]">{booking.notes}</div>
               )}
               {booking.performer_id && (
-                <div className="text-[#5C6C62]">Performer: {staff.find(s => s.id === booking.performer_id)?.name || booking.performer_name_snapshot || "—"}</div>
+                <div className="text-[#5C6C62]">Staff: {staff.find(s => s.id === booking.performer_id)?.name || booking.performer_name_snapshot || "—"}</div>
               )}
               {(booking.performers || []).filter(p => p.performer_type !== "primary").length > 0 && (
                 <div className="text-[#5C6C62]">
@@ -1708,6 +1786,32 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
           </>
         )}
 
+        {showStartVisitHint && (
+          <div
+            className="mt-5 p-4 rounded-xl border border-[#D4E4DC] bg-[#F5FAF7]"
+            data-testid="booking-start-visit-hint"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex gap-3 min-w-0 flex-1">
+                <Stethoscope className="w-5 h-5 shrink-0 text-[#52796F] mt-0.5" strokeWidth={1.6} />
+                <div className="text-sm text-[#2D3A33] leading-relaxed space-y-1">
+                  <p>Ready for treatment? Start a treatment session to open the patient chart, add treatment details, and prepare billing.</p>
+                  <p className="text-xs text-[#5C6C62]">A treatment session is the clinical record — separate from the appointment on the schedule.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onStartVisit(booking)}
+                disabled={startVisitBusy}
+                className="bl-btn-primary text-sm inline-flex items-center gap-2 shrink-0 disabled:opacity-50"
+                data-testid="start-visit-button"
+              >
+                {startVisitBusy ? "Starting…" : "Start treatment session"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {!editing && (
           <div className="mt-5 flex flex-wrap gap-2">
             {editable && block && (
@@ -1725,17 +1829,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </button>
             )}
-            {canManage && !block && !booking.visit_id && ["booked", "confirmed", "checked_in"].includes(booking.status) && (
-              <button
-                type="button"
-                onClick={() => onStartVisit(booking)}
-                disabled={startVisitBusy}
-                className="bl-btn-primary text-sm inline-flex items-center gap-2 disabled:opacity-50"
-                data-testid="start-visit-button"
-              >
-                {startVisitBusy ? "Starting…" : "Start visit"}
-              </button>
-            )}
             {booking.visit_id && (
               <Link
                 to={`/visits/${booking.visit_id}?tab=consent`}
@@ -1751,7 +1844,7 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 className="bl-btn-primary text-sm inline-flex items-center gap-2"
                 data-testid="open-visit-link"
               >
-                Open visit <ArrowRight className="w-4 h-4" />
+                Open patient chart <ArrowRight className="w-4 h-4" />
               </Link>
             )}
             {canManage && next && booking.status !== "checked_in" && !booking.visit_id && (
@@ -1809,7 +1902,7 @@ export default function BookingsPage() {
     if (!openBookingId) return;
     api.get(`/bookings/${openBookingId}`)
       .then(r => setDetailBooking(r.data))
-      .catch(() => toast.error("Could not load booking"))
+      .catch(() => toast.error("Could not load appointment"))
       .finally(() => {
         setSearchParams((prev) => {
           const next = new URLSearchParams(prev);
@@ -1851,7 +1944,7 @@ export default function BookingsPage() {
     const msg = isTimeBlock(b) ? "Remove this time block?" : "Cancel this booking?";
     if (!window.confirm(msg)) return;
     await api.delete(`/bookings/${b.id}`);
-    toast.success(isTimeBlock(b) ? "Time block removed" : "Cancelled");
+    toast.success(isTimeBlock(b) ? "Blocked time removed" : "Cancelled");
     refresh();
   };
 
@@ -1860,19 +1953,19 @@ export default function BookingsPage() {
     try {
       const r = await api.post(`/bookings/${b.id}/start-visit`);
       const visit = r.data?.visit;
-      toast.success("Visit started — patient checked in");
+      toast.success("Treatment session started — patient chart is open");
       setDetailBooking(r.data?.booking || b);
       refresh();
       if (visit?.id) navigate(`/visits/${visit.id}`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to start visit");
+      toast.error(e?.response?.data?.detail || "Failed to start treatment session");
     } finally {
       setStartVisitBusy(false);
     }
   };
 
   const publicLink = clinic ? `${window.location.origin}/book/${clinic.slug}` : "";
-  const copyLink = () => { navigator.clipboard.writeText(publicLink); toast.success("Public booking link copied"); };
+  const copyLink = () => { navigator.clipboard.writeText(publicLink); toast.success("Public appointment link copied"); };
 
   const canManage = ["super_admin", "fo", "manager"].includes(user?.role);
 
@@ -1880,15 +1973,15 @@ export default function BookingsPage() {
     <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto" data-testid="bookings-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="label-eyebrow">Front office</div>
-          <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Bookings</h1>
-          <p className="mt-2 text-[#5C6C62]">View staff availability and manage clinic bookings.</p>
+          <div className="label-eyebrow">Front desk</div>
+          <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Appointments</h1>
+          <p className="mt-2 text-[#5C6C62] max-w-xl">Schedule patients, assign staff, and start a treatment session when they arrive.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canManage && (
             <>
               <button onClick={() => { setNewInitial(null); setNewOpen(true); }} className="bl-btn-primary inline-flex items-center gap-2 text-sm" data-testid="new-booking-button">
-                <Plus className="w-4 h-4" /> New booking
+                <Plus className="w-4 h-4" /> New appointment
               </button>
               <button
                 onClick={() => { setBlockInitial({ scheduled_date: scheduleDate }); setBlockEdit(null); setBlockOpen(true); }}
@@ -1910,7 +2003,7 @@ export default function BookingsPage() {
               <DropdownMenuContent align="end" className="min-w-[12rem] bg-white border-[#EAE6D7] text-[#2D3A33] shadow-lg">
                 <DropdownMenuItem onClick={copyLink} className="cursor-pointer focus:bg-[#F8F5EC]" data-testid="copy-public-link">
                   <Copy className="w-4 h-4 mr-2 text-[#5C6C62]" />
-                  Copy booking link
+                  Copy appointment link
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild className="cursor-pointer focus:bg-[#F8F5EC]">
                   <a href={`/book/${clinic.slug}`} target="_blank" rel="noreferrer" className="flex items-center w-full" data-testid="open-public-link">
@@ -1983,7 +2076,22 @@ export default function BookingsPage() {
           />
         </div>
       ) : (
-      <div className="mt-5 bl-card overflow-hidden" data-testid="bookings-table">
+      <>
+      <div className="mt-5 space-y-3 lg:hidden" data-testid="bookings-cards">
+        {bookings.length === 0 && (
+          <div className="bl-card p-8 text-center text-[#5C6C62]" data-testid="bookings-empty">No appointments in this view.</div>
+        )}
+        {bookings.map((b) => (
+          <BookingListCard
+            key={b.id}
+            booking={b}
+            onOpen={(bk) => { setDetailStartEdit(false); setDetailBooking(bk); }}
+            onWa={setWaBooking}
+          />
+        ))}
+      </div>
+
+      <div className="mt-5 bl-card overflow-hidden hidden lg:block" data-testid="bookings-table">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
@@ -1999,7 +2107,7 @@ export default function BookingsPage() {
             </thead>
             <tbody>
               {bookings.length === 0 && (
-                <tr><td colSpan={7} className="py-10 text-center text-[#5C6C62]" data-testid="bookings-empty">No bookings in this view.</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center text-[#5C6C62]" data-testid="bookings-empty">No appointments in this view.</td></tr>
               )}
               {bookings.map(b => {
                 const dt = new Date(b.scheduled_at);
@@ -2017,7 +2125,7 @@ export default function BookingsPage() {
                         <div className="text-xs text-[#5C6C62] flex items-center gap-1 mt-0.5"><Phone className="w-3 h-3" /> {b.patient_phone}</div>
                       )}
                     </td>
-                    <td className="px-5 py-4 text-sm text-[#2D3A33]">{isTimeBlock(b) ? "Time block" : b.treatment}</td>
+                    <td className="px-5 py-4 text-sm text-[#2D3A33]">{isTimeBlock(b) ? "Blocked time" : b.treatment}</td>
                     <td className="px-5 py-4 text-sm text-[#2D3A33] whitespace-nowrap">
                       {isTimeBlock(b) ? "—" : (b.total_idr != null ? fmtIDR(b.total_idr) : "—")}
                       {b.discount_idr > 0 && <div className="text-xs text-[#52796F] mt-0.5">−{fmtIDR(b.discount_idr)}</div>}
@@ -2080,7 +2188,7 @@ export default function BookingsPage() {
                               {!isTimeBlock(b) && !b.visit_id && ["booked", "confirmed", "checked_in"].includes(b.status) && (
                                 <DropdownMenuItem
                                   onClick={() => {
-                                    toast.info("Start a visit from the booking to create an invoice.");
+                                    toast.info("Start a treatment session from this appointment to create an invoice.");
                                     setDetailBooking(b);
                                   }}
                                   className="cursor-pointer focus:bg-[#F8F5EC]"
@@ -2106,6 +2214,7 @@ export default function BookingsPage() {
           </table>
         </div>
       </div>
+      </>
       )}
 
       {detailBooking && (

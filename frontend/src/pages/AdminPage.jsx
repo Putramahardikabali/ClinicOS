@@ -209,10 +209,10 @@ function BrandingTab() {
           <div>
             <label className="label-eyebrow block mb-2">Tagline</label>
             <input className="bl-input" value={b.tagline || ""} onChange={(e)=>setB({...b, tagline: e.target.value})} data-testid="branding-tagline" />
-            <p className="text-xs text-[#5C6C62] mt-2">Shown in the staff sidebar and on your public booking page.</p>
+            <p className="text-xs text-[#5C6C62] mt-2">Shown in the staff sidebar and on your public appointment page.</p>
           </div>
           <div>
-            <label className="label-eyebrow block mb-2">Public booking URL</label>
+            <label className="label-eyebrow block mb-2">Public appointment URL</label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-[#5C6C62] shrink-0">/book/</span>
               <input
@@ -368,7 +368,7 @@ function UsersTab() {
                 <option value="super_admin">Super Admin</option>
                 <option value="doctor">Doctor</option>
                 <option value="therapist">Therapist</option>
-                <option value="fo">Front Office</option>
+                <option value="fo">Front desk</option>
                 <option value="manager">Manager</option>
               </select>
             </div>
@@ -437,7 +437,7 @@ function DoctorFormTab() {
             <CollapsibleAdvanced title="Advanced — section key" testid={`doctor-section-adv-${i}`}>
               <label className="label-eyebrow block mb-1.5">Section key</label>
               <input className="bl-input font-mono text-sm max-w-xs" value={sec.key} onChange={(e) => updateSection(i, { key: e.target.value })} placeholder="section_key" />
-              <p className="text-xs text-[#5C6C62] mt-1">Used internally to store answers. Change only if you know existing visit data should migrate.</p>
+              <p className="text-xs text-[#5C6C62] mt-1">Used internally to store answers. Change only if you know existing session record data should migrate.</p>
             </CollapsibleAdvanced>
 
             <div className="space-y-3 pt-2 border-t border-[#EAE6D7]">
@@ -502,7 +502,7 @@ function TherapistFormTab() {
   return (
     <div className="space-y-6 max-w-3xl">
       <p className="text-sm text-[#5C6C62]">
-        Configure checklist items and devices shown on the therapist visit form during treatment visits.
+        Configure checklist items and devices shown on the therapist treatment notes form during treatment sessions.
       </p>
       <ListEditor title="Contraindication checklist" items={contraindications} setItems={setContras} placeholder="e.g. Pregnancy" testid="contra" confirmRemove editable />
       <ListEditor title="Devices / Machines" items={devices} setItems={setDevices} placeholder="e.g. RF (Radio Frequency)" testid="device" confirmRemove editable />
@@ -540,7 +540,7 @@ function TreatmentTab({ section = "both" }) {
     <div className="space-y-6 max-w-3xl">
       {section === "both" && (
         <p className="text-sm text-[#5C6C62]">
-          Manage reusable catalog options used across treatments, packages, and visit records.
+          Manage reusable catalog options used across treatments, packages, and session records.
         </p>
       )}
       {showCategories && (
@@ -853,19 +853,19 @@ function ScheduleTab() {
       <div className="bl-card p-5 bg-[#FDFBF7]">
         <div className="font-display text-lg text-[#2D3A33]">Clinic operating hours</div>
         <p className="text-sm text-[#5C6C62] mt-2">
-          Set your public booking hours and clinic-wide closed dates.
+          Set your public appointment hours and clinic-wide closed dates.
         </p>
         <p className="text-xs text-[#5C6C62] mt-2">
-          Staff schedules are managed from Staff. These hours only control clinic availability and public booking windows.
+          Staff schedules are managed from Staff. These hours only control clinic availability and public appointment windows.
         </p>
       </div>
 
       {/* --- Slot interval --- */}
       <div className="bl-card p-5">
-        <div className="font-display text-lg mb-1 text-[#2D3A33]">Booking slot interval</div>
+        <div className="font-display text-lg mb-1 text-[#2D3A33]">Appointment slot interval</div>
         <p className="text-sm text-[#5C6C62] mb-4">
-          Time grid shown on the public booking page and the FO &quot;New booking&quot; modal.
-          Front office can still pick any non-standard time via the &quot;Custom time&quot; toggle.
+          Time grid shown on the public appointment page and the front desk &quot;New appointment&quot; modal.
+          Front desk can still pick any non-standard time via the &quot;Custom time&quot; toggle.
         </p>
 
         <div className="flex flex-wrap gap-2" data-testid="slot-interval-presets">
@@ -959,7 +959,7 @@ function ScheduleTab() {
       <div className="bl-card p-5" data-testid="closed-dates-card">
         <div className="font-display text-lg mb-1 text-[#2D3A33]">Closed dates</div>
         <p className="text-sm text-[#5C6C62] mb-4">
-          Block bookings on specific dates — holidays, staff trainings, renovations, etc.
+          Block appointments on specific dates — holidays, staff trainings, renovations, etc.
         </p>
 
         {closedDates.length > 0 && (
@@ -1407,7 +1407,7 @@ function CouponsTab() {
       <div className="bl-card p-5">
         <div className="font-display text-lg text-[#2D3A33]">{editingId ? "Edit coupon" : "New coupon"}</div>
         <p className="text-sm text-[#5C6C62] mt-1 mb-4">
-          Create discount codes for FO staff to apply when making bookings. Set optional start and end dates to control when a code is valid.
+          Create discount codes for front desk staff to apply when making appointments. Set optional start and end dates to control when a code is valid.
         </p>
         <form onSubmit={save} className="space-y-3" data-testid="coupon-create-form">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1718,7 +1718,7 @@ function OnlineBookingPaymentTab() {
       const r = await api.put("/settings/online-booking-payment", body);
       setHasCredentials(!!r.data.has_credentials);
       setForm(f => ({ ...f, midtrans_server_key: "", midtrans_client_key: "", xendit_api_key: "" }));
-      toast.success("Online booking payment settings saved");
+      toast.success("Online appointment payment settings saved");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to save");
     } finally {
@@ -1744,9 +1744,9 @@ function OnlineBookingPaymentTab() {
     <div className="max-w-3xl space-y-6" data-testid="online-booking-payment-form">
       <div className="bl-card p-5 space-y-5">
         <div>
-          <div className="font-display text-lg text-[#2D3A33]">Online booking payment</div>
+          <div className="font-display text-lg text-[#2D3A33]">Online appointment payment</div>
           <p className="text-sm text-[#5C6C62] mt-1">
-            Require payment during public online booking. Payments go directly to your gateway account — ClinicOS does not hold funds.
+            Require payment during public online appointment. Payments go directly to your gateway account — ClinicOS does not hold funds.
           </p>
         </div>
 
@@ -1757,7 +1757,7 @@ function OnlineBookingPaymentTab() {
             onChange={e => setForm({ ...form, enable_online_booking_payment: e.target.checked })}
             data-testid="obp-enable"
           />
-          <span className="text-sm text-[#2D3A33]">Enable online booking payment</span>
+          <span className="text-sm text-[#2D3A33]">Enable online appointment payment</span>
         </label>
 
         {form.enable_online_booking_payment && (
@@ -1878,7 +1878,7 @@ function OnlineBookingPaymentTab() {
                 />
               </div>
               <div>
-                <label className="label-eyebrow block mb-1.5">Booking confirmation</label>
+                <label className="label-eyebrow block mb-1.5">Appointment confirmation</label>
                 <select
                   className="bl-input"
                   value={form.booking_confirmation_rule}
@@ -1922,10 +1922,10 @@ const MESSAGING_TAGS = [
 ];
 
 const TEMPLATE_TYPES = [
-  { value: "booking_confirmation", label: "Booking confirmation" },
-  { value: "booking_reminder", label: "Booking reminder" },
-  { value: "booking_rescheduled", label: "Booking rescheduled" },
-  { value: "booking_cancelled", label: "Booking cancelled" },
+  { value: "booking_confirmation", label: "Appointment confirmation" },
+  { value: "booking_reminder", label: "Appointment reminder" },
+  { value: "booking_rescheduled", label: "Appointment rescheduled" },
+  { value: "booking_cancelled", label: "Appointment cancelled" },
   { value: "payment_link", label: "Payment link" },
   { value: "payment_received", label: "Payment received" },
   { value: "consent_link", label: "Consent link" },
@@ -2096,7 +2096,7 @@ function MessagingSettingsTab() {
           </div>
           <p className="text-sm text-[#5C6C62] mt-2">
             Automated WhatsApp messages require a WhatsApp API provider. Clinics using only the WhatsApp Business app cannot send automated messages from ClinicOS.
-            You can still open WhatsApp manually from patient or booking pages.
+            You can still open WhatsApp manually from patient or appointment pages.
           </p>
           {!automationActive && (
             <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3" data-testid="messaging-not-connected-hint">
@@ -2128,7 +2128,7 @@ function MessagingSettingsTab() {
                   <option value="whatsjet">WhatsJet / Custom API</option>
                   <option value="twilio">BSP provider (Twilio)</option>
                 </select>
-                <p className="text-xs text-[#5C6C62] mt-1">Manual fallback only — no automation. Use booking/patient pages to copy or open WhatsApp.</p>
+                <p className="text-xs text-[#5C6C62] mt-1">Manual fallback only — no automation. Use appointment/patient pages to copy or open WhatsApp.</p>
               </div>
               <div>
                 <label className="label-eyebrow block mb-1.5">Sender name (optional)</label>
@@ -2490,15 +2490,15 @@ function MessagingTemplatesTab({ showLogs = true }) {
 }
 
 const AUTOMATION_TRIGGERS = [
-  { value: "booking_created", label: "Booking created" },
-  { value: "booking_confirmed", label: "Booking confirmed" },
-  { value: "booking_cancelled", label: "Booking cancelled" },
+  { value: "booking_created", label: "Appointment created" },
+  { value: "booking_confirmed", label: "Appointment confirmed" },
+  { value: "booking_cancelled", label: "Appointment cancelled" },
   { value: "before_appointment", label: "Before appointment" },
   { value: "consent_required_missing", label: "Consent required (missing)" },
   { value: "invoice_paid", label: "Invoice paid" },
   { value: "gift_card_issued", label: "Gift card issued" },
   { value: "package_balance_low", label: "Package balance low" },
-  { value: "visit_completed", label: "Visit completed" },
+  { value: "visit_completed", label: "Treatment session completed" },
 ];
 
 const AUTOMATION_DYNAMIC_TAGS = [
@@ -2702,7 +2702,7 @@ function MessagingAutomationTab() {
 
             <div className="space-y-2 rounded-xl border border-[#EAE6D7] p-4">
               <p className="text-xs font-medium text-[#2D3A33]">Template variables (order matters)</p>
-              <p className="text-xs text-[#5C6C62]">Map each WhatsJet template variable to a dynamic tag from your booking/patient context.</p>
+              <p className="text-xs text-[#5C6C62]">Map each WhatsJet template variable to a dynamic tag from your appointment/patient context.</p>
               {variableSlots.map((tag, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-[#5C6C62] w-20 shrink-0">Variable {i + 1}</span>
@@ -2741,8 +2741,8 @@ function MessagingAutomationTab() {
               {editingId && <button type="button" onClick={() => { setEditingId(null); setForm(empty); }} className="bl-btn-ghost">Cancel</button>}
             </div>
             <div className="pt-2 border-t border-[#EAE6D7]">
-              <label className="label-eyebrow block mb-1">Test with booking ID (optional)</label>
-              <input className="bl-input max-w-md" placeholder="Booking UUID for test send" value={testBookingId} onChange={e => setTestBookingId(e.target.value)} />
+              <label className="label-eyebrow block mb-1">Test with appointment ID (optional)</label>
+              <input className="bl-input max-w-md" placeholder="Appointment UUID for test send" value={testBookingId} onChange={e => setTestBookingId(e.target.value)} />
             </div>
           </>
         )}

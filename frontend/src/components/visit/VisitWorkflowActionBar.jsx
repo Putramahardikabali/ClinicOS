@@ -64,7 +64,7 @@ export default function VisitWorkflowActionBar({
               data-testid="workflow-submit-lock"
             >
               <Lock className="w-4 h-4" />
-              Submit &amp; lock
+              Finish chart
             </button>
           )}
         </div>

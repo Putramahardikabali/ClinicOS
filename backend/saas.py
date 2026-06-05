@@ -31,10 +31,10 @@ PLAN_CATALOG: Dict[str, Dict[str, Any]] = {
         ],
         "highlights": [
             "Patient directory & tags",
-            "Treatment & service catalog (for booking)",
-            "Appointment calendar & online booking page",
+            "Treatment & service catalog (for appointments)",
+            "Appointment calendar & online appointment page",
             "WhatsApp reminder templates",
-            "Check-in visits from bookings (overview only)",
+            "Check-in treatment sessions from appointments (overview only)",
             "Up to 3 staff accounts",
             "2 GB storage",
         ],
@@ -53,11 +53,11 @@ PLAN_CATALOG: Dict[str, Dict[str, Any]] = {
         ],
         "highlights": [
             "Everything in Starter, plus:",
-            "Full EMR — doctor & therapist clinical forms",
-            "Treatment lines per visit (qty, area, product)",
+            "Full patient chart — doctor & therapist clinical forms",
+            "Treatment lines per session (qty, area, product)",
             "Before/after photo gallery",
             "Face/body mapping canvas",
-            "Digital signatures & visit payment / receipts",
+            "Digital signatures & treatment session payment / receipts",
             "Treatment packages catalog",
             "Up to 7 staff accounts",
             "5 GB storage",
@@ -134,14 +134,14 @@ async def validate_booking_slug(db, raw: str, clinic_id: str) -> str:
     """Normalize and ensure a public booking slug is available for this clinic."""
     slug = slugify(raw or "")
     if len(slug) < 2:
-        raise BookingSlugError("Booking URL must be at least 2 characters")
+        raise BookingSlugError("Appointment URL must be at least 2 characters")
     if len(slug) > 48:
-        raise BookingSlugError("Booking URL must be 48 characters or fewer")
+        raise BookingSlugError("Appointment URL must be 48 characters or fewer")
     if slug in RESERVED_BOOKING_SLUGS:
-        raise BookingSlugError("This booking URL is reserved")
+        raise BookingSlugError("This appointment URL is reserved")
     existing = await db.clinics.find_one({"slug": slug, "id": {"$ne": clinic_id}}, {"_id": 0, "id": 1})
     if existing:
-        raise BookingSlugError("This booking URL is already taken by another clinic", 409)
+        raise BookingSlugError("This appointment URL is already taken by another clinic", 409)
     return slug
 
 
@@ -344,6 +344,7 @@ def public_clinic_view(clinic: dict, *, usage: Optional[Dict[str, Any]] = None, 
         "closed_dates": clinic.get("closed_dates", []),
         "loyalty_tiers": clinic.get("loyalty_tiers") or DEFAULT_LOYALTY_TIERS,
         "onboarded": clinic.get("onboarded", False),
+        "setup_checklist_dismissed": bool(clinic.get("setup_checklist_dismissed", False)),
         "subscription": {
             "plan": plan_key,
             "status": sub.get("status", "trial"),
@@ -395,6 +396,7 @@ class ClinicUpdateIn(BaseModel):
     loyalty_tiers: Optional[List[Dict[str, Any]]] = None
     onboarded: Optional[bool] = None
     logo_path: Optional[str] = None
+    setup_checklist_dismissed: Optional[bool] = None
 
 
 # ---------------- Build defaults ----------------

@@ -121,7 +121,7 @@ export default function PrintVisitPage() {
           <div>
             <div className="text-xs uppercase tracking-[0.3em] text-[#8A9A86]">{clinicName}</div>
             <div className="font-display text-2xl mt-1">Medical Record</div>
-            <div className="text-sm text-[#5C6C62] mt-1 capitalize">{visit.visit_type} visit · {visit.status?.replace("_", " ")}</div>
+            <div className="text-sm text-[#5C6C62] mt-1 capitalize">{visit.visit_type} treatment session · {visit.status?.replace("_", " ")}</div>
           </div>
           <div className="text-right text-sm">
             <div><span className="text-[#5C6C62]">Record:</span> {visit.id.slice(0, 12)}</div>
@@ -140,13 +140,13 @@ export default function PrintVisitPage() {
           </div>
         </PrintSection>
 
-        <PrintSection title="Visit details">
+        <PrintSection title="Treatment session details">
           <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
             <div><span className="text-[#5C6C62]">Chief complaint</span>: {visit.chief_complaint || EMPTY}</div>
             <div><span className="text-[#5C6C62]">Assigned</span>: {visit.assigned_user?.name || EMPTY}</div>
             {(visit.performers || []).length > 0 && (
               <div className="col-span-2">
-                <span className="text-[#5C6C62]">Performers</span>:{" "}
+                <span className="text-[#5C6C62]">Assigned staff</span>:{" "}
                 {(visit.performers || []).map((p) => `${p.staff_name_snapshot || p.staff_id} (${p.performer_type || "primary"})`).join(", ") || EMPTY}
               </div>
             )}

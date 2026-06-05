@@ -213,7 +213,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       return;
     }
     if (multiPerformer && !form.performer_id) {
-      toast.error("Select which performer performed this treatment");
+      toast.error("Select which staff member performed this treatment");
       return;
     }
     const quantity = parseNum(form.quantity, NaN);
@@ -298,7 +298,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 <div className="font-medium text-[#2D3A33] mt-1">{bookedLabel || form.name || "—"}</div>
                 {primary && (
                   <div className="text-sm text-[#5C6C62] mt-2">
-                    Performer: {primary.staff_name_snapshot}
+                    Assigned staff: {primary.staff_name_snapshot}
                     {primary.staff_role_snapshot ? ` (${ROLE_LABEL[primary.staff_role_snapshot] || primary.staff_role_snapshot})` : ""}
                   </div>
                 )}
@@ -331,9 +331,9 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             <>
               <div className="font-display text-base text-[#2D3A33] mb-1">Add treatment item</div>
               <p className="text-sm text-[#5C6C62] mb-4">
-                Add the treatment performed during this visit. Include area, quantity, product used, and notes if needed.
+                Add the treatment performed during this treatment session. Include area, quantity, product used, and notes if needed.
                 {visitRoles.size > 0 && (
-                  <> Only treatments allowed for {[...visitRoles].join(", ")} performer(s) on this visit are shown.</>
+                  <> Only treatments allowed for {[...visitRoles].join(", ")} assigned staff on this treatment session are shown.</>
                 )}
               </p>
             </>
@@ -347,7 +347,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </p>
           ) : roleCatalog.length === 0 ? (
             <p className="text-sm text-[#5C6C62]">
-              No catalog treatments match the performer role(s) on this visit. Check treatment allowed roles in Admin → Treatments.
+              No catalog treatments match the staff role(s) on this treatment session. Check treatment allowed roles in Admin → Treatments.
             </p>
           ) : (
             <>
@@ -510,7 +510,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                     onChange={(e) => setForm({ ...form, performer_id: e.target.value })}
                     data-testid="treatment-performer-select"
                   >
-                    <option value="">Select performer…</option>
+                    <option value="">Select assigned staff…</option>
                     {(selectedTreatment ? eligiblePerformersForTreatment : visitPerformers).map((p) => (
                       <option key={p.staff_id} value={p.staff_id}>
                         {p.staff_name_snapshot || p.staff_id}
@@ -701,7 +701,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                     <th className="px-5 py-3">Name</th>
                     <th className="px-5 py-3">Product</th>
                     <th className="px-5 py-3">Area</th>
-                    <th className="px-5 py-3">Performer</th>
+                    <th className="px-5 py-3">Staff</th>
                     <th className="px-5 py-3">Qty</th>
                     {canSeePrice && <th className="px-5 py-3 text-right">Price</th>}
                     <th className="px-5 py-3"></th>

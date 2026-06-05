@@ -104,7 +104,7 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
     const role = primaryFinalizeRole();
     if (role === "doctor") await saveDoctor(submit, editReason);
     else if (role === "therapist") await saveTherapist(submit, editReason);
-    toast.success(submit ? "Visit record submitted" : "Draft saved");
+    toast.success(submit ? "Session record submitted" : "Draft saved");
     onSaved?.();
   };
 
@@ -141,7 +141,7 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
     try {
       if (role === "doctor") await saveDoctor(true);
       else if (role === "therapist") await saveTherapist(true);
-      toast.success("Visit record submitted");
+      toast.success("Session record submitted");
       onSaved?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to save");
@@ -171,10 +171,10 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
   return (
     <div className="space-y-6" data-testid="visit-step-final-review">
       <div className="bl-card p-5">
-        <div className="label-eyebrow mb-3">Visit summary</div>
+        <div className="label-eyebrow mb-3">Treatment session summary</div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div><span className="text-[#5C6C62]">Patient:</span> {visit.patient.full_name}</div>
-          <div><span className="text-[#5C6C62]">Visit:</span> {visit.visit_type} · {new Date(visit.visit_date || visit.created_at).toLocaleDateString()}</div>
+          <div><span className="text-[#5C6C62]">Treatment session:</span> {visit.visit_type} · {new Date(visit.visit_date || visit.created_at).toLocaleDateString()}</div>
           <div><span className="text-[#5C6C62]">Treatment booked:</span> {booked || "—"}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[#5C6C62]">Consent:</span>

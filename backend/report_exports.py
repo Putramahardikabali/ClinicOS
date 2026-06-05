@@ -234,6 +234,45 @@ def export_gift_cards(data: dict, filters: Optional[dict] = None) -> bytes:
     return build_report_workbook("Gift Card Report", data.get("range") or {}, filters, summary, sheets)
 
 
+def export_analytics_marketing(data: dict, filters: Optional[dict] = None) -> bytes:
+    completeness = data.get("data_completeness") or {}
+    summary = summary_from_dict(data.get("summary") or {})
+    summary.extend([
+        ("Patients with nationality %", completeness.get("with_nationality_pct")),
+        ("Patients with source %", completeness.get("with_patient_source_pct")),
+    ])
+    sheets = [
+        _tbl("Top nationalities", "Top nationalities", data.get("top_nationalities") or [], "label", "patient_count", "Nationality", "Patients"),
+        _tbl("Patient sources", "Patient source breakdown", data.get("patient_source_breakdown") or [], "label", "patient_count", "Source", "Patients"),
+        _tbl("Revenue by source", "Revenue by patient source", data.get("revenue_by_patient_source") or [], "label", "revenue_idr", "Source", "Revenue IDR"),
+        _tbl("Revenue by nationality", "Revenue by nationality", data.get("revenue_by_nationality") or [], "label", "revenue_idr", "Nationality", "Revenue IDR"),
+        _tbl("New by source", "New patients by source", data.get("new_patients_by_source") or [], "label", "count", "Source", "Count"),
+    ]
+    return build_report_workbook("Marketing Analytics", data.get("range") or {}, filters, summary, sheets)
+
+
+def export_analytics_treatments(data: dict, filters: Optional[dict] = None) -> bytes:
+    summary = summary_from_dict(data.get("summary") or {})
+    sheets = [
+        _tbl("Top sessions", "Top treatments by sessions", data.get("top_by_sessions") or [], "name", "sessions", "Treatment", "Sessions"),
+        _tbl("Top revenue", "Top treatments by revenue", data.get("top_by_revenue") or [], "name", "revenue_idr", "Treatment", "Revenue IDR"),
+        _tbl("Bottom sessions", "Bottom treatments by sessions", data.get("bottom_by_sessions") or [], "name", "sessions", "Treatment", "Sessions"),
+        _tbl("Revenue table", "Revenue by treatment", data.get("revenue_by_treatment") or [], "name", "revenue_idr", "Treatment", "Revenue IDR"),
+        _tbl("Package value", "Package-delivered value", data.get("package_delivered_by_treatment") or [], "name", "package_value_idr", "Treatment", "Value IDR"),
+    ]
+    return build_report_workbook("Treatment Analytics", data.get("range") or {}, filters, summary, sheets)
+
+
+def export_analytics_operational(data: dict, filters: Optional[dict] = None) -> bytes:
+    summary = summary_from_dict(data.get("summary") or {})
+    sheets = [
+        _tbl("By day", "Appointments by day of week", data.get("appointments_by_day_of_week") or [], "label", "count", "Day", "Appointments"),
+        _tbl("By status", "Appointments by status", data.get("appointments_by_status") or [], "status", "count", "Status", "Count"),
+        _tbl("Revenue by day", "Revenue by day of week", data.get("revenue_by_day_of_week") or [], "label", "revenue_idr", "Day", "Revenue IDR"),
+    ]
+    return build_report_workbook("Operational Analytics", data.get("range") or {}, filters, summary, sheets)
+
+
 EXPORTERS = {
     "overview": export_overview,
     "revenue": export_revenue,
@@ -247,4 +286,7 @@ EXPORTERS = {
     "consent": export_consent,
     "audit": export_audit,
     "gift-cards": export_gift_cards,
+    "analytics-marketing": export_analytics_marketing,
+    "analytics-treatments": export_analytics_treatments,
+    "analytics-operational": export_analytics_operational,
 }

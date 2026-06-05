@@ -24,7 +24,7 @@ function applyTheme(branding) {
   r.style.setProperty("--bl-background", branding.background);
   r.style.setProperty("--bl-surface", branding.surface);
   r.style.setProperty("--bl-text", branding.text_primary);
-  document.title = `${branding.clinic_name} · EMR`;
+  document.title = `${branding.clinic_name} · ClinicOS`;
 }
 
 export function SettingsProvider({ children }) {

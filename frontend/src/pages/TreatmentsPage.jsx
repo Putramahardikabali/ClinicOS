@@ -26,7 +26,7 @@ const PERFORMER_LABEL = {
 };
 
 const EXCEL_IMPORT_HELP =
-  "Re-importing the same Excel file updates existing rows matched by Service Code or Service Name. Performer roles and consent are set in the app after import.";
+  "Re-importing the same Excel file updates existing rows matched by Service Code or Service Name. Staff roles and consent are set in the app after import.";
 const TAX_GROUPS = ["", "VAT"];
 
 const DEFAULT_FORM = {
@@ -310,13 +310,13 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
             </div>
 
             <div className="space-y-3 pt-1 border-t border-[#EAE6D7]">
-              <div className="label-eyebrow text-[#5C6C62]">Booking &amp; visibility</div>
+              <div className="label-eyebrow text-[#5C6C62]">Appointment &amp; visibility</div>
               <div>
                 <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
                   <input type="checkbox" checked={form.active} onChange={e => set({ active: e.target.checked })} data-testid="treatment-active" />
-                  Online booking
+                  Online appointment
                 </label>
-                <p className="text-xs text-[#5C6C62] mt-1">Visible on the public booking page.</p>
+                <p className="text-xs text-[#5C6C62] mt-1">Visible on the public appointment page.</p>
               </div>
               <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
                 <input type="checkbox" checked={form.tax_included} onChange={e => set({ tax_included: e.target.checked })} data-testid="treatment-tax-included" />
@@ -332,9 +332,9 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
             </div>
 
             <div className="space-y-3 pt-1 border-t border-[#EAE6D7]">
-              <div className="label-eyebrow text-[#5C6C62]">Performer rules</div>
+              <div className="label-eyebrow text-[#5C6C62]">Staff rules</div>
               <div>
-                <label className="label-eyebrow block mb-1.5">Default performer type</label>
+                <label className="label-eyebrow block mb-1.5">Default staff type</label>
                 <select className="bl-input" value={form.performer_type} onChange={e => {
                   const pt = e.target.value;
                   set({
@@ -360,7 +360,7 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
                         type="checkbox"
                         checked={checked}
                         disabled={locked}
-                        title={locked ? "Change default performer type to uncheck this role" : undefined}
+                        title={locked ? "Change default staff type to uncheck this role" : undefined}
                         onChange={(e) => {
                           const cur = new Set(form.allowed_performer_roles || []);
                           if (e.target.checked) {
@@ -378,12 +378,12 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
                     );
                   })}
                 </div>
-                <p className="text-xs text-[#5C6C62] mt-2">Default performer is used for quick booking. Allowed roles control who can be assigned.</p>
+                <p className="text-xs text-[#5C6C62] mt-2">Default staff is used for quick appointment. Allowed roles control who can be assigned.</p>
               </div>
               <div className="space-y-2 text-sm">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={form.allow_multiple_performers} onChange={(e) => set({ allow_multiple_performers: e.target.checked })} />
-                  <span className="text-[#2D3A33]">Allow more than one performer</span>
+                  <span className="text-[#2D3A33]">Allow more than one staff member</span>
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={form.requires_assistant} onChange={(e) => set({ requires_assistant: e.target.checked })} />
@@ -398,7 +398,7 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
               <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
                 <input type="checkbox" checked={form.consent_required} onChange={(e) => set({ consent_required: e.target.checked })} data-testid="treatment-consent-required" />
                 Consent required before treatment
-                <FieldHint text="When enabled, this treatment will require a consent form before the visit can be completed." />
+                <FieldHint text="When enabled, this treatment will require a consent form before the treatment session can be completed." />
               </label>
             </div>
 
@@ -579,7 +579,7 @@ export default function TreatmentsPage() {
     load(q, filter, page);
   };
   const remove = async (t) => {
-    if (!window.confirm(`Delete "${t.name}" from the catalog? This cannot be undone. Treatments already used in visits or invoices may still appear in historical records.`)) return;
+    if (!window.confirm(`Delete "${t.name}" from the catalog? This cannot be undone. Treatments already used in session records or invoices may still appear in historical records.`)) return;
     await api.delete(`/treatments-catalog/${t.id}`);
     toast.success("Treatment deleted");
     load(q, filter, page);
@@ -599,7 +599,7 @@ export default function TreatmentsPage() {
         <div>
           <div className="label-eyebrow">Catalog</div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Treatments</h1>
-          <p className="mt-2 text-sm text-[#5C6C62] max-w-xl">Manage treatments, pricing, booking availability, performer roles, and consent requirements.</p>
+          <p className="mt-2 text-sm text-[#5C6C62] max-w-xl">Manage treatments, pricing, appointment availability, staff roles, and consent requirements.</p>
         </div>
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
@@ -682,7 +682,7 @@ export default function TreatmentsPage() {
                           type="button"
                           onClick={() => toggleActive(t)}
                           className="inline-flex items-center gap-1.5"
-                          title={t.active ? "Visible in public booking" : "Hidden from public booking"}
+                          title={t.active ? "Visible in public appointment page" : "Hidden from public appointment page"}
                           data-testid={`treatment-toggle-${t.id}`}
                         >
                           <span className={`bl-chip text-[10px] py-0.5 ${t.active ? "success" : ""}`}>
@@ -697,7 +697,7 @@ export default function TreatmentsPage() {
                       ) : (
                         <span
                           className={`bl-chip text-[10px] ${t.active ? "success" : ""}`}
-                          title={t.active ? "Visible in public booking" : "Hidden from public booking"}
+                          title={t.active ? "Visible in public appointment page" : "Hidden from public appointment page"}
                         >
                           {t.active ? "Online" : "Hidden"}
                         </span>

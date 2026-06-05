@@ -26,11 +26,11 @@ export default function ClinicalDashboardSections({ data }) {
         <div className="bl-card p-5" data-testid="dash-today-bookings">
           <div className="flex items-center gap-2 mb-3">
             <CalendarCheck className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />
-            <h2 className="font-display text-lg text-[#2D3A33]">Today&apos;s assigned bookings</h2>
+            <h2 className="font-display text-lg text-[#2D3A33]">Today&apos;s assigned appointments</h2>
           </div>
           <div className="space-y-1">
             {today_bookings.length === 0 ? (
-              <p className="text-sm text-[#5C6C62] py-4 text-center">No bookings today.</p>
+              <p className="text-sm text-[#5C6C62] py-4 text-center">No appointments today.</p>
             ) : today_bookings.map((b) => <BookingRow key={b.id} b={b} />)}
           </div>
           <Link to="/schedule" className="inline-block mt-3 text-sm" style={{ color: "var(--bl-primary)" }}>Full schedule →</Link>
@@ -39,7 +39,7 @@ export default function ClinicalDashboardSections({ data }) {
         <div className="bl-card p-5" data-testid="dash-upcoming-bookings">
           <div className="flex items-center gap-2 mb-3">
             <CalendarCheck className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />
-            <h2 className="font-display text-lg text-[#2D3A33]">Upcoming assigned bookings</h2>
+            <h2 className="font-display text-lg text-[#2D3A33]">Upcoming assigned appointments</h2>
           </div>
           <div className="space-y-1">
             {upcoming_bookings.length === 0 ? (
@@ -77,9 +77,9 @@ export default function ClinicalDashboardSections({ data }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Stethoscope className="w-4 h-4" style={{ color: "var(--bl-primary)" }} />
-            <h2 className="font-display text-lg text-[#2D3A33]">Recent assigned visits</h2>
+            <h2 className="font-display text-lg text-[#2D3A33]">Recent assigned sessions</h2>
           </div>
-          <Link to="/visits" className="text-sm" style={{ color: "var(--bl-primary)" }}>All visits →</Link>
+          <Link to="/visits" className="text-sm" style={{ color: "var(--bl-primary)" }}>All sessions →</Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-sm">
@@ -88,7 +88,7 @@ export default function ClinicalDashboardSections({ data }) {
             </thead>
             <tbody>
               {recent_visits.length === 0 && (
-                <tr><td colSpan={4} className="py-6 text-center text-[#5C6C62]">No visits yet</td></tr>
+                <tr><td colSpan={4} className="py-6 text-center text-[#5C6C62]">No sessions yet</td></tr>
               )}
               {recent_visits.map((v) => (
                 <tr key={v.id} className="border-t border-[#EAE6D7]">
@@ -107,7 +107,7 @@ export default function ClinicalDashboardSections({ data }) {
 
       <div className="flex flex-wrap gap-3">
         <Link to="/schedule" className="bl-btn-ghost">My schedule</Link>
-        <Link to="/visits" className="bl-btn-primary">My visits</Link>
+        <Link to="/visits" className="bl-btn-primary">My sessions</Link>
       </div>
     </div>
   );

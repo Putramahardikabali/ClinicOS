@@ -19,7 +19,7 @@ const PERFORMER_TYPES = [
   { value: "doctor", label: "Doctor" },
   { value: "therapist", label: "Therapist" },
   { value: "nurse", label: "Nurse" },
-  { value: "front_office", label: "Front Office" },
+  { value: "front_office", label: "Front desk" },
   { value: "manager", label: "Manager" },
   { value: "owner", label: "Owner" },
   { value: "other", label: "Other" },
@@ -178,7 +178,7 @@ function StaffDirectoryTab() {
                 <th className="px-5 py-3">Name</th>
                 <th className="px-5 py-3">Email</th>
                 <th className="px-5 py-3">Role</th>
-                <th className="px-5 py-3">Performer</th>
+                <th className="px-5 py-3">Staff type</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Actions</th>
                 {canManage && <th className="px-5 py-3" />}
@@ -253,7 +253,7 @@ function StaffDirectoryTab() {
                 </select>
               </div>
               <div>
-                <label className="label-eyebrow block mb-1">Performer type</label>
+                <label className="label-eyebrow block mb-1">Staff type</label>
                 <select className="bl-input" value={form.performer_type} onChange={(e) => setForm({ ...form, performer_type: e.target.value })}>
                   {PERFORMER_TYPES.map((p) => (
                     <option key={p.value} value={p.value}>{p.label}</option>

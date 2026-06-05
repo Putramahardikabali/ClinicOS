@@ -5,8 +5,95 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from nationalities import normalize_nationality_fields
 from permissions import user_has_permission
 from performers import booking_staff_filter
+
+PATIENT_SOURCE_VALUES = frozenset({
+    "instagram",
+    "tiktok",
+    "facebook",
+    "google",
+    "website",
+    "referral",
+    "walk_in",
+    "whatsapp",
+    "hotel_villa",
+    "other",
+})
+
+FO_PATIENT_EDIT_FIELDS = frozenset({
+    "full_name",
+    "phone",
+    "email",
+    "gender",
+    "date_of_birth",
+    "address",
+    "nationality",
+    "nationality_code",
+    "patient_source",
+    "source_detail",
+    "allergies",
+    "consent_status",
+    "consent_notes",
+})
+
+
+def normalize_patient_source(value: Optional[str]) -> Optional[str]:
+    """Normalize optional patient source to a stable slug for analytics."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    key = raw.lower().replace("-", "_").replace("/", "_").replace(" ", "_")
+    while "__" in key:
+        key = key.replace("__", "_")
+    aliases = {
+        "walkin": "walk_in",
+        "walk_in": "walk_in",
+        "hotel_villa": "hotel_villa",
+        "hotel__villa": "hotel_villa",
+    }
+    key = aliases.get(key, key)
+    if key in PATIENT_SOURCE_VALUES:
+        return key
+    return None
+
+
+def validate_patient_marketing_fields(doc: dict) -> dict:
+    """Normalize optional nationality / source fields for create and update."""
+    if "nationality" in doc or "nationality_code" in doc:
+        nc, nn = normalize_nationality_fields(
+            doc.get("nationality_code"),
+            doc.get("nationality"),
+        )
+        if nc is None and nn is None:
+            raise HTTPException(status_code=400, detail="Invalid nationality")
+        doc["nationality_code"] = nc
+        doc["nationality"] = nn
+    if "source_detail" in doc and doc["source_detail"] is not None:
+        doc["source_detail"] = str(doc["source_detail"]).strip()
+    if "patient_source" not in doc:
+        return doc
+    raw = doc.get("patient_source")
+    if raw in (None, ""):
+        doc["patient_source"] = ""
+        return doc
+    normalized = normalize_patient_source(raw)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="Invalid patient source")
+    doc["patient_source"] = normalized
+    return doc
+
+
+def filter_patient_update_fields(user: dict, upd: dict) -> dict:
+    """Front desk may only update basic demographics (+ consent fields from consent tab)."""
+    if user.get("platform_admin") or user.get("role") in ("super_admin", "manager"):
+        return upd
+    if user.get("role") == "fo":
+        return {k: v for k, v in upd.items() if k in FO_PATIENT_EDIT_FIELDS}
+    return upd
 
 
 def _tab_access(
@@ -65,7 +152,7 @@ def resolve_patient_profile_tabs(user: dict) -> Dict[str, bool]:
             legacy_roles=("fo", "manager", "super_admin"),
         ),
         "consents": True,
-        "timeline": True,
+        "timeline": False,
     }
 
 

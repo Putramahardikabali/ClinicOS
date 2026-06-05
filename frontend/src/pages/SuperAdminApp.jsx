@@ -1338,9 +1338,9 @@ function SaClinicDetailPage() {
         <Box label="Staff" value={`${staffUsed} / ${staffLimit}`} />
         <Box label="Storage" value={`${storageUsed} GB / ${storageLimit} GB`} />
         <Box label="Patients" value={c.patient_count} />
-        <Box label="Visits" value={c.visit_count} />
+        <Box label="Sessions" value={c.visit_count} />
         <Box label="Invoices" value={c.invoice_count} />
-        <Box label="Bookings" value={c.booking_count} />
+        <Box label="Appointments" value={c.booking_count} />
       </div>
 
       <SectionCard title="Subscription & limits">
@@ -1397,7 +1397,7 @@ function SaClinicDetailPage() {
           <BtnAction onClick={impersonate} disabled={busy || isArchived} data-testid="sa-impersonate"><UserCheck className="w-4 h-4" /> Impersonate owner</BtnAction>
           <BtnAction onClick={forceLogoutAll} disabled={busy}>Force logout all users</BtnAction>
           <BtnAction onClick={() => copyText(clinicUrl, "Clinic login URL")} disabled={busy}><Copy className="w-4 h-4" /> Copy clinic URL</BtnAction>
-          <BtnAction onClick={() => copyText(bookingUrl, "Booking URL")} disabled={busy}><ExternalLink className="w-4 h-4" /> Copy booking URL</BtnAction>
+          <BtnAction onClick={() => copyText(bookingUrl, "Appointment URL")} disabled={busy}><ExternalLink className="w-4 h-4" /> Copy appointment URL</BtnAction>
           <a href={`/book/${c.slug}`} target="_blank" rel="noreferrer" className="text-sm px-3 py-2 rounded-lg inline-flex items-center gap-1.5" style={{ background: "#1A242B", color: "#8AA992", border: "1px solid #2A3942" }}>Open public booking</a>
           <Link to={`/superadmin/payments?clinic=${cid}`} className="text-sm px-3 py-2 rounded-lg inline-flex items-center gap-1.5" style={{ background: "#1A242B", color: "#E6E8E6", border: "1px solid #2A3942" }}>View payments</Link>
           <BtnAction onClick={() => setExportModal(true)} disabled={busy} data-testid="sa-export-support-data"><Download className="w-4 h-4" /> Export support data</BtnAction>

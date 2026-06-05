@@ -17,7 +17,16 @@ OWNER_COMPLETE = "owner@luminabali.id"
 OWNER_TRIAL = "owner@renaskin.id"
 OWNER_PASSWORD = "password123"
 
-CHECKLIST_IDS = {"logo", "hours", "staff", "treatments", "public_booking", "first_booking", "first_invoice"}
+CHECKLIST_IDS = {
+    "clinic_profile",
+    "first_staff",
+    "first_treatment",
+    "staff_schedule",
+    "first_patient",
+    "first_booking",
+    "first_visit",
+    "first_invoice",
+}
 
 
 def _login(email: str, password: str = OWNER_PASSWORD) -> str:
@@ -103,6 +112,28 @@ class TestOnboardingChecklist:
         r = requests.get(f"{API}/clinic/onboarding-checklist", headers=hdr(tok), timeout=20)
         assert r.status_code == 200
         assert "items" in r.json()
+
+    def test_checklist_dismiss_persists_on_clinic(self):
+        data = _register_clinic()
+        tok = data["token"]
+        r = requests.put(
+            f"{API}/clinics/me",
+            headers=hdr(tok),
+            json={"setup_checklist_dismissed": True},
+            timeout=20,
+        )
+        assert r.status_code == 200, r.text
+        me = requests.get(f"{API}/clinics/me", headers=hdr(tok), timeout=20).json()
+        assert me.get("setup_checklist_dismissed") is True
+        r2 = requests.put(
+            f"{API}/clinics/me",
+            headers=hdr(tok),
+            json={"setup_checklist_dismissed": False},
+            timeout=20,
+        )
+        assert r2.status_code == 200
+        me2 = requests.get(f"{API}/clinics/me", headers=hdr(tok), timeout=20).json()
+        assert me2.get("setup_checklist_dismissed") is False
 
 
 # ---------- 6–7 Plan feature gating ----------

@@ -27,7 +27,7 @@ function ConsentFormPreview({ form, patientName }) {
       <div className="text-xs text-[#5C6C62]">
         {patientName && <div>Patient: <span className="text-[#2D3A33]">{patientName}</span></div>}
         {form?.performer_name_snapshot && (
-          <div>Performer: <span className="text-[#2D3A33]">{form.performer_name_snapshot}</span></div>
+          <div>Assigned staff: <span className="text-[#2D3A33]">{form.performer_name_snapshot}</span></div>
         )}
         {form?.treatment_name_snapshot && (
           <div>Treatment: <span className="text-[#2D3A33]">{form.treatment_name_snapshot}</span></div>
@@ -154,7 +154,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
   if (!canView) {
     return (
       <div className="bl-card p-6 text-sm text-[#5C6C62]" data-testid="visit-consent-panel-denied">
-        You do not have permission to view consent for this visit.
+        You do not have permission to view consent for this treatment session.
       </div>
     );
   }
@@ -173,7 +173,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
         setPrepareHint(warnings.join(" "));
         toast.warning(warnings[0]);
       } else if (activeForms.length > 0 || (r.data?.forms || []).length > 0) {
-        toast.info("Consent forms are already prepared for this visit.");
+        toast.info("Consent forms are already prepared for this treatment session.");
       } else if (!consentRequired && !force) {
         toast.info("No consent-required treatments found. Use “Prepare anyway” if your clinic policy requires it.");
       } else {
@@ -301,7 +301,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
             <div className="flex-1">
               <p className="text-sm text-[#2D3A33] font-medium">Treatment not linked yet</p>
               <p className="text-sm text-[#5C6C62] mt-1">
-                Add a treatment item on the Treatment Items tab, or link a booking, to determine consent requirements.
+                Add a treatment item on the Treatment Items tab, or link an appointment, to determine consent requirements.
               </p>
             </div>
           </div>
@@ -312,7 +312,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
     if (consentRequired) {
       return (
         <div className="rounded-xl border border-[#EAE6D7] p-5 bg-[#F8F5EC]" data-testid="consent-required-empty">
-          <p className="text-sm text-[#2D3A33] font-medium">Consent is required for this visit.</p>
+          <p className="text-sm text-[#2D3A33] font-medium">Consent is required for this treatment session.</p>
           <p className="text-sm text-[#5C6C62] mt-1">
             Prepare and collect consent before treatment begins.
           </p>
@@ -401,7 +401,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
                 <div>{f.template_snapshot.title || f.template_snapshot.name}</div>
               )}
               {patientName && <div>Patient: {patientName}</div>}
-              {f.performer_name_snapshot && <div>Performer: {f.performer_name_snapshot}</div>}
+              {f.performer_name_snapshot && <div>Assigned staff: {f.performer_name_snapshot}</div>}
               {isSigned && f.signed_at && (
                 <div>Signed {new Date(f.signed_at).toLocaleString()}</div>
               )}
@@ -562,7 +562,7 @@ export default function VisitConsentPanel({ visit, onUpdated, compact = false })
             <Shield className="w-3.5 h-3.5" /> Digital consent
           </div>
           <p className="text-sm text-[#5C6C62] mt-1">
-            Prepare, collect, and review consent linked to this visit.
+            Prepare, collect, and review consent linked to this treatment session.
           </p>
         </div>
       )}

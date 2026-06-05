@@ -177,7 +177,7 @@ export default function SaQaCleanupPage() {
               <th className="px-4 py-3 font-medium uppercase text-xs tracking-widest">Clinic</th>
               <th className="px-4 py-3 font-medium uppercase text-xs tracking-widest">Staff</th>
               <th className="px-4 py-3 font-medium uppercase text-xs tracking-widest">Patients</th>
-              <th className="px-4 py-3 font-medium uppercase text-xs tracking-widest">Bookings</th>
+              <th className="px-4 py-3 font-medium uppercase text-xs tracking-widest">Appointments</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -287,7 +287,7 @@ export default function SaQaCleanupPage() {
                     <div className="text-xs mt-2 grid grid-cols-3 gap-1" style={muted}>
                       <span>Users {fmtNum(c.users_count)}</span>
                       <span>Patients {fmtNum(c.patients_count)}</span>
-                      <span>Bookings {fmtNum(c.bookings_count)}</span>
+                      <span>Appointments {fmtNum(c.bookings_count)}</span>
                       <span>Visits {fmtNum(c.visits_count)}</span>
                       <span>Invoices {fmtNum(c.invoices_count)}</span>
                       <span>Files {fmtNum(c.files_count)}</span>

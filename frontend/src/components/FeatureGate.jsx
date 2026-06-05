@@ -5,12 +5,12 @@ import { Link } from "react-router-dom";
 export const FEATURE_LABELS = {
   audit_log: "Audit log",
   reports: "Reports & analytics",
-  treatments: "Treatment catalog (booking)",
-  emr: "EMR & clinical records",
+  treatments: "Treatment catalog (appointments)",
+  emr: "Patient chart & treatment notes",
   mapping: "Face & body mapping",
   photos: "Photo gallery",
-  online_booking: "Online booking",
-  billing: "Visit billing & receipts",
+  online_booking: "Online appointments",
+  billing: "Session billing & receipts",
   signature: "Digital signatures",
   whatsapp_automation: "WhatsApp automation",
   multi_location: "Multi-location",
@@ -18,7 +18,7 @@ export const FEATURE_LABELS = {
   commissions: "Staff commissions",
   packages: "Treatment packages",
   consent: "Consent forms",
-  online_booking_payment: "Online booking payment",
+  online_booking_payment: "Online appointment payment",
 };
 
 export function featureLabel(feature) {

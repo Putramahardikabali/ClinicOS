@@ -26,7 +26,7 @@ export default function FinanceSettingsPage() {
 
   const tabs = [
     canCommission && { key: "commission", label: "Commission", icon: Percent },
-    canBilling && { key: "online-booking-payment", label: "Online Booking Payment", icon: CreditCard },
+    canBilling && { key: "online-booking-payment", label: "Online appointment payment", icon: CreditCard },
     canCoupons && { key: "coupons", label: "Coupons", icon: Tag },
     canLoyalty && { key: "loyalty", label: "Loyalty", icon: Award },
   ].filter(Boolean);

@@ -11,7 +11,7 @@ export default function VisitWorkflowStepper({ steps, currentId, statuses, onSel
   return (
     <nav
       className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scroll-smooth"
-      aria-label="Visit workflow"
+      aria-label="Treatment session workflow"
       data-testid="visit-workflow-stepper"
     >
       {steps.map((step, index) => {

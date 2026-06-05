@@ -116,7 +116,7 @@ export default function VisitPayment({ visit, onSaved }) {
 
         {!invoice ? (
 
-          <p>No invoice yet — front office will create one at checkout.</p>
+          <p>No invoice yet — front desk will create one at checkout.</p>
 
         ) : paid ? (
 
@@ -176,7 +176,7 @@ export default function VisitPayment({ visit, onSaved }) {
 
             <p className="text-sm text-[#5C6C62] mb-4">
 
-              Create an invoice for this visit. Line items are separate from clinical treatment records — add services, packages, and products at checkout.
+              Create an invoice for this treatment session. Line items are separate from clinical treatment records — add services, packages, and products at checkout.
 
             </p>
 

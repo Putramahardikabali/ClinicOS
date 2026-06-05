@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useClinic, formatIdr, hasFeature } from "@/lib/clinic";
+import OnboardingChecklist from "@/components/OnboardingChecklist";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +18,7 @@ import {
 import {
   TrendingUp, TrendingDown, CalendarCheck, Stethoscope, Receipt,
   FileText, Shield, Package, Wallet, AlertTriangle, UserPlus, BarChart3,
-  Calendar, ArrowRight, ScrollText, ChevronDown, MoreHorizontal,
+  Calendar, ArrowRight, ScrollText, ChevronDown, MoreHorizontal, ListChecks, Pill,
 } from "lucide-react";
 
 const COLORS = ["#52796F", "#84A98C", "#354F52", "#CAD2C5", "#6B9080", "#A8C5B8"];
@@ -59,6 +61,30 @@ function OverviewPill({ label, value, accent }) {
   );
 }
 
+function GettingStartedCard({ label, description, icon: Icon, to, onClick, testid }) {
+  const className =
+    "bl-card p-4 flex flex-col gap-2 h-full text-left border border-[#EAE6D7] hover:bg-[#F8F5EC] transition";
+  const content = (
+    <>
+      <Icon className="w-5 h-5 text-[#52796F]" strokeWidth={1.6} />
+      <div className="font-medium text-sm text-[#2D3A33]">{label}</div>
+      <div className="text-xs text-[#5C6C62] leading-relaxed">{description}</div>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className} data-testid={testid}>
+        {content}
+      </button>
+    );
+  }
+  return (
+    <Link to={to} className={className} data-testid={testid}>
+      {content}
+    </Link>
+  );
+}
+
 function AlertRow({ alert }) {
   const sev = alert.severity === "high" ? "border-[#E8C4B8] bg-[#FBF5F0]" : alert.severity === "warning" ? "border-[#E8DFC4] bg-[#FBF8F0]" : "border-[#EAE6D7] bg-[#F8F5EC]";
   return (
@@ -75,13 +101,20 @@ function AlertRow({ alert }) {
   );
 }
 
+const isOwnerOrManager = (role) => role === "super_admin" || role === "manager";
+
 export default function ManagerDashboard() {
   const { user } = useAuth();
-  const { clinic } = useClinic();
+  const { clinic, refresh: refreshClinic } = useClinic();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dismissingChecklist, setDismissingChecklist] = useState(false);
   const showReports = hasFeature(clinic, "reports");
   const showBilling = hasFeature(clinic, "billing");
+  const showSetupChecklist = isOwnerOrManager(user?.role);
+  const checklist = clinic?.onboarding_checklist;
+  const checklistDismissed = Boolean(clinic?.setup_checklist_dismissed);
+  const checklistComplete = Boolean(checklist?.complete);
 
   useEffect(() => {
     setLoading(true);
@@ -90,6 +123,36 @@ export default function ManagerDashboard() {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (showSetupChecklist) {
+      refreshClinic();
+    }
+  }, [showSetupChecklist, refreshClinic]);
+
+  const handleDismissChecklist = useCallback(async () => {
+    setDismissingChecklist(true);
+    try {
+      await api.put("/clinics/me", { setup_checklist_dismissed: true });
+      await refreshClinic();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not hide checklist");
+    } finally {
+      setDismissingChecklist(false);
+    }
+  }, [refreshClinic]);
+
+  const handleShowChecklist = useCallback(async () => {
+    setDismissingChecklist(true);
+    try {
+      await api.put("/clinics/me", { setup_checklist_dismissed: false });
+      await refreshClinic();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not show checklist");
+    } finally {
+      setDismissingChecklist(false);
+    }
+  }, [refreshClinic]);
 
   const k = data?.kpis || {};
   const ov = data?.clinic_overview || {};
@@ -106,7 +169,7 @@ export default function ManagerDashboard() {
       count: r.count,
     })),
     ...(charts.visit_status_breakdown || []).map((r) => ({
-      name: `Visit: ${String(r.status).replace(/_/g, " ")}`,
+      name: `Session: ${String(r.status).replace(/_/g, " ")}`,
       count: r.count,
     })),
   ];
@@ -122,6 +185,16 @@ export default function ManagerDashboard() {
   const todayLabel = data?.date
     ? new Date(data.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" })
     : new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
+
+  const hasRevenueTrend = revenueTrend.some((r) => Number(r.revenue) > 0);
+  const hasChartActivity = statusBreakdown.some((r) => Number(r.count) > 0);
+  const isQuietDashboard =
+    Number(k.revenue_today_idr || 0) === 0
+    && Number(k.bookings_today ?? 0) === 0
+    && Number(ov.total_bookings ?? 0) === 0
+    && !hasRevenueTrend
+    && !hasChartActivity
+    && topTreatments.length === 0;
 
   if (loading) {
     return <div className="p-10 text-center text-[#5C6C62]">Loading clinic overview…</div>;
@@ -142,7 +215,7 @@ export default function ManagerDashboard() {
             <CalendarCheck className="w-4 h-4" /> Today operations
           </Link>
           <Link to="/bookings" className="bl-btn-primary text-sm inline-flex items-center gap-1.5" data-testid="qa-new-booking">
-            <CalendarCheck className="w-4 h-4" /> New booking
+            <CalendarCheck className="w-4 h-4" /> New appointment
           </Link>
           <Link to="/staff/schedule" className="bl-btn-secondary text-sm inline-flex items-center gap-1.5" data-testid="qa-schedule">
             <Calendar className="w-4 h-4" /> Schedule
@@ -196,12 +269,89 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
+      {showSetupChecklist && checklistDismissed && !checklistComplete && (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={handleShowChecklist}
+            disabled={dismissingChecklist}
+            className="text-sm font-medium hover:underline disabled:opacity-50"
+            style={{ color: "var(--bl-primary)" }}
+            data-testid="setup-checklist-show-again"
+          >
+            Show setup checklist
+          </button>
+        </div>
+      )}
+
+      {showSetupChecklist && !checklistDismissed && checklist && !checklistComplete && (
+        <div className="mt-6" id="setup-checklist">
+          <OnboardingChecklist
+            checklist={checklist}
+            onDismiss={handleDismissChecklist}
+            dismissing={dismissingChecklist}
+          />
+        </div>
+      )}
+
+      {showSetupChecklist && isQuietDashboard && (
+        <div className="mt-8 bl-card p-5 bg-[#F8F5EC] border border-[#EAE6D7]" data-testid="dashboard-getting-started">
+          <div className="label-eyebrow">Getting started</div>
+          <h2 className="font-display text-lg text-[#2D3A33] mt-1">Your clinic is ready to set up</h2>
+          <p className="text-sm text-[#5C6C62] mt-1">
+            These numbers will fill in once you add services, schedule staff, and start taking appointments. Nothing is wrong — you are just getting started.
+          </p>
+          <div className={`mt-4 grid grid-cols-1 sm:grid-cols-2 ${!checklistComplete ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-3`}>
+            {!checklistComplete && (
+              checklistDismissed ? (
+                <GettingStartedCard
+                  label="Continue setup"
+                  description="Reopen the setup checklist and finish the remaining steps."
+                  icon={ListChecks}
+                  onClick={handleShowChecklist}
+                  testid="cta-continue-setup"
+                />
+              ) : (
+                <GettingStartedCard
+                  label="Continue setup"
+                  description="Work through the setup checklist above step by step."
+                  icon={ListChecks}
+                  to="#setup-checklist"
+                  testid="cta-continue-setup"
+                />
+              )
+            )}
+            <GettingStartedCard
+              label="Create first appointment"
+              description="Schedule a patient once staff hours and treatments are in place."
+              icon={CalendarCheck}
+              to="/bookings"
+              testid="cta-first-booking"
+            />
+            <GettingStartedCard
+              label="Add treatment"
+              description="Add the services your clinic offers before scheduling patients."
+              icon={Pill}
+              to="/treatments"
+              testid="cta-add-treatment"
+            />
+            <GettingStartedCard
+              label="Set schedule"
+              description="Set working hours so appointments can assign the right staff."
+              icon={Calendar}
+              to="/staff/schedule"
+              testid="cta-set-schedule"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard icon={Wallet} label="Revenue today" value={formatIdr(k.revenue_today_idr)} helper="Paid invoices only" trend={k.revenue_today_trend_pct} testid="kpi-revenue-today" />
-        <KpiCard icon={CalendarCheck} label="Bookings today" value={k.bookings_today ?? 0} helper="All appointments today" trend={k.bookings_today_trend_pct} testid="kpi-bookings-today" />
-        <KpiCard icon={Stethoscope} label="Completed visits" value={k.visits_completed_today ?? 0} helper="Finished today" trend={k.visits_completed_today_trend_pct} testid="kpi-visits-completed" />
+        <KpiCard icon={CalendarCheck} label="Appointments today" value={k.bookings_today ?? 0} helper="All appointments today" trend={k.bookings_today_trend_pct} testid="kpi-bookings-today" />
+        <KpiCard icon={Stethoscope} label="Sessions completed" value={k.visits_completed_today ?? 0} helper="Finished today" trend={k.visits_completed_today_trend_pct} testid="kpi-visits-completed" />
         <KpiCard icon={Receipt} label="Outstanding" value={formatIdr(k.outstanding_payment_idr)} helper="Unpaid + partial balances" testid="kpi-outstanding" />
-        <KpiCard icon={FileText} label="Pending notes" value={k.pending_clinical_notes ?? 0} helper="Completed visits missing notes" testid="kpi-pending-notes" />
+        <KpiCard icon={FileText} label="Pending notes" value={k.pending_clinical_notes ?? 0} helper="Completed sessions missing notes" testid="kpi-pending-notes" />
         <KpiCard icon={Shield} label="Pending consent" value={k.pending_consent ?? 0} helper="Not sent or awaiting signature" testid="kpi-pending-consent" />
         <KpiCard icon={Package} label="Active packages" value={k.active_packages ?? 0} helper="Active or partially used" testid="kpi-active-packages" />
         <KpiCard icon={Wallet} label="Commission unpaid" value={formatIdr(k.commission_approved_unpaid_idr)} helper="Approved, not paid out" testid="kpi-commission-unpaid" />
@@ -224,11 +374,15 @@ export default function ManagerDashboard() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="text-sm text-[#5C6C62] py-10 text-center">No revenue in this period.</p>
+            <p className="text-sm text-[#5C6C62] py-10 text-center px-4">
+              {isQuietDashboard
+                ? "Revenue will appear here after your first paid invoice."
+                : "No revenue recorded in the last 7 days."}
+            </p>
           )}
         </div>
         <div className="bl-card p-4">
-          <h3 className="font-display text-base text-[#2D3A33]">Booking & visit status (7 days)</h3>
+          <h3 className="font-display text-base text-[#2D3A33]">Appointment & session status (7 days)</h3>
           <p className="text-xs text-[#5C6C62] mb-3">Clinic-wide counts</p>
           {statusBreakdown.length ? (
             <div style={{ height: 260 }}>
@@ -243,16 +397,24 @@ export default function ManagerDashboard() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="text-sm text-[#5C6C62] py-10 text-center">No activity in this period.</p>
+            <p className="text-sm text-[#5C6C62] py-10 text-center px-4">
+              {isQuietDashboard
+                ? "Appointments and sessions will show here once your team starts scheduling."
+                : "No appointments or sessions in the last 7 days."}
+            </p>
           )}
         </div>
       </div>
 
       <div className="mt-8 bl-card p-5">
         <h2 className="font-display text-xl text-[#2D3A33]">Today&apos;s clinic overview</h2>
-        <p className="text-sm text-[#5C6C62] mt-1">All bookings and visits scheduled for today</p>
+        <p className="text-sm text-[#5C6C62] mt-1">
+          {isQuietDashboard
+            ? "Today is quiet — create an appointment when you are ready to test your workflow."
+            : "All appointments and sessions scheduled for today"}
+        </p>
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-          <OverviewPill label="Total bookings" value={ov.total_bookings ?? 0} />
+          <OverviewPill label="Total appointments" value={ov.total_bookings ?? 0} />
           <OverviewPill label="Confirmed" value={ov.confirmed ?? 0} accent="bg-[#EDF3EF]" />
           <OverviewPill label="Arrived" value={ov.arrived ?? 0} />
           <OverviewPill label="In treatment" value={ov.in_treatment ?? 0} accent="bg-[#E5EEF5]" />
@@ -261,9 +423,9 @@ export default function ManagerDashboard() {
           <OverviewPill label="No-show" value={ov.no_show ?? 0} />
         </div>
         {(ov.booked_pending ?? 0) > 0 && (
-          <p className="mt-3 text-sm text-[#8A6D1F]">{ov.booked_pending} booking(s) still need confirmation.</p>
+          <p className="mt-3 text-sm text-[#8A6D1F]">{ov.booked_pending} appointment(s) still need confirmation.</p>
         )}
-        <Link to="/bookings" className="inline-block mt-3 text-sm" style={{ color: "var(--bl-primary)" }}>Open bookings →</Link>
+        <Link to="/bookings" className="inline-block mt-3 text-sm" style={{ color: "var(--bl-primary)" }}>Open appointments →</Link>
       </div>
 
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -271,7 +433,11 @@ export default function ManagerDashboard() {
           <h2 className="font-display text-lg text-[#2D3A33]">Action required</h2>
           <div className="mt-3 space-y-2">
             {(data?.alerts || []).length === 0 ? (
-              <p className="text-sm text-[#5C6C62] py-6 text-center">No alerts — operations look good.</p>
+              <p className="text-sm text-[#5C6C62] py-6 text-center px-2">
+                {isQuietDashboard
+                  ? "Nothing needs attention yet. Complete setup to start daily operations."
+                  : "No alerts — operations look good."}
+              </p>
             ) : (
               data.alerts.map((a) => <AlertRow key={a.id} alert={a} />)
             )}
@@ -294,7 +460,16 @@ export default function ManagerDashboard() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-sm text-[#5C6C62] py-8 text-center">No treatments yet.</p>
+              <p className="text-sm text-[#5C6C62] py-8 text-center px-4">
+                {isQuietDashboard ? (
+                  <>
+                    Popular services will appear here after your first appointments.{" "}
+                    <Link to="/treatments" className="underline" style={{ color: "var(--bl-primary)" }}>Add a treatment</Link>
+                  </>
+                ) : (
+                  "No treatment activity in the last 7 days."
+                )}
+              </p>
             )}
           </div>
           <div className="bl-card p-4">
@@ -312,7 +487,11 @@ export default function ManagerDashboard() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-sm text-[#5C6C62] py-8 text-center">No payments yet.</p>
+              <p className="text-sm text-[#5C6C62] py-8 text-center px-4">
+                {isQuietDashboard
+                  ? "Payment methods will appear here after your first invoice is paid."
+                  : "No payments recorded in the last 7 days."}
+              </p>
             )}
           </div>
         </div>
@@ -323,27 +502,35 @@ export default function ManagerDashboard() {
           <h2 className="font-display text-lg text-[#2D3A33]">Staff performance today</h2>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <div className="label-eyebrow mb-2">Bookings by performer</div>
+              <div className="label-eyebrow mb-2">Appointments by staff</div>
               <ul className="space-y-1.5 text-sm">
                 {(staff.bookings_by_performer || []).slice(0, 8).map((r, i) => (
                   <li key={i} className="flex justify-between"><span className="text-[#5C6C62] truncate">{r.performer}</span><span>{r.count}</span></li>
                 ))}
-                {!(staff.bookings_by_performer || []).length && <li className="text-[#5C6C62]">No bookings today.</li>}
+                {!(staff.bookings_by_performer || []).length && (
+                  <li className="text-[#5C6C62]">
+                    {isQuietDashboard ? "No appointments scheduled yet today." : "No appointments today."}
+                  </li>
+                )}
               </ul>
             </div>
             <div>
-              <div className="label-eyebrow mb-2">Visits by performer</div>
+              <div className="label-eyebrow mb-2">Sessions by staff</div>
               <ul className="space-y-1.5 text-sm">
                 {(staff.visits_by_performer || []).slice(0, 8).map((r, i) => (
                   <li key={i} className="flex justify-between"><span className="text-[#5C6C62] truncate">{r.performer}</span><span>{r.count}</span></li>
                 ))}
-                {!(staff.visits_by_performer || []).length && <li className="text-[#5C6C62]">No visits today.</li>}
+                {!(staff.visits_by_performer || []).length && (
+                  <li className="text-[#5C6C62]">
+                    {isQuietDashboard ? "No sessions recorded yet today." : "No sessions today."}
+                  </li>
+                )}
               </ul>
             </div>
           </div>
           {(staff.workload_by_role || []).length > 0 && (
             <div className="mt-4 pt-4 border-t border-[#EAE6D7]">
-              <div className="label-eyebrow mb-2">Workload by role (bookings)</div>
+              <div className="label-eyebrow mb-2">Workload by role (appointments)</div>
               <div className="flex flex-wrap gap-2">
                 {staff.workload_by_role.map((r) => (
                   <span key={r.role} className="bl-chip capitalize">{r.role}: {r.bookings}</span>
@@ -360,7 +547,11 @@ export default function ManagerDashboard() {
           </div>
           <ul className="space-y-2 text-sm">
             {(data?.audit_highlights || []).length === 0 ? (
-              <li className="text-[#5C6C62] py-4 text-center">No recent audit events.</li>
+              <li className="text-[#5C6C62] py-4 text-center px-2">
+                {isQuietDashboard
+                  ? "Activity will be logged here as your team uses ClinicOS."
+                  : "No recent audit events."}
+              </li>
             ) : (
               data.audit_highlights.map((a, i) => (
                 <li key={i} className="flex gap-2 items-start border-b border-[#EAE6D7] pb-2 last:border-0">

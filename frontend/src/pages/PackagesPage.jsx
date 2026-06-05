@@ -12,7 +12,7 @@ const PAGE_SIZE = 20;
 
 const PACKAGE_TYPES = [
   { value: "series_package", label: "Series Package", hint: "Same treatment repeated across multiple sessions" },
-  { value: "bundle_package", label: "Bundle Package", hint: "Multiple treatments usable across different visits" },
+  { value: "bundle_package", label: "Bundle Package", hint: "Multiple treatments usable across different sessions" },
   { value: "day_package", label: "Day Package", hint: "Multiple treatments intended for the same day" },
 ];
 
@@ -387,7 +387,7 @@ function EditorModal({ initial, onClose, onSaved }) {
             </div>
 
             <div className="space-y-3 pt-1 border-t border-[#EAE6D7]">
-              <div className="label-eyebrow text-[#5C6C62]">Status &amp; booking</div>
+              <div className="label-eyebrow text-[#5C6C62]">Status &amp; appointments</div>
               <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
                 <input type="checkbox" checked={form.is_active} onChange={e => set({ is_active: e.target.checked, active: e.target.checked })} data-testid="package-active" />
                 Active in catalog
@@ -395,9 +395,9 @@ function EditorModal({ initial, onClose, onSaved }) {
               <div>
                 <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
                   <input type="checkbox" checked={form.online_booking} onChange={e => set({ online_booking: e.target.checked })} data-testid="package-online-booking" />
-                  Online booking
+                  Online appointments
                 </label>
-                <p className="text-xs text-[#5C6C62] mt-1">Visible on the public booking page.</p>
+                <p className="text-xs text-[#5C6C62] mt-1">Visible on the public appointment page.</p>
               </div>
             </div>
 
@@ -625,7 +625,7 @@ export default function PackagesPage() {
         <div>
           <div className="label-eyebrow">Catalog</div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Packages</h1>
-          <p className="mt-2 text-sm text-[#5C6C62] max-w-xl">Manage treatment packages, pricing, validity, booking visibility, and included sessions.</p>
+          <p className="mt-2 text-sm text-[#5C6C62] max-w-xl">Manage treatment packages, pricing, validity, online appointment visibility, and included sessions.</p>
         </div>
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
@@ -704,7 +704,7 @@ export default function PackagesPage() {
                         type="button"
                         onClick={() => toggleOnline(p)}
                         className="inline-flex items-center gap-1.5"
-                        title={p.online_booking ? "Visible in public booking" : "Hidden from public booking"}
+                        title={p.online_booking ? "Visible on public appointment page" : "Hidden from public appointment page"}
                         data-testid={`package-toggle-${p.id}`}
                       >
                         <span className={`bl-chip text-[10px] py-0.5 ${p.online_booking ? "success" : ""}`}>
@@ -719,7 +719,7 @@ export default function PackagesPage() {
                     ) : (
                       <span
                         className={`bl-chip text-[10px] ${p.online_booking ? "success" : ""}`}
-                        title={p.online_booking ? "Visible in public booking" : "Hidden from public booking"}
+                        title={p.online_booking ? "Visible on public appointment page" : "Hidden from public appointment page"}
                       >
                         {p.online_booking ? "Online" : "Hidden"}
                       </span>

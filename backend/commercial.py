@@ -94,28 +94,74 @@ async def create_clinic_notification(
 
 async def build_onboarding_checklist(db, clinic: dict) -> dict:
     cid = clinic["id"]
-    slug = clinic.get("slug") or ""
     staff_count = await db.users.count_documents({"clinic_id": cid})
     treatment_count = await db.treatments.count_documents({"clinic_id": cid})
-    booking_count = await db.bookings.count_documents({"clinic_id": cid})
+    patient_count = await db.patients.count_documents({"clinic_id": cid})
+    visit_count = await db.visits.count_documents({"clinic_id": cid})
+    schedule_count = await db.weekly_staff_schedules.count_documents(
+        {"clinic_id": cid, "is_working": True},
+    )
+    booking_count = await db.bookings.count_documents({
+        "clinic_id": cid,
+        "$nor": [{"status": "blocked"}, {"booking_type": "block"}],
+    })
     invoice_count = await db.invoices.count_documents({"clinic_id": cid})
-    hours = clinic.get("operating_hours") or {}
-    hours_done = any((h or {}).get("open") and (h or {}).get("close") for h in hours.values())
+
+    profile_done = bool(
+        (clinic.get("name") or "").strip()
+        and (clinic.get("address") or "").strip()
+        and (clinic.get("phone") or "").strip()
+    )
 
     items = [
-        {"id": "logo", "label": "Upload clinic logo", "link": "/admin", "done": bool(clinic.get("logo_path"))},
-        {"id": "hours", "label": "Set operating hours", "link": "/admin", "done": hours_done},
-        {"id": "staff", "label": "Add staff members", "link": "/staff", "done": staff_count > 1},
-        {"id": "treatments", "label": "Add treatments to catalog", "link": "/treatments", "done": treatment_count > 0},
         {
-            "id": "public_booking",
-            "label": "Set up public booking page",
-            "link": "/admin",
-            "done": bool(slug),
-            "hint": f"/book/{slug}" if slug else "",
+            "id": "clinic_profile",
+            "label": "Add clinic profile",
+            "link": "/onboarding",
+            "done": profile_done,
         },
-        {"id": "first_booking", "label": "Receive first booking", "link": "/bookings", "done": booking_count > 0},
-        {"id": "first_invoice", "label": "Create first invoice", "link": "/invoices", "done": invoice_count > 0},
+        {
+            "id": "first_staff",
+            "label": "Add first staff member",
+            "link": "/staff/directory",
+            "done": staff_count > 1,
+        },
+        {
+            "id": "first_treatment",
+            "label": "Add first treatment",
+            "link": "/treatments",
+            "done": treatment_count > 0,
+        },
+        {
+            "id": "staff_schedule",
+            "label": "Set staff schedule",
+            "link": "/staff/schedule",
+            "done": schedule_count > 0,
+        },
+        {
+            "id": "first_patient",
+            "label": "Add first patient",
+            "link": "/patients",
+            "done": patient_count > 0,
+        },
+        {
+            "id": "first_booking",
+            "label": "Create first appointment",
+            "link": "/bookings",
+            "done": booking_count > 0,
+        },
+        {
+            "id": "first_visit",
+            "label": "Start first treatment session",
+            "link": "/visits",
+            "done": visit_count > 0,
+        },
+        {
+            "id": "first_invoice",
+            "label": "Create first invoice",
+            "link": "/invoices",
+            "done": invoice_count > 0,
+        },
     ]
     done_count = sum(1 for i in items if i["done"])
     total = len(items)

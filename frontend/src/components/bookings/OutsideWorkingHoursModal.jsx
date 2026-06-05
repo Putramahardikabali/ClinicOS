@@ -53,7 +53,7 @@ export default function OutsideWorkingHoursModal({
           <div>
             <h3 className="font-display text-xl text-[#2D3A33]">Outside working hours</h3>
             <p className="text-sm text-[#5C6C62] mt-1">
-              This slot is outside {performerName}&apos;s scheduled hours. Overtime approval is required.
+              This slot is outside {performerName}&apos;s scheduled hours. Overtime approval is required before saving the appointment.
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F1EB] shrink-0">
@@ -65,7 +65,7 @@ export default function OutsideWorkingHoursModal({
           <div className="flex gap-2">
             <User className="w-4 h-4 text-[#5C6C62] shrink-0 mt-0.5" />
             <div>
-              <dt className="text-xs text-[#A89F8B] uppercase tracking-wide">Performer</dt>
+              <dt className="text-xs text-[#A89F8B] uppercase tracking-wide">Assigned staff</dt>
               <dd className="font-medium text-[#2D3A33]">{performerName}</dd>
             </div>
           </div>
@@ -96,7 +96,7 @@ export default function OutsideWorkingHoursModal({
                 </dd>
               )}
               <dd className="text-[10px] text-[#A89F8B] mt-1">
-                Booking length follows the selected treatment.
+                Appointment length follows the selected treatment.
               </dd>
             </div>
           </div>
@@ -140,7 +140,7 @@ export default function OutsideWorkingHoursModal({
             className="bl-btn-primary flex-1 disabled:opacity-50"
             data-testid="overtime-continue"
           >
-            Continue to booking
+            Continue to appointment
           </button>
           <button type="button" onClick={onClose} className="bl-btn-ghost">Cancel</button>
         </div>

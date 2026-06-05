@@ -5,9 +5,9 @@ export default function VisitChecklistCard({ visit, invoice, hasMappingFeature, 
 
   return (
     <div className="bl-card p-5 lg:col-span-2" data-testid="visit-checklist">
-      <div className="label-eyebrow mb-3">Visit checklist</div>
+      <div className="label-eyebrow mb-3">Treatment session checklist</div>
       <p className="text-sm text-[#5C6C62] mb-4">
-        Use this checklist before submitting or closing the visit. Complete pending items when possible.
+        Use this checklist before finishing the chart or closing the treatment session. Complete pending items when possible.
       </p>
       <ul className="space-y-2">
         {rows.map((row) => {

@@ -28,7 +28,7 @@ describe("evaluateNewBookingSubmit phone", () => {
   it("blocks when phone missing", () => {
     const r = evaluateNewBookingSubmit(base);
     expect(r.canSubmit).toBe(false);
-    expect(r.disabledReason).toBe("Patient phone is required for bookings.");
+    expect(r.disabledReason).toBe("Patient phone is required for appointments.");
   });
 
   it("allows submit when inline phone is entered", () => {

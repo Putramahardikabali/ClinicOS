@@ -104,7 +104,7 @@ function TabDashboard() {
   const funnelSteps = [
     { key: "signup", label: "Signup" },
     { key: "setup_complete", label: "Setup complete" },
-    { key: "first_booking", label: "First booking" },
+    { key: "first_booking", label: "First appointment" },
     { key: "payment_submitted", label: "Payment submitted" },
     { key: "paid", label: "Paid" },
   ];

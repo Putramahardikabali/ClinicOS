@@ -15,7 +15,11 @@ REPORT_SECTIONS = frozenset({
     "overview", "revenue", "billing", "packages", "treatments",
     "staff", "commission", "appointments", "patients", "consent", "audit", "inventory",
     "gift-cards",
+    "analytics-marketing", "analytics-treatments", "analytics-operational",
 })
+
+UNKNOWN_KEY = "__unknown__"
+UNKNOWN_LABEL = "Unknown / Not recorded"
 
 BILLING_VIEW_SECTIONS = frozenset({"billing"})
 
@@ -83,6 +87,57 @@ def ts_in_range(ts: Optional[str], start_iso: str, end_iso: str) -> bool:
     if not ts:
         return False
     return start_iso <= ts <= end_iso
+
+
+def marketing_bucket(value: Optional[str]) -> str:
+    if not value or not str(value).strip():
+        return UNKNOWN_KEY
+    return str(value).strip()
+
+
+def marketing_label(key: str, labels: Optional[Dict[str, str]] = None) -> str:
+    if key == UNKNOWN_KEY:
+        return UNKNOWN_LABEL
+    if labels and key in labels:
+        return labels[key]
+    return key.replace("_", " ").title()
+
+
+async def load_clinic_timezone(db, clinic_id: Optional[str]) -> str:
+    if not clinic_id:
+        return "Asia/Makassar"
+    clinic = await db.clinics.find_one({"id": clinic_id}, {"_id": 0, "timezone": 1})
+    return (clinic or {}).get("timezone") or "Asia/Makassar"
+
+
+def to_clinic_local(iso_str: Optional[str], tz_name: str):
+    if not iso_str:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        ZoneInfo = None  # type: ignore
+    try:
+        raw = str(iso_str).replace("Z", "+00:00")
+        if "T" not in raw and len(raw) >= 10:
+            raw = f"{raw[:10]}T12:00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if ZoneInfo:
+            return dt.astimezone(ZoneInfo(tz_name))
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def assert_analytics_access(user: dict) -> None:
+    if user.get("platform_admin"):
+        return
+    if user.get("role") not in ("super_admin", "manager"):
+        raise HTTPException(status_code=403, detail="Analytics is available to Owner and Manager only")
+    if not user_has_permission(user, "analytics.view"):
+        raise HTTPException(status_code=403, detail="Not allowed to view analytics")
 
 
 def assert_report_access(user: dict, section: str = "overview") -> None:

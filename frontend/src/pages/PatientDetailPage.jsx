@@ -3,12 +3,19 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom"
 import api, { fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import {
-  ACTIVITY_COLORS,
-  ACTIVITY_LABELS,
+  canEditBasicPatient,
   canEditConsent,
+  canEditFullPatientFields,
+  canViewClinicalPatientInfo,
+  basicPatientPayload,
+  emptyBasicPatientForm,
   fmtDate,
   fmtDay,
   fmtIDR,
+  fullPatientPayload,
+  formatPatientSource,
+  PATIENT_SOURCE_OPTIONS,
+  SOURCE_DETAIL_PLACEHOLDER,
   visibleTabs,
 } from "@/lib/patientProfile";
 import { toast } from "sonner";
@@ -21,15 +28,16 @@ import {
   Receipt,
   Award,
   Trash2,
-  Clock,
+  Pencil,
   FileText,
-  Package,
   Shield,
+  X,
 } from "lucide-react";
 import PatientPackagesPanel from "@/components/patient/PatientPackagesPanel";
 import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
+import NationalityCombobox from "@/components/patient/NationalityCombobox";
 
 function TabButton({ active, onClick, children }) {
   return (
@@ -70,8 +78,11 @@ export default function PatientDetailPage() {
   const [photos, setPhotos] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [consents, setConsents] = useState(null);
-  const [activity, setActivity] = useState([]);
   const [transactions, setTransactions] = useState([]);
+
+  const [openEdit, setOpenEdit] = useState(false);
+  const [editForm, setEditForm] = useState(emptyBasicPatientForm());
+  const [editBusy, setEditBusy] = useState(false);
 
   const [openVisit, setOpenVisit] = useState(false);
   const [vForm, setVForm] = useState({ visit_type: "doctor", assigned_to: "", chief_complaint: "" });
@@ -141,16 +152,10 @@ export default function PatientDetailPage() {
         const r = await api.get(`/patients/${pid}/consents`);
         setConsents(r.data);
       }
-      if (tabId === "timeline" && tabAccess.timeline) {
-        const r = await api.get(`/patients/${pid}/activity`);
-        const payload = r.data;
-        setActivity(Array.isArray(payload) ? payload : (payload?.items || payload?.events || []));
-      }
     } catch (e) {
       const detail = e?.response?.data?.detail;
       const msg = typeof detail === "string" ? detail : "Could not load tab data";
       toast.error(msg);
-      if (tabId === "timeline") setActivity([]);
     } finally {
       setTabLoading(false);
     }
@@ -166,7 +171,7 @@ export default function PatientDetailPage() {
     e.preventDefault();
     try {
       const r = await api.post("/visits", { patient_id: pid, ...vForm });
-      toast.success("Visit created");
+      toast.success("Treatment session created");
       setOpenVisit(false);
       nav(`/visits/${r.data.id}`);
     } catch (e) {
@@ -198,7 +203,6 @@ export default function PatientDetailPage() {
       setPatient(r.data);
       toast.success("Consent updated");
       loadTabData("consents", access);
-      if (access?.timeline) loadTabData("timeline", access);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not update consent");
     } finally {
@@ -212,6 +216,33 @@ export default function PatientDetailPage() {
   const filteredAssignees = users.filter((u) =>
     vForm.visit_type === "doctor" ? u.role === "doctor" : u.role === "therapist",
   );
+
+  const canEditBasic = canEditBasicPatient(user);
+  const canEditFull = canEditFullPatientFields(user);
+  const canViewClinical = canViewClinicalPatientInfo(user);
+
+  const openEditModal = () => {
+    setEditForm(emptyBasicPatientForm(patient));
+    setOpenEdit(true);
+  };
+
+  const savePatientInfo = async (e) => {
+    e.preventDefault();
+    if (!canEditBasic) return;
+    setEditBusy(true);
+    try {
+      const payload = canEditFull ? fullPatientPayload(editForm) : basicPatientPayload(editForm);
+      const r = await api.put(`/patients/${pid}`, payload);
+      setPatient(r.data);
+      setOpenEdit(false);
+      toast.success("Patient info updated");
+      loadCore();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Could not update patient");
+    } finally {
+      setEditBusy(false);
+    }
+  };
 
   const renderOverview = () => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -227,7 +258,7 @@ export default function PatientDetailPage() {
                 <div className="font-display text-xl text-[#2D3A33] mt-1">{fmtIDR(stats.total_spent_idr)}</div>
               </div>
               <div>
-                <div className="text-[#5C6C62]">Visits</div>
+                <div className="text-[#5C6C62]">Session records</div>
                 <div className="font-medium text-[#2D3A33] mt-1">{stats.visits_total}</div>
               </div>
               <div>
@@ -246,7 +277,7 @@ export default function PatientDetailPage() {
                 </div>
               </div>
               <div>
-                <div className="text-[#5C6C62]">Last visit</div>
+                <div className="text-[#5C6C62]">Last session</div>
                 <div className="font-medium text-[#2D3A33] mt-1">{stats.last_visit_at ? fmtDay(stats.last_visit_at) : "—"}</div>
               </div>
             </div>
@@ -254,14 +285,26 @@ export default function PatientDetailPage() {
         )}
 
         <div className="bl-card p-5">
-          <div className="label-eyebrow mb-3">Patient info</div>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="label-eyebrow">Patient info</div>
+            {canEditBasic && (
+              <button type="button" onClick={openEditModal} className="text-sm inline-flex items-center gap-1.5 text-[#52796F] hover:text-[#2D3A33]" data-testid="edit-patient-info-button">
+                <Pencil className="w-3.5 h-3.5" /> Edit
+              </button>
+            )}
+          </div>
           <div className="grid sm:grid-cols-2 gap-4 text-sm">
             <div><span className="text-[#5C6C62]">DOB</span><div className="font-medium">{patient.date_of_birth || patient.dob || "—"}</div></div>
             <div><span className="text-[#5C6C62]">Gender</span><div className="font-medium capitalize">{patient.gender || "—"}</div></div>
+            <div><span className="text-[#5C6C62]">Nationality</span><div className="font-medium">{patient.nationality || "—"}</div></div>
+            <div><span className="text-[#5C6C62]">Patient source</span><div className="font-medium">{formatPatientSource(patient.patient_source)}</div></div>
+            <div className="sm:col-span-2"><span className="text-[#5C6C62]">Source detail</span><div className="font-medium">{patient.source_detail || "—"}</div></div>
             <div className="sm:col-span-2"><span className="text-[#5C6C62]">Address</span><div className="font-medium">{patient.address || "—"}</div></div>
             <div><span className="text-[#5C6C62]">Allergies</span><div className="font-medium">{patient.allergies || "—"}</div></div>
             <div><span className="text-[#5C6C62]">Consent</span><div className="font-medium capitalize">{patient.consent_status || "unsigned"}</div></div>
-            <div className="sm:col-span-2"><span className="text-[#5C6C62]">Medical history</span><div className="font-medium whitespace-pre-wrap">{patient.medical_history || "—"}</div></div>
+            {canViewClinical && (
+              <div className="sm:col-span-2"><span className="text-[#5C6C62]">Medical history</span><div className="font-medium whitespace-pre-wrap">{patient.medical_history || "—"}</div></div>
+            )}
           </div>
         </div>
 
@@ -275,7 +318,7 @@ export default function PatientDetailPage() {
                 <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
                   <tr>
                     <th className="px-5 py-3">Date</th>
-                    <th className="px-5 py-3">Visit</th>
+                    <th className="px-5 py-3">Session record</th>
                     <th className="px-5 py-3 text-right">Subtotal</th>
                     <th className="px-5 py-3" />
                   </tr>
@@ -341,14 +384,6 @@ export default function PatientDetailPage() {
             </div>
           </div>
         )}
-        {access?.timeline && (
-          <div className="bl-card p-5">
-            <div className="label-eyebrow mb-3 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Quick timeline</div>
-            <button type="button" onClick={() => setTab("timeline")} className="text-sm text-[#2D3A33] underline-offset-2 hover:underline">
-              View full activity timeline →
-            </button>
-          </div>
-        )}
       </aside>
     </div>
   );
@@ -376,16 +411,16 @@ export default function PatientDetailPage() {
 
   const renderVisits = () => (
     <div className="space-y-3" data-testid="patient-visits">
-      {tabLoading && <Empty message="Loading visits…" />}
-      {!tabLoading && visits.length === 0 && <Empty message="No visits yet." />}
+      {tabLoading && <Empty message="Loading session records…" />}
+      {!tabLoading && visits.length === 0 && <Empty message="No session records yet." />}
       {!tabLoading && visits.map((v) => (
         <div key={v.id} className="bl-card p-5 flex flex-wrap items-center gap-4 justify-between">
           <div>
-            <div className="font-medium capitalize text-[#2D3A33]">{v.visit_type} visit</div>
+            <div className="font-medium capitalize text-[#2D3A33]">{v.visit_type} session</div>
             <div className="text-sm text-[#5C6C62] mt-1">{v.chief_complaint || "—"}</div>
             <div className="mt-2 flex gap-2 text-xs"><span className="bl-chip">{v.status?.replace("_", " ")}</span><span>{fmtDay(v.visit_date || v.created_at)}</span></div>
           </div>
-          <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm" data-testid={`open-visit-${v.id}`}>Open visit</Link>
+          <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm" data-testid={`open-visit-${v.id}`}>Open session record</Link>
         </div>
       ))}
     </div>
@@ -420,7 +455,7 @@ export default function PatientDetailPage() {
                   </div>
                 )}
               </div>
-              <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm">Open visit</Link>
+              <Link to={`/visits/${v.id}`} className="bl-btn-ghost text-sm">Open session record</Link>
             </div>
           </div>
         );
@@ -443,7 +478,7 @@ export default function PatientDetailPage() {
                 <div className="font-medium text-[#2D3A33] capitalize">{(ph.photo_type || "photo").replace("_", " ")} · {ph.angle}</div>
                 <div className="mt-1">{fmtDay(ph.created_at)}</div>
                 {ph.visit_id && (
-                  <Link to={`/visits/${ph.visit_id}`} className="inline-block mt-2 text-[var(--bl-primary)]">View visit</Link>
+                  <Link to={`/visits/${ph.visit_id}`} className="inline-block mt-2 text-[var(--bl-primary)]">View session record</Link>
                 )}
               </div>
             </div>
@@ -479,7 +514,7 @@ export default function PatientDetailPage() {
                   <td className="px-5 py-3 text-right">{fmtIDR(inv.total_amount)}</td>
                   <td className="px-5 py-3 text-right">{fmtIDR(inv.amount_paid)}</td>
                   <td className="px-5 py-3 text-right">
-                    {inv.visit_id ? <Link to={`/visits/${inv.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Visit</Link> : null}
+                    {inv.visit_id ? <Link to={`/visits/${inv.visit_id}`} className="text-sm" style={{ color: "var(--bl-primary)" }}>Session record</Link> : null}
                   </td>
                 </tr>
               ))}
@@ -523,7 +558,7 @@ export default function PatientDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <ConsentStatusBadge status={f.status} />
-                  {f.visit_id && <Link to={`/visits/${f.visit_id}?tab=consent`} className="text-sm" style={{ color: "var(--bl-primary)" }}>View visit</Link>}
+                  {f.visit_id && <Link to={`/visits/${f.visit_id}?tab=consent`} className="text-sm" style={{ color: "var(--bl-primary)" }}>View session record</Link>}
                 </div>
               </div>
             ))}
@@ -549,37 +584,6 @@ export default function PatientDetailPage() {
     </div>
   );
 
-  const renderTimeline = () => (
-    <div className="space-y-3" data-testid="patient-timeline">
-      {tabLoading && <Empty message="Loading timeline…" />}
-      {!tabLoading && activity.length === 0 && <Empty message="No activity recorded yet." />}
-      {!tabLoading && activity.map((ev, idx) => (
-        <div key={`${ev.kind}-${ev.record_id}-${idx}`} className="bl-card p-5 flex gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#F3F1EB] flex items-center justify-center shrink-0">
-            {ev.kind === "photo" ? <ImageIcon className="w-5 h-5 text-[#5C6C62]" /> :
-             ev.kind === "invoice" ? <Receipt className="w-5 h-5 text-[#5C6C62]" /> :
-             ev.kind === "package_purchase" || ev.kind === "package_usage" ? <Package className="w-5 h-5 text-[#5C6C62]" /> :
-             ev.kind === "clinical_note" ? <FileText className="w-5 h-5 text-[#5C6C62]" /> :
-             ev.kind === "consent" ? <Shield className="w-5 h-5 text-[#5C6C62]" /> :
-             <Calendar className="w-5 h-5 text-[#5C6C62]" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium text-[#2D3A33]">{ev.title}</span>
-              <span className={`bl-chip ${ACTIVITY_COLORS[ev.kind] || "info"}`}>{ACTIVITY_LABELS[ev.kind] || ev.kind}</span>
-              {ev.status && <span className="text-xs text-[#5C6C62] capitalize">{ev.status.replace("_", " ")}</span>}
-            </div>
-            {ev.subtitle && <div className="text-sm text-[#5C6C62] mt-1 line-clamp-2">{ev.subtitle}</div>}
-            <div className="text-xs text-[#A89F8B] mt-2">{fmtDate(ev.at)}</div>
-          </div>
-          {ev.visit_id && (
-            <Link to={`/visits/${ev.visit_id}`} className="bl-btn-ghost text-sm shrink-0 self-center">Visit</Link>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-
   const tabContent = {
     overview: renderOverview(),
     appointments: renderAppointments(),
@@ -590,7 +594,6 @@ export default function PatientDetailPage() {
     wallet: access?.wallet ? <PatientWalletPanel patientId={pid} /> : <Empty message="No access to wallet." />,
     invoices: renderInvoices(),
     consents: renderConsents(),
-    timeline: renderTimeline(),
   };
 
   return (
@@ -611,9 +614,14 @@ export default function PatientDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canEditBasic && (
+            <button type="button" onClick={openEditModal} className="bl-btn-secondary inline-flex items-center gap-2" data-testid="edit-patient-button">
+              <Pencil className="w-4 h-4" /> Edit patient
+            </button>
+          )}
           {can(user, "create_visit") && (
             <button onClick={() => setOpenVisit(true)} className="bl-btn-primary inline-flex items-center gap-2" data-testid="new-visit-button">
-              <Plus className="w-4 h-4" /> New visit
+              <Plus className="w-4 h-4" /> New treatment session
             </button>
           )}
           {can(user, "delete_patient") && (
@@ -634,14 +642,104 @@ export default function PatientDetailPage() {
 
       <div className="mt-6">{tabContent[activeTab]}</div>
 
+      {openEdit && (
+        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenEdit(false)}>
+          <div className="bl-card max-w-2xl w-full p-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} data-testid="edit-patient-modal">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-2xl text-[#2D3A33]">Edit patient info</h2>
+              <button type="button" onClick={() => setOpenEdit(false)} className="p-2 rounded-lg hover:bg-[#F3F1EB]" aria-label="Close"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-[#5C6C62] mt-1">Update contact and demographic details for {patient.full_name}.</p>
+            <form onSubmit={savePatientInfo} className="mt-6 space-y-4" data-testid="edit-patient-form">
+              <div>
+                <label className="label-eyebrow block mb-1">Full name</label>
+                <input className="bl-input" required value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} data-testid="edit-patient-name" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label-eyebrow block mb-1">Gender</label>
+                  <select className="bl-input" value={editForm.gender} onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label-eyebrow block mb-1">Date of birth</label>
+                  <input type="date" className="bl-input" value={editForm.date_of_birth} onChange={(e) => setEditForm({ ...editForm, date_of_birth: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label-eyebrow block mb-1">Phone</label>
+                  <input className="bl-input" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label-eyebrow block mb-1">Email</label>
+                  <input className="bl-input" type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Address</label>
+                <input className="bl-input" value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Nationality</label>
+                <NationalityCombobox
+                  value={editForm.nationality_code}
+                  onChange={(code, country) => setEditForm({
+                    ...editForm,
+                    nationality_code: code,
+                    nationality: country?.name || "",
+                  })}
+                  testId="edit-patient-nationality"
+                />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Patient source</label>
+                <select className="bl-input" value={editForm.patient_source} onChange={(e) => setEditForm({ ...editForm, patient_source: e.target.value })} data-testid="edit-patient-source">
+                  {PATIENT_SOURCE_OPTIONS.map((o) => (
+                    <option key={o.value || "none"} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Source detail</label>
+                <input className="bl-input" placeholder={SOURCE_DETAIL_PLACEHOLDER} value={editForm.source_detail} onChange={(e) => setEditForm({ ...editForm, source_detail: e.target.value })} data-testid="edit-patient-source-detail" />
+              </div>
+              <div>
+                <label className="label-eyebrow block mb-1">Allergies</label>
+                <input className="bl-input" value={editForm.allergies} onChange={(e) => setEditForm({ ...editForm, allergies: e.target.value })} />
+              </div>
+              {canEditFull && (
+                <>
+                  <div>
+                    <label className="label-eyebrow block mb-1">Medical history</label>
+                    <textarea className="bl-input min-h-[80px]" value={editForm.medical_history} onChange={(e) => setEditForm({ ...editForm, medical_history: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label-eyebrow block mb-1">Internal notes</label>
+                    <textarea className="bl-input min-h-[80px]" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
+                  </div>
+                </>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="bl-btn-primary" disabled={editBusy} data-testid="edit-patient-save">{editBusy ? "Saving…" : "Save changes"}</button>
+                <button type="button" onClick={() => setOpenEdit(false)} className="bl-btn-ghost">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {openVisit && (
         <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenVisit(false)}>
           <div className="bl-card max-w-md w-full p-7" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-display text-2xl text-[#2D3A33]">New visit</h2>
+            <h2 className="font-display text-2xl text-[#2D3A33]">New treatment session</h2>
             <p className="text-sm text-[#5C6C62] mt-1">For {patient.full_name}</p>
             <form onSubmit={createVisit} className="mt-5 space-y-4" data-testid="new-visit-form">
               <div>
-                <label className="label-eyebrow block mb-1">Visit type</label>
+                <label className="label-eyebrow block mb-1">Session type</label>
                 <select className="bl-input" value={vForm.visit_type} onChange={(e) => setVForm({ ...vForm, visit_type: e.target.value, assigned_to: "" })}>
                   <option value="doctor">Doctor (face / injectable)</option>
                   <option value="therapist">Therapist (body / laser / facial)</option>
@@ -659,7 +757,7 @@ export default function PatientDetailPage() {
                 <textarea className="bl-input min-h-[80px]" value={vForm.chief_complaint} onChange={(e) => setVForm({ ...vForm, chief_complaint: e.target.value })} />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" className="bl-btn-primary" data-testid="visit-create-submit">Create visit</button>
+                <button type="submit" className="bl-btn-primary" data-testid="visit-create-submit">Create treatment session</button>
                 <button type="button" onClick={() => setOpenVisit(false)} className="bl-btn-ghost">Cancel</button>
               </div>
             </form>

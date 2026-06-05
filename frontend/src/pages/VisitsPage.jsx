@@ -63,9 +63,9 @@ export default function VisitsPage() {
   return (
     <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto" data-testid="visits-page">
       <div className="label-eyebrow">Clinical workflow</div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Visits</h1>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Treatment sessions</h1>
       <p className="mt-2 text-sm text-[#5C6C62] max-w-xl">
-        Open a visit to document notes, treatments, consent, and photos. Your list only shows visits you are allowed to access.
+        Open a treatment session to document notes, treatments, consent, and photos. Your list only shows sessions you are allowed to access.
       </p>
 
       <div className="mt-6 bl-card p-4 space-y-4" data-testid="visits-filters">
@@ -92,14 +92,14 @@ export default function VisitsPage() {
           </div>
           {canFilterPerformer && (
             <div className="min-w-0 sm:col-span-2 lg:col-span-2">
-              <label className="label-eyebrow block mb-1.5">Performer</label>
+              <label className="label-eyebrow block mb-1.5">Staff</label>
               <select
                 className="bl-input w-full min-h-[44px]"
                 value={performerFilter}
                 onChange={(e) => setPerformerFilter(e.target.value)}
                 data-testid="visits-performer-filter"
               >
-                <option value="">All performers</option>
+                <option value="">All staff</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
                 ))}
@@ -152,8 +152,8 @@ export default function VisitsPage() {
       </div>
 
       <div className="mt-6 space-y-3 lg:hidden">
-        {loading && <div className="bl-card p-8 text-center text-[#5C6C62]">Loading visits…</div>}
-        {!loading && filtered.length === 0 && <div className="bl-card p-8 text-center text-[#5C6C62]">No visits match your filters.</div>}
+        {loading && <div className="bl-card p-8 text-center text-[#5C6C62]">Loading sessions…</div>}
+        {!loading && filtered.length === 0 && <div className="bl-card p-8 text-center text-[#5C6C62]">No sessions match your filters.</div>}
         {!loading && filtered.map((v) => (
           <div key={v.id} className="bl-card p-4 flex items-center gap-3" data-testid={`visit-card-${v.id}`}>
             <button
@@ -190,8 +190,8 @@ export default function VisitsPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">Loading visits…</td></tr>}
-              {!loading && filtered.length === 0 && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No visits match your filters.</td></tr>}
+              {loading && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">Loading sessions…</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={5} className="text-center py-10 text-[#5C6C62]">No sessions match your filters.</td></tr>}
               {!loading && filtered.map((v) => (
                 <tr
                   key={v.id}

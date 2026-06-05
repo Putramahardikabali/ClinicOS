@@ -100,7 +100,12 @@ from front_desk_dashboard import register_front_desk_dashboard
 from invoices import register_invoices
 from commissions import register_commissions, sync_commission_records_for_invoice, ensure_default_commission_rules
 from patient_packages import register_patient_packages
-from patient_profile import register_patient_profile
+from patient_profile import (
+    FO_PATIENT_EDIT_FIELDS,
+    filter_patient_update_fields,
+    register_patient_profile,
+    validate_patient_marketing_fields,
+)
 from consent_forms import (
     register_consent_forms,
     ensure_consent_forms_for_visit,
@@ -108,6 +113,7 @@ from consent_forms import (
     visit_consent_required,
     build_visit_consent_context,
 )
+from clinic_analytics import register_clinic_analytics
 from clinic_reports import register_clinic_reports
 from inventory_usage import register_inventory_usage, create_product_usage, reverse_usages_for_treatment_item
 from superadmin import register_superadmin, require_platform_admin
@@ -634,6 +640,10 @@ class PatientIn(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    nationality: Optional[str] = None
+    nationality_code: Optional[str] = None
+    patient_source: Optional[str] = None
+    source_detail: Optional[str] = None
     medical_history: Optional[str] = None
     allergies: Optional[str] = None
     notes: Optional[str] = None
@@ -813,7 +823,7 @@ DEFAULT_TEMPLATES = {
 DEFAULT_SETTINGS = {
     "branding": {
         "clinic_name": "Body Lab Bali",
-        "tagline": "Aesthetic Clinic · Internal EMR",
+        "tagline": "Aesthetic Clinic · Patient chart",
         "logo_path": "",  # storage path for logo
         "primary_color": "#8A9A86",
         "primary_hover": "#748470",
@@ -1058,7 +1068,7 @@ async def update_my_clinic(payload: ClinicUpdateIn, user: dict = Depends(get_ope
         if disallowed:
             raise HTTPException(status_code=403, detail=f"FO cannot change: {', '.join(sorted(disallowed))}")
     elif role == "manager":
-        allowed = {"operating_hours", "booking_slot_interval", "closed_dates", "loyalty_tiers"}
+        allowed = {"operating_hours", "booking_slot_interval", "closed_dates", "loyalty_tiers", "setup_checklist_dismissed"}
         disallowed = set(upd.keys()) - allowed
         if disallowed:
             raise HTTPException(status_code=403, detail=f"Manager cannot change: {', '.join(sorted(disallowed))}")
@@ -1446,6 +1456,10 @@ async def upload_logo(file: UploadFile = File(...), user: dict = Depends(require
 async def create_patient(payload: PatientIn, user: dict = Depends(require_permission("patients.create"))):
     await assert_writeable(user)
     p = payload.model_dump()
+    if user.get("role") == "fo" and not user.get("platform_admin"):
+        p = {k: v for k, v in p.items() if k in FO_PATIENT_EDIT_FIELDS}
+        p["full_name"] = payload.full_name
+    validate_patient_marketing_fields(p)
     p["id"] = str(uuid.uuid4())
     p["clinic_id"] = user.get("clinic_id")
     p["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -1650,6 +1664,10 @@ async def update_patient(pid: str, payload: PatientIn, user: dict = Depends(requ
     if not existing:
         raise HTTPException(status_code=404, detail="Not found")
     upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    upd = filter_patient_update_fields(user, upd)
+    validate_patient_marketing_fields(upd)
+    if not upd:
+        raise HTTPException(status_code=400, detail="No allowed fields to update")
     if upd.get("consent_status") == "signed" and not upd.get("consent_signed_at"):
         upd["consent_signed_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.patients.update_one(scope(user, {"id": pid}), {"$set": upd})
@@ -2443,6 +2461,13 @@ register_clinic_reports(
     get_current_user=get_operational_user,
     assert_feature=assert_feature,
     scope=scope,
+)
+
+register_clinic_analytics(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    assert_feature=assert_feature,
 )
 
 register_inventory_usage(

@@ -96,9 +96,9 @@ export default function AdditionalPerformersEditor({
   return (
     <div className="space-y-2" data-testid={`${testIdPrefix}-additional-performers`}>
       <div className="flex items-center justify-between">
-        <label className="label-eyebrow">Additional performers</label>
+        <label className="label-eyebrow">Additional staff</label>
         <button type="button" className="text-xs text-[#52796F] underline" onClick={addRow}>
-          Add performer
+          Add provider
         </button>
       </div>
       {loadingAvail && slotReady && (

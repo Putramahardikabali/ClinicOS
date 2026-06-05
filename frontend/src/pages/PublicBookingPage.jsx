@@ -418,7 +418,7 @@ export default function PublicBookingPage() {
 
     ]).then(([tr, pk, pay]) => {
       const disabled = Boolean(tr.data.booking_disabled || pk.data.booking_disabled);
-      const msg = tr.data.message || pk.data.message || "Online booking is temporarily unavailable. Please contact the clinic directly.";
+      const msg = tr.data.message || pk.data.message || "Online appointments are temporarily unavailable. Please contact the clinic directly.";
       setBookingDisabled(disabled);
       setBookingDisabledMessage(msg);
       setClinic(tr.data.clinic || pk.data.clinic);
@@ -426,7 +426,7 @@ export default function PublicBookingPage() {
       setPackages(disabled ? [] : (pk.data.packages || []));
       setPaymentConfig(pay.data || { enable_online_booking_payment: false });
       if (disabled) setError(msg);
-    }).catch(() => setError("Clinic not found or booking is disabled."));
+    }).catch(() => setError("Clinic not found or appointments are disabled."));
 
   }, [slug]);
 
@@ -752,7 +752,7 @@ export default function PublicBookingPage() {
 
                 </div>
 
-                <h2 className="font-display text-3xl text-[#2D3A33] mt-5">Booking confirmed!</h2>
+                <h2 className="font-display text-3xl text-[#2D3A33] mt-5">Appointment confirmed!</h2>
 
                 <p className="text-[#5C6C62] mt-2">
 
@@ -780,13 +780,13 @@ export default function PublicBookingPage() {
 
                 <p className="text-[#5C6C62] mt-2">
 
-                  Your booking for <strong>{confirmation?.treatment}</strong> was not confirmed. Please try again or contact the clinic.
+                  Your appointment for <strong>{confirmation?.treatment}</strong> was not confirmed. Please try again or contact the clinic.
 
                 </p>
 
                 <button type="button" onClick={() => { setStep(0); setConfirmation(null); }} className="bl-btn-primary mt-6 min-h-[44px]">
 
-                  Book again
+                  Schedule again
 
                 </button>
 
@@ -802,7 +802,7 @@ export default function PublicBookingPage() {
 
                 </div>
 
-                <h2 className="font-display text-3xl text-[#2D3A33] mt-5">Booking received!</h2>
+                <h2 className="font-display text-3xl text-[#2D3A33] mt-5">Appointment received!</h2>
 
                 <p className="text-[#5C6C62] mt-2">
 
@@ -1450,15 +1450,15 @@ export default function PublicBookingPage() {
 
                       {paymentDue.requirement === "deposit"
 
-                        ? "Deposit required to secure your booking"
+                        ? "Deposit required to secure your appointment"
 
-                        : "Full payment required to confirm your booking"}
+                        : "Full payment required to confirm your appointment"}
 
                     </p>
 
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#5C6C62]">
 
-                      <span>Booking total: {formatPublicPrice(bookingTotal)}</span>
+                      <span>Appointment total: {formatPublicPrice(bookingTotal)}</span>
 
                       <span className="font-medium text-[#2D3A33]">Amount due now: {fmtIDR(paymentDue.amount)}</span>
 
@@ -1592,7 +1592,7 @@ export default function PublicBookingPage() {
 
                   >
 
-                    {busy ? (paymentRequired ? "Redirecting…" : "Booking…") : (paymentRequired ? `Pay ${fmtIDR(paymentDue.amount)} to confirm` : "Confirm booking")}
+                    {busy ? (paymentRequired ? "Redirecting…" : "Scheduling…") : (paymentRequired ? `Pay ${fmtIDR(paymentDue.amount)} to confirm` : "Confirm appointment")}
 
                   </button>
 

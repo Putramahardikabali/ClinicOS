@@ -19,14 +19,14 @@ export const REPORT_SECTIONS = [
   { id: "treatments", label: "Treatments", endpoint: "/reports/treatments", export: "/reports/treatments/export" },
   { id: "staff", label: "Staff", endpoint: "/reports/staff", export: "/reports/staff/export" },
   { id: "commission", label: "Commission", endpoint: "/reports/commission", export: "/reports/commission/export" },
-  { id: "appointments", label: "Appointments & Visits", endpoint: "/reports/appointments", export: "/reports/appointments/export" },
+  { id: "appointments", label: "Appointments & Session records", endpoint: "/reports/appointments", export: "/reports/appointments/export" },
   { id: "patients", label: "Patients", endpoint: "/reports/patients", export: "/reports/patients/export" },
   { id: "consent", label: "Consent & Clinical", endpoint: "/reports/consent", export: "/reports/consent/export" },
   { id: "inventory", label: "Inventory usage", endpoint: "/reports/inventory-usage" },
   { id: "audit", label: "Audit Log", endpoint: "/reports/audit-log", export: "/reports/audit-log/export" },
   { id: "gift-cards", label: "Gift Cards", endpoint: "/reports/gift-cards", export: "/reports/gift-cards/export" },
   { id: "wallet", label: "Patient Wallet", endpoint: "/wallet/report", export: "/wallet/report/export", exportCsv: true },
-  { id: "online-booking-payments", label: "Online booking payments", endpoint: "/reports/online-booking-payments", noDate: true },
+  { id: "online-booking-payments", label: "Online appointment payments", endpoint: "/reports/online-booking-payments", noDate: true },
 ];
 
 const FO_SECTIONS = new Set(["overview", "billing"]);

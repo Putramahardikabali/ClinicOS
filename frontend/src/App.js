@@ -27,6 +27,7 @@ import StaffPage from "@/pages/StaffPage";
 import StaffProfilePage from "@/pages/StaffProfilePage";
 import { hasPermission } from "@/lib/auth";
 import ReportsPage from "@/pages/ReportsPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
 import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
 import HelpPage from "@/pages/HelpPage";
@@ -153,6 +154,7 @@ export default function App() {
               <Route path="/catalog-settings" element={<Navigate to="/treatments" replace />} />
               <Route path="/finance-settings" element={<Protected anyPermission={["commission.manage", "billing.manage", "settings.manage", "coupons.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FinanceSettingsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/reports" element={<Protected anyPermission={["reports.view", "billing.view", "accounting.view"]} roles={["super_admin", "manager", "accounting"]}><OnboardingRedirect><Shell><FeatureRoute feature="reports"><ReportsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/analytics" element={<Protected permission="analytics.view" roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="reports"><AnalyticsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/help" element={<Protected><OnboardingRedirect><Shell><HelpPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/commissions/settings" element={<Protected roles={["super_admin", "manager"]}><OnboardingRedirect><LegacyCommissionRedirect /></OnboardingRedirect></Protected>} />
               <Route path="/commissions/*" element={<Protected roles={["super_admin", "manager"]}><OnboardingRedirect><LegacyCommissionRedirect /></OnboardingRedirect></Protected>} />

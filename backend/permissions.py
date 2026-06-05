@@ -69,6 +69,7 @@ PERMISSION_CATALOG: Dict[str, List[Dict[str, str]]] = {
     ],
     "Reports": [
         {"key": "reports.view", "label": "View reports"},
+        {"key": "analytics.view", "label": "View marketing & business analytics"},
     ],
     "Inventory": [
         {"key": "inventory.view", "label": "View inventory"},
@@ -194,7 +195,7 @@ SYSTEM_ROLE_DEFINITIONS = [
             "packages.view", "packages.use", "packages.adjust", "packages.report",
             "treatments.manage", "packages_catalog.manage", "products.manage",
             "inventory.view", "inventory.manage", "inventory.usage_record",
-            "commission.view", "commission.manage", "reports.view",
+            "commission.view", "commission.manage", "reports.view", "analytics.view",
             "staff.view", "staff.manage", "roles.view", "roles.manage",
             "settings.view", "settings.manage", "audit.view",
             "consent.view", "consent.send", "consent.manage",

@@ -110,7 +110,7 @@ export default function LoginPage() {
             Where <span style={{ color: "var(--bl-primary)" }}>care</span><br />meets clarity.
           </h1>
           <p className="mt-6 max-w-md text-[#5C6C62] leading-relaxed">
-            A secure workspace for doctors, therapists, front office, and management — bookings, visits, billing, and more in one place.
+            A secure workspace for doctors, therapists, front desk, and management — appointments, treatment sessions, billing, and more in one place.
           </p>
         </div>
 

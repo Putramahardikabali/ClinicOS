@@ -414,7 +414,7 @@ function TabAnalytics() {
           <thead>
             <tr className="text-left text-xs uppercase" style={muted}>
               <th className="p-3">Clinic</th><th className="p-3">Staff</th><th className="p-3">Storage GB</th>
-              <th className="p-3">Patients</th><th className="p-3">Visits</th><th className="p-3">Invoices</th><th className="p-3">Files</th><th className="p-3">Alerts</th>
+              <th className="p-3">Patients</th><th className="p-3">Sessions</th><th className="p-3">Invoices</th><th className="p-3">Files</th><th className="p-3">Alerts</th>
             </tr>
           </thead>
           <tbody>

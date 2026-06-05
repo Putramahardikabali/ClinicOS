@@ -72,7 +72,7 @@ export default function VisitDetailPage() {
       .then((r) => setVisit(r.data))
       .catch((e) => {
         setVisit(null);
-        setLoadError(e?.response?.data?.detail || "Could not load this visit");
+        setLoadError(e?.response?.data?.detail || "Could not load this treatment session");
       });
   }, [vid]);
 
@@ -227,7 +227,7 @@ export default function VisitDetailPage() {
 
       <div className="mt-5 flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="label-eyebrow">{visit.visit_type} visit</div>
+          <div className="label-eyebrow">{visit.visit_type} treatment session</div>
           <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">
             <Link to={`/patients/${visit.patient.id}`} className="hover:opacity-70">{visit.patient.full_name}</Link>
           </h1>
@@ -244,7 +244,7 @@ export default function VisitDetailPage() {
             </div>
             {primary && (
               <div>
-                <span className="text-[#5C6C62]">Primary performer:</span>{" "}
+                <span className="text-[#5C6C62]">Assigned staff:</span>{" "}
                 <span className="text-[#2D3A33] font-medium">
                   {primary.staff_name_snapshot || visit.assigned_user?.name}
                   {(primary.staff_role_snapshot || visit.assigned_user?.role) && (
@@ -325,7 +325,7 @@ export default function VisitDetailPage() {
               />
             )}
             {!showDoctorNotes && !showTherapistNotes && !showNurseNotes && (
-              <p className="text-sm text-[#5C6C62] bl-card p-4">No clinical note sections apply to your role on this visit.</p>
+              <p className="text-sm text-[#5C6C62] bl-card p-4">No clinical note sections apply to your role on this treatment session.</p>
             )}
           </FeatureGate>
         </div>

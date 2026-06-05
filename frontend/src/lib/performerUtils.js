@@ -48,7 +48,7 @@ export function validateAdditionalPerformers(rows, primaryPerformerId) {
   if (!rows?.length) return null;
   for (const row of rows) {
     if (!row.staff_id) {
-      return "Select staff for each additional performer";
+      return "Select staff for each additional assignment";
     }
   }
   const ids = [];
@@ -57,7 +57,7 @@ export function validateAdditionalPerformers(rows, primaryPerformerId) {
     if (row.staff_id) ids.push(row.staff_id);
   }
   if (new Set(ids).size !== ids.length) {
-    return "Each performer must be a different staff member";
+    return "Each staff member can only be assigned once";
   }
   return null;
 }
@@ -109,7 +109,7 @@ export function validatePerformerAvailability(
     availablePrimary.length > 0
   ) {
     if (!availablePrimary.some((p) => p.id === primaryId)) {
-      return "Selected primary performer is not available at this time";
+      return "Selected staff member is not available at this time";
     }
   }
   for (const row of assistants || []) {
@@ -117,7 +117,7 @@ export function validatePerformerAvailability(
     const role = row.staff_role || "nurse";
     const avail = availByRole?.[role] || [];
     if (avail.length && !avail.some((p) => (p.id || p) === row.staff_id)) {
-      return "An additional performer is not available at this time — pick another or remove the row";
+      return "An additional staff member is not available at this time — pick another or remove the row";
     }
   }
   return null;

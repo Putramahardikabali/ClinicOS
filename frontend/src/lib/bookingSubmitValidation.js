@@ -79,7 +79,7 @@ export function evaluateNewBookingSubmit({
   if (!phone) {
     return {
       canSubmit: false,
-      disabledReason: "Patient phone is required for bookings.",
+      disabledReason: "Patient phone is required for appointments.",
       debug,
     };
   }
@@ -98,31 +98,31 @@ export function evaluateNewBookingSubmit({
   if (!primaryPerformerId || !selectedPerformer) {
     return {
       canSubmit: false,
-      disabledReason: "Select performer.",
+      disabledReason: "Select assigned staff.",
       debug,
     };
   }
   if (loadingPerformers) {
-    return { canSubmit: false, disabledReason: "Checking performer availability…", debug };
+    return { canSubmit: false, disabledReason: "Checking staff availability…", debug };
   }
   if (hasConflict) {
     return {
       canSubmit: false,
-      disabledReason: "Selected performer already has a booking at this time.",
+      disabledReason: "Selected staff member already has an appointment at this time.",
       debug,
     };
   }
   if (!isOvertime && availLoaded && (availablePerformers || []).length > 0 && !inAvailableList) {
     return {
       canSubmit: false,
-      disabledReason: "Selected performer is not available at this time.",
+      disabledReason: "Selected staff member is not available at this time.",
       debug,
     };
   }
   if (!isOvertime && availLoaded && (availablePerformers || []).length === 0) {
     return {
       canSubmit: false,
-      disabledReason: "No performer is available for this time. Try another slot.",
+      disabledReason: "No staff available for this time. Try another slot.",
       debug,
     };
   }
