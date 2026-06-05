@@ -10,6 +10,8 @@ import { toast } from "sonner";
 
 import { Sparkles, Calendar as CalendarIcon, Clock, Check, ArrowRight, ArrowLeft, Package } from "lucide-react";
 import SearchInput from "@/components/ui/SearchInput";
+import NationalityCombobox from "@/components/patient/NationalityCombobox";
+import { PATIENT_SOURCE_OPTIONS } from "@/lib/patientProfile";
 
 
 
@@ -300,7 +302,16 @@ export default function PublicBookingPage() {
 
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  const [form, setForm] = useState({ patient_name: "", patient_phone: "", patient_email: "", notes: "" });
+  const [form, setForm] = useState({
+    patient_name: "",
+    patient_phone: "",
+    patient_email: "",
+    nationality: "",
+    nationality_code: "",
+    patient_source: "",
+    source_detail: "",
+    notes: "",
+  });
 
   const [busy, setBusy] = useState(false);
 
@@ -587,6 +598,13 @@ export default function PublicBookingPage() {
         booking_type: isPackage ? "package" : "treatment",
 
       };
+
+      if (form.nationality_code) {
+        body.nationality_code = form.nationality_code;
+        body.nationality = form.nationality;
+      }
+      if (form.patient_source) body.patient_source = form.patient_source;
+      if (form.source_detail.trim()) body.source_detail = form.source_detail.trim();
 
       if (isPackage) body.package_id = selPackage.id;
 
@@ -1539,6 +1557,84 @@ export default function PublicBookingPage() {
                       data-testid="booking-email"
 
                     />
+
+                  </div>
+
+                  <div className="sm:col-span-2">
+
+                    <label className="label-eyebrow block mb-1.5">Nationality</label>
+
+                    <NationalityCombobox
+
+                      value={form.nationality_code}
+
+                      onChange={(code, country) => setForm({
+
+                        ...form,
+
+                        nationality_code: code,
+
+                        nationality: country?.name || "",
+
+                      })}
+
+                      placeholder="Select your nationality"
+
+                      testId="booking-nationality"
+
+                    />
+
+                  </div>
+
+                  <div className="sm:col-span-2">
+
+                    <label className="label-eyebrow block mb-1.5">How did you hear about us?</label>
+
+                    <select
+
+                      className="bl-input min-h-[44px]"
+
+                      value={form.patient_source}
+
+                      onChange={e => setForm({ ...form, patient_source: e.target.value })}
+
+                      data-testid="booking-patient-source"
+
+                    >
+
+                      {PATIENT_SOURCE_OPTIONS.map((o) => (
+
+                        <option key={o.value || "none"} value={o.value}>{o.label}</option>
+
+                      ))}
+
+                    </select>
+
+                  </div>
+
+                  <div className="sm:col-span-2">
+
+                    <label className="label-eyebrow block mb-1.5">Source detail</label>
+
+                    <input
+
+                      className="bl-input min-h-[44px]"
+
+                      value={form.source_detail}
+
+                      onChange={e => setForm({ ...form, source_detail: e.target.value })}
+
+                      placeholder="Referral name, hotel, campaign, etc."
+
+                      data-testid="booking-source-detail"
+
+                    />
+
+                    <p className="text-xs text-[#5C6C62] mt-1.5">
+
+                      Add referral name, hotel name, influencer, campaign, or other detail.
+
+                    </p>
 
                   </div>
 

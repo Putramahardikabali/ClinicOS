@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -14,6 +14,136 @@ CLINICAL_ROLES = frozenset({"doctor", "therapist", "nurse"})
 DISPLAY_STATUSES = frozenset({
     "booked", "confirmed", "checked_in", "in_progress", "completed", "cancelled", "no_show",
 })
+
+EXCLUDED_REMINDER_STATUSES = frozenset({
+    "cancelled", "no_show", "completed", "blocked", "payment_expired", "payment_failed",
+})
+SESSION_REMINDER_STATUSES = frozenset({"booked", "confirmed", "checked_in"})
+
+_REMINDER_COPY: Dict[str, Dict[str, Any]] = {
+    "unconfirmed_one_hour": {
+        "title": "Appointment needs confirmation",
+        "message": "This appointment starts soon and has not been confirmed.",
+        "severity": "warning",
+        "actions": ["confirm", "open"],
+    },
+    "session_not_started": {
+        "title": "Treatment session not started",
+        "message": "This appointment has already started. Start the treatment session or open the appointment.",
+        "severity": "high",
+        "actions": ["start_session", "open"],
+    },
+}
+
+
+def resolve_clinic_tz(clinic: dict) -> Tuple[ZoneInfo, str]:
+    tz_name = (clinic.get("timezone") or "Asia/Makassar").strip() or "Asia/Makassar"
+    for candidate in (tz_name, "Asia/Makassar", "UTC"):
+        try:
+            return ZoneInfo(candidate), candidate
+        except Exception:
+            continue
+    return timezone.utc, "UTC"
+
+
+def parse_scheduled_at_in_clinic_tz(scheduled_at: str, tz: ZoneInfo) -> Optional[datetime]:
+    if not scheduled_at:
+        return None
+    raw = scheduled_at.strip()
+    try:
+        if raw.endswith("Z"):
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return dt.astimezone(tz)
+        if "+" in raw[10:] or raw.count("-") > 2:
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=tz)
+            return dt.astimezone(tz)
+        if len(raw) == 10:
+            raw = f"{raw}T00:00:00"
+        naive = datetime.fromisoformat(raw[:19])
+        return naive.replace(tzinfo=tz)
+    except (ValueError, TypeError):
+        return None
+
+
+def build_appointment_reminders(
+    bookings: List[dict],
+    patients_by_id: Dict[str, dict],
+    clinic: dict,
+    *,
+    today: str,
+    read_only: bool = False,
+    now: Optional[datetime] = None,
+) -> List[dict]:
+    """Time-sensitive FO reminders; does not mutate bookings."""
+    if read_only:
+        return []
+    tz, _ = resolve_clinic_tz(clinic)
+    if now is None:
+        now = datetime.now(tz)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=tz)
+    else:
+        now = now.astimezone(tz)
+
+    reminders: List[dict] = []
+    for b in bookings:
+        if b.get("booking_type") == "block" or b.get("status") == "blocked":
+            continue
+        status = (b.get("status") or "booked").strip().lower()
+        if status in EXCLUDED_REMINDER_STATUSES:
+            continue
+        if b.get("visit_id"):
+            continue
+
+        scheduled_raw = b.get("scheduled_at") or ""
+        scheduled = parse_scheduled_at_in_clinic_tz(scheduled_raw, tz)
+        if not scheduled or scheduled.date().isoformat() != today:
+            continue
+
+        bid = b.get("id")
+        patient = patients_by_id.get(b.get("patient_id") or "")
+        patient_name = b.get("patient_name") or (patient or {}).get("full_name") or "—"
+        treatment = b.get("treatment") or b.get("package_name") or "—"
+        base: Dict[str, Any] = {
+            "booking_id": bid,
+            "patient_name": patient_name,
+            "treatment": treatment,
+            "scheduled_at": scheduled_raw,
+            "duration_min": int(b.get("duration_min") or 30),
+            "status": status,
+            "link": f"/bookings?open={bid}",
+        }
+
+        if status == "booked":
+            window_start = scheduled - timedelta(minutes=60)
+            if window_start <= now < scheduled:
+                meta = _REMINDER_COPY["unconfirmed_one_hour"]
+                reminders.append({
+                    **base,
+                    "reminder_key": f"confirm:{bid}",
+                    "kind": "unconfirmed_one_hour",
+                    "severity": meta["severity"],
+                    "title": meta["title"],
+                    "message": meta["message"],
+                    "actions": list(meta["actions"]),
+                })
+
+        if status in SESSION_REMINDER_STATUSES and now >= scheduled + timedelta(minutes=5):
+            meta = _REMINDER_COPY["session_not_started"]
+            reminders.append({
+                **base,
+                "reminder_key": f"session:{bid}",
+                "kind": "session_not_started",
+                "severity": meta["severity"],
+                "title": meta["title"],
+                "message": meta["message"],
+                "actions": list(meta["actions"]),
+            })
+
+    reminders.sort(key=lambda r: r.get("scheduled_at") or "")
+    return reminders
 
 
 def clinic_day_bounds(clinic: dict) -> Tuple[str, str, str, str]:
@@ -397,12 +527,21 @@ async def build_front_desk_today(db, user: dict, clinic: dict, *, read_only: boo
     can_close = user_has_permission(user, "closing.create") and not read_only
     can_reopen = user_has_permission(user, "closing.reopen") and not read_only
 
+    appointment_reminders = build_appointment_reminders(
+        bookings,
+        patients_by_id,
+        clinic,
+        today=today,
+        read_only=read_only,
+    )
+
     return {
         "date": today,
         "timezone": tz_name,
         "read_only": read_only,
         "summary": summary,
         "appointments": appointments,
+        "appointment_reminders": appointment_reminders,
         "action_queue": action_queue[:40],
         "sales_snapshot": sales_snapshot,
         "closing": closing_widget,

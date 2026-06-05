@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,8 +11,10 @@ import requests
 
 from front_desk_dashboard import (
     _map_display_status,
+    build_appointment_reminders,
     can_access_front_desk,
     clinic_day_bounds,
+    parse_scheduled_at_in_clinic_tz,
 )
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8000").rstrip("/")
@@ -81,6 +83,112 @@ class TestFrontDeskUnit:
         assert end == "2026-06-01T23:59:59"
         assert tz == "Asia/Jakarta"
         zone_ctor.assert_called_with("Asia/Jakarta")
+
+
+class TestAppointmentReminders:
+    TZ = timezone(timedelta(hours=7))
+    TODAY = "2026-06-01"
+    CLINIC = {"timezone": "Asia/Jakarta"}
+
+    @pytest.fixture(autouse=True)
+    def _patch_clinic_tz(self, monkeypatch):
+        monkeypatch.setattr(
+            "front_desk_dashboard.resolve_clinic_tz",
+            lambda clinic: (self.TZ, "Asia/Jakarta"),
+        )
+
+    def _booking(self, **overrides):
+        base = {
+            "id": "bk-test-1",
+            "status": "booked",
+            "scheduled_at": f"{self.TODAY}T14:00:00",
+            "duration_min": 30,
+            "booking_type": "treatment",
+            "patient_name": "Alice Test",
+            "treatment": "Consultation",
+        }
+        base.update(overrides)
+        return base
+
+    def _reminders(self, booking, now: datetime):
+        return build_appointment_reminders(
+            [booking],
+            {},
+            self.CLINIC,
+            today=self.TODAY,
+            now=now,
+        )
+
+    def test_61_minutes_away_no_unconfirmed_reminder(self):
+        now = datetime(2026, 6, 1, 12, 59, 0, tzinfo=self.TZ)
+        assert self._reminders(self._booking(), now) == []
+
+    def test_within_60_minutes_booked_unconfirmed_reminder(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        out = self._reminders(self._booking(), now)
+        assert len(out) == 1
+        assert out[0]["kind"] == "unconfirmed_one_hour"
+        assert out[0]["reminder_key"] == "confirm:bk-test-1"
+        assert out[0]["title"] == "Appointment needs confirmation"
+        assert "confirm" in out[0]["actions"]
+
+    def test_confirmed_no_unconfirmed_reminder(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        out = self._reminders(self._booking(status="confirmed"), now)
+        assert not any(r["kind"] == "unconfirmed_one_hour" for r in out)
+
+    def test_excluded_statuses_no_reminders(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        for status in ("cancelled", "no_show", "blocked", "payment_expired", "payment_failed", "completed"):
+            assert self._reminders(self._booking(status=status), now) == []
+
+    def test_session_not_started_after_five_minutes(self):
+        now = datetime(2026, 6, 1, 14, 5, 0, tzinfo=self.TZ)
+        for status in ("booked", "confirmed", "checked_in"):
+            out = self._reminders(self._booking(status=status), now)
+            assert len(out) == 1
+            assert out[0]["kind"] == "session_not_started"
+            assert out[0]["reminder_key"] == "session:bk-test-1"
+            assert "start_session" in out[0]["actions"]
+
+    def test_visit_id_no_session_reminder(self):
+        now = datetime(2026, 6, 1, 14, 10, 0, tzinfo=self.TZ)
+        out = self._reminders(self._booking(status="confirmed", visit_id="visit-1"), now)
+        assert out == []
+
+    def test_time_block_no_reminder(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        out = self._reminders(self._booking(booking_type="block", status="blocked"), now)
+        assert out == []
+
+    def test_not_today_no_reminder(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        out = build_appointment_reminders(
+            [self._booking(scheduled_at="2026-06-02T14:00:00")],
+            {},
+            self.CLINIC,
+            today=self.TODAY,
+            now=now,
+        )
+        assert out == []
+
+    def test_clinic_timezone_parses_local_scheduled_at(self):
+        parsed = parse_scheduled_at_in_clinic_tz(f"{self.TODAY}T14:00:00", self.TZ)
+        assert parsed is not None
+        assert parsed.utcoffset() == timedelta(hours=7)
+        assert parsed.hour == 14
+
+    def test_read_only_returns_empty(self):
+        now = datetime(2026, 6, 1, 13, 30, 0, tzinfo=self.TZ)
+        out = build_appointment_reminders(
+            [self._booking()],
+            {},
+            self.CLINIC,
+            today=self.TODAY,
+            read_only=True,
+            now=now,
+        )
+        assert out == []
 
 
 # ---------- Integration tests (running API) ----------
@@ -167,6 +275,8 @@ class TestFrontDeskDashboardIntegration:
         assert "summary" in body
         assert "appointments" in body
         assert "action_queue" in body
+        assert "appointment_reminders" in body
+        assert isinstance(body["appointment_reminders"], list)
         assert "sales_snapshot" in body
         assert "closing" in body
         assert body.get("read_only") is False

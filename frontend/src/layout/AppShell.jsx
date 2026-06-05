@@ -11,6 +11,8 @@ import PlatformAnnouncementBanner from "@/components/PlatformAnnouncementBanner"
 import InstallAppPrompt from "@/components/InstallAppPrompt";
 import ExpiryGate from "@/components/ExpiryGate";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
+import FrontDeskReminderLayer from "@/components/frontdesk/FrontDeskReminderLayer";
+import { FrontDeskReminderProvider } from "@/lib/frontDeskReminderContext";
 import { HelpDrawer } from "@/pages/HelpPage";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
@@ -226,6 +228,7 @@ export default function AppShell({ children }) {
   );
 
   return (
+    <FrontDeskReminderProvider>
     <div className="min-h-screen flex" style={{ background: "var(--bl-background)" }}>
       <ExpiryGate />
       {/* Desktop sidebar */}
@@ -371,6 +374,8 @@ export default function AppShell({ children }) {
         )}
       </main>
       <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <FrontDeskReminderLayer />
     </div>
+    </FrontDeskReminderProvider>
   );
 }

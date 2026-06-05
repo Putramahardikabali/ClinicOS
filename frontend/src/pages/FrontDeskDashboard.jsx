@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth, hasPermission } from "@/lib/auth";
 import { formatIdr } from "@/lib/clinic";
+import { AppointmentRemindersPanel } from "@/components/frontdesk/AppointmentReminders";
+import { useFrontDeskReminders } from "@/lib/frontDeskReminderContext";
 import {
   Users,
   Lock,
@@ -59,28 +61,47 @@ function ActionRow({ item }) {
 export default function FrontDeskDashboard({ embedded = false }) {
   const { user } = useAuth();
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { openPanel } = useFrontDeskReminders() || {};
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [patientQ, setPatientQ] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchDashboard = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const r = await api.get("/dashboard/front-desk/today");
       setData(r.data);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Could not load today operations");
-      setData(null);
+      if (!silent) {
+        setError(e?.response?.data?.detail || "Could not load today operations");
+        setData(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    fetchDashboard(false);
+  }, [fetchDashboard]);
+
+  useEffect(() => {
+    if (searchParams.get("fd_reminders") !== "1") return;
+    openPanel?.();
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("fd_reminders");
+      return next;
+    }, { replace: true });
+    window.setTimeout(() => {
+      document.getElementById("fd-appointment-reminders-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }, [searchParams, setSearchParams, openPanel]);
 
   const summary = data?.summary || {};
   const sales = data?.sales_snapshot || {};
@@ -102,7 +123,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
     return (
       <div className="bl-card p-8 text-center">
         <p className="text-[#B14A2C]">{error}</p>
-        <button type="button" className="bl-btn-ghost mt-4 text-sm" onClick={load}>Retry</button>
+        <button type="button" className="bl-btn-ghost mt-4 text-sm" onClick={() => fetchDashboard(false)}>Retry</button>
       </div>
     );
   }
@@ -155,6 +176,8 @@ export default function FrontDeskDashboard({ embedded = false }) {
         </div>
         <button type="submit" className="bl-btn-ghost text-sm">Search</button>
       </form>
+
+      <AppointmentRemindersPanel />
 
       <section data-testid="fd-summary-cards">
         <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
@@ -303,7 +326,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
       </div>
 
       <div className="flex justify-end">
-        <button type="button" className="bl-btn-ghost text-sm" onClick={load}>Refresh</button>
+        <button type="button" className="bl-btn-ghost text-sm" onClick={() => fetchDashboard(false)}>Refresh</button>
       </div>
     </div>
   );

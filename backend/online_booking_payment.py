@@ -151,6 +151,10 @@ class PublicCheckoutIn(BaseModel):
     patient_name: str
     patient_phone: str
     patient_email: Optional[str] = ""
+    nationality: Optional[str] = None
+    nationality_code: Optional[str] = None
+    patient_source: Optional[str] = None
+    source_detail: Optional[str] = None
     treatment: str
     duration_min: int = 30
     scheduled_at: str
@@ -609,31 +613,25 @@ def register_online_booking_payment(
             package_id=package_id, booking_type=booking_type,
         )
 
-        normalized_phone = "".join(ch for ch in (payload.patient_phone or "") if ch.isdigit() or ch == "+").strip()
-        normalized_email = (payload.patient_email or "").strip().lower()
-        existing_patient = None
-        if normalized_phone:
-            existing_patient = await db.patients.find_one(
-                {"clinic_id": c["id"], "phone": normalized_phone}, {"_id": 0, "id": 1},
-            )
-        if not existing_patient and normalized_email:
-            existing_patient = await db.patients.find_one(
-                {"clinic_id": c["id"], "email": normalized_email}, {"_id": 0, "id": 1},
-            )
-        patient_id = None
-        if existing_patient:
-            patient_id = existing_patient["id"]
-        else:
-            patient_id = str(uuid.uuid4())
-            await db.patients.insert_one({
-                "id": patient_id,
-                "clinic_id": c["id"],
-                "full_name": payload.patient_name.strip(),
-                "phone": normalized_phone or None,
-                "email": normalized_email or None,
-                "source": "public_booking",
-                "created_at": iso(now_utc()),
-            })
+        from public_booking_patient import (
+            normalize_public_email,
+            normalize_public_phone,
+            resolve_public_booking_patient,
+        )
+
+        normalized_phone = normalize_public_phone(payload.patient_phone)
+        normalized_email = normalize_public_email(payload.patient_email)
+        patient_id, _patient_matched = await resolve_public_booking_patient(
+            db,
+            c["id"],
+            patient_name=payload.patient_name,
+            patient_phone=payload.patient_phone,
+            patient_email=payload.patient_email or "",
+            nationality=payload.nationality,
+            nationality_code=payload.nationality_code,
+            patient_source=payload.patient_source,
+            source_detail=payload.source_detail,
+        )
 
         booking_id = str(uuid.uuid4())
         payment_id = str(uuid.uuid4())
