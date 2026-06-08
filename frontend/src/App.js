@@ -6,6 +6,7 @@ import { SettingsProvider } from "@/lib/settings";
 import { ClinicProvider, useClinic } from "@/lib/clinic";
 import { InstallAppProvider } from "@/lib/installApp";
 import LoginPage from "@/pages/LoginPage";
+import DemoPage from "@/pages/DemoPage";
 import RegisterPage from "@/pages/RegisterPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import AppShell from "@/layout/AppShell";
@@ -114,6 +115,7 @@ export default function App() {
             <Toaster position="top-right" richColors />
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/demo" element={<DemoPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/book/:slug" element={<PublicBookingPage />} />
               <Route path="/consent/:token" element={<PublicConsentPage />} />

@@ -29,6 +29,7 @@ Edit `.env` with real values:
 - Atlas connection string in `MONGO_URL`
 - Strong `JWT_SECRET` and `SUPER_ADMIN_PASSWORD`
 - `VITE_API_BASE_URL=https://api.clinicos.id` (baked into the frontend image at build time)
+- `VITE_DEMO_PASSWORD=…` for the public `/demo` login page (optional; without it, demo role cards show “Coming soon”). **Warning:** this value is embedded in the frontend bundle — use only for Demo Clinic accounts with fake data.
 
 Never commit `.env` to git.
 
@@ -60,7 +61,7 @@ docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Rebuild the frontend after changing `VITE_API_BASE_URL` or other `REACT_APP_*` build args.
+Rebuild the frontend after changing `VITE_API_BASE_URL`, `VITE_DEMO_PASSWORD`, or other frontend build args.
 
 ---
 

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
+import { DEMO_BANNER_TEXT, resolveDemoLoginPrefill } from "@/lib/demoAccounts";
 
 const APP_NAME = "ClinicOS";
 const APP_TAGLINE = "Clinic management for modern clinics";
@@ -10,13 +11,31 @@ const APP_TAGLINE = "Clinic management for modern clinics";
 export default function LoginPage() {
   const { login, user, complete2faVerify, complete2faRecovery } = useAuth();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [demoBanner, setDemoBanner] = useState(null);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("credentials");
   const [challengeToken, setChallengeToken] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
+
+  useEffect(() => {
+    const prefill = resolveDemoLoginPrefill(searchParams.toString());
+    if (!prefill) {
+      setDemoBanner(null);
+      return;
+    }
+    if (prefill.configured) {
+      setEmail(prefill.email);
+      setPassword(prefill.password);
+      setDemoBanner(DEMO_BANNER_TEXT);
+    } else {
+      setDemoBanner(null);
+      toast.message(`${prefill.label} demo is not available yet.`);
+    }
+  }, [searchParams]);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -134,6 +153,16 @@ export default function LoginPage() {
           <h2 className="font-display text-3xl mt-2 text-[#2D3A33]">{formTitle}</h2>
           <p className="mt-2 text-[#5C6C62]">{formSubtitle}</p>
 
+          {step === "credentials" && demoBanner && (
+            <div
+              className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+              data-testid="login-demo-banner"
+              role="status"
+            >
+              {demoBanner}
+            </div>
+          )}
+
           {step === "credentials" && (
             <form onSubmit={submit} className="mt-8 space-y-4" data-testid="login-form">
               <div>
@@ -220,6 +249,11 @@ export default function LoginPage() {
           {step === "credentials" && (
             <>
               <p className="mt-8 text-sm text-center text-[#5C6C62]">
+                <Link to="/demo" className="font-medium" style={{ color: "var(--bl-primary)" }} data-testid="login-demo-link">
+                  Explore demo →
+                </Link>
+              </p>
+              <p className="mt-4 text-sm text-center text-[#5C6C62]">
                 New to ClinicOS?{" "}
                 <Link to="/register" className="font-medium" style={{ color: "var(--bl-primary)" }} data-testid="login-register-link">
                   Start your free trial →
