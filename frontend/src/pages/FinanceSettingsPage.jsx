@@ -9,12 +9,12 @@ import { OnlineBookingPaymentTab } from "@/pages/admin/settingsTabs";
 
 export default function FinanceSettingsPage() {
   const [search] = useSearchParams();
+  const { user } = useAuth();
+  const { clinic } = useClinic();
   const legacyTab = search.get("tab");
   if (legacyTab === "campaigns" || legacyTab === "coupons") return <Navigate to="/campaigns" replace />;
   if (legacyTab === "loyalty") return <Navigate to="/loyalty" replace />;
 
-  const { user } = useAuth();
-  const { clinic } = useClinic();
   const isOwner = user?.role === "super_admin";
 
   const canCommission =
