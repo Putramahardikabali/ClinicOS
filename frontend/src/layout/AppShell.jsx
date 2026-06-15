@@ -23,6 +23,8 @@ import {
   Gift,
   MessageSquare,
   ClipboardList,
+  Tag,
+  Award,
 } from "lucide-react";
 
 const NAV = [
@@ -40,7 +42,9 @@ const NAV = [
   { to: "/products", label: "Products", icon: Boxes, permission: "products.manage", roles: ["super_admin","fo","manager"], shortLabel: "Products", feature: "products" },
   { to: "/visit-settings", label: "Session settings", icon: ClipboardList, anyPermission: ["settings.manage", "consent.manage"], roles: ["super_admin", "manager"], shortLabel: "Sessions", feature: "consent" },
   { to: "/messaging", label: "Messaging", icon: MessageSquare, anyPermission: ["messaging.view", "messaging.manage", "messaging.automation.view", "messaging.automation.manage"], roles: ["super_admin", "manager"], shortLabel: "Messaging", feature: "whatsapp_automation" },
-  { to: "/finance-settings", label: "Finance Settings", icon: Landmark, anyPermission: ["commission.manage", "billing.manage", "settings.manage", "coupons.manage"], roles: ["super_admin", "manager"], shortLabel: "Finance" },
+  { to: "/finance-settings", label: "Finance Settings", icon: Landmark, anyPermission: ["commission.manage", "billing.manage", "settings.manage"], roles: ["super_admin", "manager"], shortLabel: "Finance" },
+  { to: "/campaigns", label: "Campaigns", icon: Tag, anyPermission: ["campaigns.manage", "campaigns.view", "coupons.manage"], roles: ["super_admin", "manager"], shortLabel: "Campaigns" },
+  { to: "/loyalty", label: "Loyalty", icon: Award, anyPermission: ["loyalty.manage", "loyalty.view"], roles: ["super_admin", "manager"], shortLabel: "Loyalty" },
   { to: "/pos", label: "POS", icon: ShoppingCart, anyPermission: ["pos.view", "pos.create"], roles: ["super_admin","fo","manager","accounting"], shortLabel: "POS", feature: "products" },
   { to: "/reports", label: "Reports", icon: TrendingUp, anyPermission: ["reports.view", "billing.view", "accounting.view"], roles: ["super_admin","manager","accounting"], shortLabel: "Reports", feature: "reports" },
   { to: "/analytics", label: "Analytics", icon: BarChart3, permission: "analytics.view", roles: ["super_admin", "manager"], shortLabel: "Analytics", feature: "reports" },
@@ -57,6 +61,7 @@ const OPS_SIDEBAR = [
   { type: "group", label: "Clinic", paths: ["/patients", "/visits", "/treatments", "/packages", "/products"] },
   { type: "group", label: "Retail", paths: ["/pos", "/gift-cards"] },
   { type: "group", label: "Finance", paths: ["/invoices", "/daily-closing", "/reports", "/analytics", "/finance-settings"] },
+  { type: "group", label: "Marketing", paths: ["/campaigns", "/loyalty"] },
   { type: "group", label: "Clinical", paths: ["/visit-settings"] },
   { type: "group", label: "Communication", paths: ["/messaging"] },
   { type: "group", label: "Team", paths: ["/staff"] },

@@ -399,6 +399,8 @@ export default function BookingsScheduleView({
   canManage,
   canCreateOvertime = false,
   reloadAt = 0,
+  modalPortalRef,
+  onFullscreenChange,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -447,11 +449,17 @@ export default function BookingsScheduleView({
 
   useEffect(() => {
     const onFsChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const fs = Boolean(document.fullscreenElement);
+      setIsFullscreen(fs);
+      onFullscreenChange?.(fs);
     };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
+  }, [onFullscreenChange]);
+
+  useEffect(() => {
+    onFullscreenChange?.(isFullscreen);
+  }, [isFullscreen, onFullscreenChange]);
 
   const { openMin, closeMin, interval, closed, closedReason, gridWidth, hourMarks, slotCount } = useMemo(() => {
     const dk = dayKey(date);
@@ -825,6 +833,13 @@ export default function BookingsScheduleView({
       </div>
 
       {!isFullscreen && <ScheduleLegend />}
+
+      <div
+        ref={modalPortalRef}
+        className={isFullscreen ? "fixed inset-0 z-[120] pointer-events-none [&>*]:pointer-events-auto" : "hidden"}
+        data-testid="schedule-modal-portal"
+        aria-hidden={!isFullscreen}
+      />
     </div>
   );
 }

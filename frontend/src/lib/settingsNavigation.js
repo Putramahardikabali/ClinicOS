@@ -14,9 +14,9 @@ export const LEGACY_ADMIN_TAB_REDIRECTS = {
   inventory: "/products?tab=inventory-settings",
   commission: "/finance-settings?tab=commission",
   online_booking_payment: "/finance-settings?tab=online-booking-payment",
-  coupons: "/finance-settings?tab=campaigns",
-  campaigns: "/finance-settings?tab=campaigns",
-  loyalty: "/finance-settings?tab=loyalty",
+  coupons: "/campaigns",
+  campaigns: "/campaigns",
+  loyalty: "/loyalty",
   users: "/staff/directory",
   staff_schedule: "/staff/schedule",
 };

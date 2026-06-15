@@ -14,6 +14,16 @@ except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
 
 DEFAULT_CLINIC_TZ = "Asia/Makassar"
+APPLIES_TO_ALL = "all"
+APPLIES_TO_SELECTED_TREATMENTS = "selected_treatments"
+APPLIES_TO_SELECTED_CATEGORIES = "selected_categories"
+APPLIES_TO_SELECTED_PACKAGES = "selected_packages"
+
+_LEGACY_APPLIES_TO = {
+    "treatments": APPLIES_TO_SELECTED_TREATMENTS,
+    "categories": APPLIES_TO_SELECTED_CATEGORIES,
+    "packages": APPLIES_TO_SELECTED_PACKAGES,
+}
 _TZ_OFFSETS = {
     "Asia/Makassar": timedelta(hours=8),
     "Asia/Jakarta": timedelta(hours=7),
@@ -89,27 +99,85 @@ def _date_in_range(campaign: dict, ref_date: str) -> bool:
     return True
 
 
+def normalize_applies_to(value: Optional[str]) -> str:
+    raw = (value or APPLIES_TO_ALL).lower()
+    return _LEGACY_APPLIES_TO.get(raw, raw)
+
+
+def campaign_eligible_treatment_ids(campaign: dict) -> List[str]:
+    return list(campaign.get("eligible_treatment_ids") or campaign.get("treatment_ids") or [])
+
+
+def campaign_eligible_category_ids(campaign: dict) -> List[str]:
+    return list(
+        campaign.get("eligible_treatment_category_ids")
+        or campaign.get("category_keys")
+        or []
+    )
+
+
+def campaign_eligible_package_ids(campaign: dict) -> List[str]:
+    return list(campaign.get("eligible_package_ids") or campaign.get("package_ids") or [])
+
+
+def validate_campaign_scope(row: dict) -> Optional[str]:
+    applies_to = normalize_applies_to(row.get("applies_to"))
+    if applies_to == APPLIES_TO_SELECTED_TREATMENTS:
+        if not campaign_eligible_treatment_ids(row):
+            return "Select at least one treatment for this campaign"
+    elif applies_to == APPLIES_TO_SELECTED_CATEGORIES:
+        if not campaign_eligible_category_ids(row):
+            return "Select at least one treatment category for this campaign"
+    elif applies_to == APPLIES_TO_SELECTED_PACKAGES:
+        if not campaign_eligible_package_ids(row):
+            return "Select at least one package for this campaign"
+    return None
+
+
+def campaign_applies_to_summary(campaign: dict) -> str:
+    applies_to = normalize_applies_to(campaign.get("applies_to"))
+    if applies_to == APPLIES_TO_ALL:
+        return "All treatments & packages"
+    if applies_to == APPLIES_TO_SELECTED_TREATMENTS:
+        n = len(campaign_eligible_treatment_ids(campaign))
+        return f"{n} selected treatment{'s' if n != 1 else ''}"
+    if applies_to == APPLIES_TO_SELECTED_CATEGORIES:
+        n = len(campaign_eligible_category_ids(campaign))
+        return f"{n} selected categor{'ies' if n != 1 else 'y'}"
+    if applies_to == APPLIES_TO_SELECTED_PACKAGES:
+        n = len(campaign_eligible_package_ids(campaign))
+        return f"{n} selected package{'s' if n != 1 else ''}"
+    return "All treatments & packages"
+
+
+def _line_category_key(item: dict) -> str:
+    return (item.get("category") or item.get("treatment_category") or "").strip().lower()
+
+
 def _invoice_line_matches_campaign(campaign: dict, item: dict) -> bool:
-    applies_to = (campaign.get("applies_to") or "all").lower()
-    if applies_to == "all":
-        return True
+    applies_to = normalize_applies_to(campaign.get("applies_to"))
+    if applies_to == APPLIES_TO_ALL:
+        item_type = (item.get("item_type") or "").lower()
+        return item_type in ("treatment", "custom", "package")
     item_type = (item.get("item_type") or "").lower()
     catalog_id = item.get("catalog_id") or item.get("treatment_id") or item.get("package_id")
-    category = (item.get("category") or item.get("treatment_category") or "").lower()
-    if applies_to == "treatments":
+    if applies_to == APPLIES_TO_SELECTED_TREATMENTS:
         if item_type not in ("treatment", "custom"):
             return False
-        ids = campaign.get("treatment_ids") or []
-        return not ids or catalog_id in ids
-    if applies_to == "categories":
-        cats = [c.lower() for c in (campaign.get("category_keys") or [])]
+        ids = campaign_eligible_treatment_ids(campaign)
+        return bool(ids) and catalog_id in ids
+    if applies_to == APPLIES_TO_SELECTED_CATEGORIES:
+        if item_type not in ("treatment", "custom"):
+            return False
+        cats = [c.strip().lower() for c in campaign_eligible_category_ids(campaign) if c]
+        category = _line_category_key(item)
         return bool(cats) and category in cats
-    if applies_to == "packages":
+    if applies_to == APPLIES_TO_SELECTED_PACKAGES:
         if item_type != "package":
             return False
-        ids = campaign.get("package_ids") or []
-        return not ids or catalog_id in ids
-    return True
+        ids = campaign_eligible_package_ids(campaign)
+        return bool(ids) and catalog_id in ids
+    return False
 
 
 def eligible_subtotal_for_campaign(campaign: dict, items: List[dict]) -> int:
@@ -207,6 +275,22 @@ def campaign_discount_type_for_invoice(campaign: dict) -> Tuple[str, float]:
 def build_campaign_doc(row: dict, clinic_id: str, user_id: str, existing: Optional[dict] = None) -> dict:
     code = normalize_campaign_code(row.get("code") or row.get("slug") or "")
     name = (row.get("name") or code or "Campaign").strip()
+    applies_to = normalize_applies_to(row.get("applies_to"))
+    treatment_ids = list(
+        row.get("eligible_treatment_ids")
+        or row.get("treatment_ids")
+        or []
+    )
+    category_ids = list(
+        row.get("eligible_treatment_category_ids")
+        or row.get("category_keys")
+        or []
+    )
+    package_ids = list(
+        row.get("eligible_package_ids")
+        or row.get("package_ids")
+        or []
+    )
     doc = {
         "name": name,
         "code": code or None,
@@ -218,10 +302,13 @@ def build_campaign_doc(row: dict, clinic_id: str, user_id: str, existing: Option
         "discount_value": int(row.get("discount_value") or 0),
         "max_discount_idr": int(row["max_discount_idr"]) if row.get("max_discount_idr") not in (None, "") else None,
         "min_invoice_amount_idr": int(row.get("min_invoice_amount_idr") or row.get("min_subtotal_idr") or 0),
-        "applies_to": row.get("applies_to") or "all",
-        "treatment_ids": list(row.get("treatment_ids") or []),
-        "category_keys": list(row.get("category_keys") or []),
-        "package_ids": list(row.get("package_ids") or []),
+        "applies_to": applies_to,
+        "eligible_treatment_ids": treatment_ids,
+        "eligible_treatment_category_ids": category_ids,
+        "eligible_package_ids": package_ids,
+        "treatment_ids": treatment_ids,
+        "category_keys": category_ids,
+        "package_ids": package_ids,
         "max_uses_total": int(row["max_uses_total"]) if row.get("max_uses_total") not in (None, "") else (
             int(row["max_uses"]) if row.get("max_uses") not in (None, "") else None
         ),
@@ -267,6 +354,9 @@ def coupon_to_campaign(coupon: dict) -> dict:
         "max_discount_idr": coupon.get("max_discount_idr"),
         "min_invoice_amount_idr": int(coupon.get("min_subtotal_idr") or 0),
         "applies_to": "all",
+        "eligible_treatment_ids": [],
+        "eligible_treatment_category_ids": [],
+        "eligible_package_ids": [],
         "treatment_ids": [],
         "category_keys": [],
         "package_ids": [],
@@ -286,13 +376,20 @@ def coupon_to_campaign(coupon: dict) -> dict:
     }
 
 
+def campaign_is_applicable_to_items(campaign: dict, items: List[dict]) -> bool:
+    return eligible_subtotal_for_campaign(campaign, items) > 0
+
+
 def campaign_snapshot_fields(campaign: dict, discount_amount: int, user_id: str) -> Dict[str, Any]:
+    summary = campaign_applies_to_summary(campaign)
     return {
         "campaign_id": campaign["id"],
         "campaign_name_snapshot": campaign.get("name") or "",
         "campaign_code_snapshot": campaign.get("code") or "",
         "discount_type_snapshot": campaign.get("discount_type") or "percent",
         "discount_value_snapshot": int(campaign.get("discount_value") or 0),
+        "applies_to_snapshot": normalize_applies_to(campaign.get("applies_to")),
+        "eligible_summary_snapshot": summary,
         "discount_amount_applied": int(discount_amount),
         "campaign_applied_by_user_id": user_id,
         "campaign_applied_at": iso(now_utc()),

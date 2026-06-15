@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can, hasPermission, ROLE_LABEL } from "@/lib/auth";
@@ -11,7 +11,7 @@ import {
 } from "@/lib/visitUi";
 import { Plus, Trash2 } from "lucide-react";
 import ProductUsageSelector, { CUSTOM_PRODUCT_ID, productUsageName } from "@/components/visit/ProductUsageSelector";
-import { bookedTreatmentLabel, bookedTreatmentReference, hasConfirmedBookedTreatment, performedTreatmentItems } from "@/lib/visitWorkflow";
+import { bookedTreatmentLabel, bookedTreatmentReference, performedTreatmentItems } from "@/lib/visitWorkflow";
 import { primaryAndAdditionalPerformers } from "@/lib/visitUi";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -57,15 +57,13 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState(() => emptyForm(UNITS));
-  const [showTreatmentPicker, setShowTreatmentPicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [formPrefilled, setFormPrefilled] = useState(false);
   const bookedRef = bookedTreatmentReference(visit);
   const bookedLabel = bookedRef?.name || bookedTreatmentLabel(visit);
   const { primary, additional } = primaryAndAdditionalPerformers(visit);
   const performedItems = performedTreatmentItems(visit);
   const items = performedItems;
-  const bookedAlreadyConfirmed = hasConfirmedBookedTreatment(visit);
   const inventoryDeductionEnabled = Boolean(clinic?.settings?.inventory_deduct_on_usage ?? clinic?.inventory_deduct_on_usage);
   const usageByTreatment = useMemo(() => {
     const map = new Map();
@@ -188,36 +186,70 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
     }));
   };
 
-  const resetForm = () => {
-    setSelectedId("");
-    setPickerMode(null);
-    setShowTreatmentPicker(false);
+  const prefillFromBooked = (catalogList = roleCatalog) => {
+    const label = bookedLabel.trim();
+    if (!label) return;
+    const match =
+      catalogList.find((t) => t.name.toLowerCase() === label.toLowerCase())
+      || catalogList.find((t) => label.toLowerCase().includes(t.name.toLowerCase()));
     const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
-    setForm(emptyForm(UNITS, defaultPid));
-  };
-
-  const openPicker = (mode) => {
-    setSelectedId("");
-    const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
-    setForm(emptyForm(UNITS, defaultPid));
-    setPickerMode(mode);
-    setShowTreatmentPicker(true);
-  };
-
-  const confirmBooked = async () => {
-    if (bookedAlreadyConfirmed) {
-      toast.error("Booked treatment is already recorded as performed");
-      return;
+    if (match) {
+      setSelectedId(match.id);
+      let eligible = visitPerformers;
+      if (Array.isArray(match.allowed_performer_roles) && match.allowed_performer_roles.length) {
+        eligible = visitPerformers.filter((p) =>
+          match.allowed_performer_roles.includes((p.staff_role_snapshot || "").toLowerCase()),
+        );
+      }
+      const performerId = eligible.length === 1 ? eligible[0].staff_id : "";
+      setForm({
+        category: match.category || "Other",
+        name: match.name,
+        product_used: "",
+        productUsage: null,
+        area_treated: "",
+        quantity: "1",
+        unit_type: UNITS[0] || "session",
+        notes: "",
+        price: String(Number(match.price_idr) || 0),
+        performer_id: performerId || defaultPid,
+      });
+    } else {
+      setSelectedId("");
+      setForm({
+        ...emptyForm(UNITS, defaultPid),
+        name: label,
+        quantity: "1",
+        unit_type: UNITS[0] || "session",
+      });
     }
-    setConfirmBusy(true);
-    try {
-      await api.post(`/visits/${visit.id}/treatments/confirm-booked`);
-      toast.success("Booked treatment recorded as performed");
-      onSaved?.();
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to confirm treatment");
-    } finally {
-      setConfirmBusy(false);
+    setFormPrefilled(true);
+  };
+
+  const prevPerformedCount = useRef(performedItems.length);
+
+  useEffect(() => {
+    if (!workflowMode || loadingCatalog || formPrefilled || performedItems.length > 0) return;
+    if (bookedLabel.trim() && roleCatalog.length) {
+      prefillFromBooked(roleCatalog);
+    }
+  }, [workflowMode, loadingCatalog, formPrefilled, performedItems.length, bookedLabel, roleCatalog]);
+
+  useEffect(() => {
+    if (workflowMode && prevPerformedCount.current > 0 && performedItems.length === 0) {
+      setFormPrefilled(false);
+    }
+    prevPerformedCount.current = performedItems.length;
+  }, [workflowMode, performedItems.length]);
+
+  const resetFormAfterAdd = () => {
+    setFormPrefilled(false);
+    if (workflowMode && bookedLabel.trim()) {
+      prefillFromBooked();
+    } else {
+      const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
+      setSelectedId("");
+      setForm(emptyForm(UNITS, defaultPid));
     }
   };
 
@@ -227,9 +259,10 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
 
   const add = async (e) => {
     e.preventDefault();
-    const treatmentName = form.name.trim() || bookedLabel.trim();
+    if (adding) return;
+    const treatmentName = form.name.trim() || (workflowMode ? "" : bookedLabel.trim());
     if (!treatmentName) {
-      toast.error(workflowMode ? "Booked treatment is missing — use Change treatment" : "Select a treatment from the catalog");
+      toast.error("Select a treatment from the catalog");
       return;
     }
     if (multiPerformer && !form.performer_id) {
@@ -251,16 +284,12 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       const hasInventoryProduct = pu?.product_id && pu.product_id !== CUSTOM_PRODUCT_ID && !pu?.is_custom;
       const hasCustomProduct = pu?.is_custom || pu?.product_id === CUSTOM_PRODUCT_ID;
       const customName = (pu?.custom_name || "").trim();
-      if (workflowMode && !showTreatmentPicker && !hasInventoryProduct && !hasCustomProduct && !form.product_used?.trim()) {
-        toast.error("Select a product or add a custom product");
-        return;
-      }
       if (hasCustomProduct && !customName) {
         toast.error("Enter a custom product name");
         return;
       }
       const qtyUsed = hasInventoryProduct
-        ? parseNum(workflowMode ? form.quantity : pu.quantity_used, NaN)
+        ? parseNum(pu.quantity_used, NaN)
         : NaN;
       if (hasInventoryProduct && (!Number.isFinite(qtyUsed) || qtyUsed <= 0)) {
         toast.error("Enter a valid product quantity used");
@@ -281,7 +310,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         notes: form.notes || "",
         price: parseNum(form.price, 0),
         performer_id: form.performer_id || undefined,
-        source: pickerMode === "additional" ? "additional" : "manual",
+        source: performedItems.length > 0 ? "additional" : "manual",
         confirmed_by_staff: true,
       };
       if (hasInventoryProduct) {
@@ -290,12 +319,15 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         body.dose_notes = pu.dose_notes || "";
       }
 
+      setAdding(true);
       await api.post(`/visits/${visit.id}/treatments`, body);
       toast.success("Treatment added");
-      resetForm();
+      resetFormAfterAdd();
       onSaved?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed");
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -335,57 +367,17 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                       Additional: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}
                     </div>
                   )}
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    <button
-                      type="button"
-                      className="bl-btn-primary text-sm"
-                      onClick={confirmBooked}
-                      disabled={confirmBusy || bookedAlreadyConfirmed || !editable}
-                      data-testid="treatment-use-booked"
-                    >
-                      {bookedAlreadyConfirmed ? "Booked treatment confirmed" : "Use as performed treatment"}
-                    </button>
-                    <button
-                      type="button"
-                      className="bl-btn-secondary text-sm"
-                      onClick={() => openPicker("change")}
-                      data-testid="treatment-change-treatment"
-                    >
-                      Change treatment
-                    </button>
-                    <button
-                      type="button"
-                      className="bl-btn-secondary text-sm"
-                      onClick={() => openPicker("additional")}
-                      data-testid="treatment-add-additional"
-                    >
-                      Add additional treatment
-                    </button>
-                  </div>
-                </div>
-              )}
-              {showTreatmentPicker && (
-                <div className="mb-4">
-                  <div className="font-display text-base text-[#2D3A33] mb-1">
-                    {pickerMode === "additional" ? "Add additional treatment" : "Record performed treatment"}
-                  </div>
-                  <p className="text-sm text-[#5C6C62] mb-3">
-                    {pickerMode === "additional"
-                      ? "Select an extra treatment performed during this session."
-                      : "Select the treatment actually performed. The booked treatment stays as reference only."}
+                  <p className="text-sm text-[#5C6C62] mt-3">
+                    The booked treatment is used to pre-fill the form. Only items added below will be recorded as performed treatments.
                   </p>
-                  <button
-                    type="button"
-                    className="text-sm text-[var(--bl-primary)] underline-offset-2 hover:underline"
-                    onClick={() => {
-                      setShowTreatmentPicker(false);
-                      setPickerMode(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
                 </div>
               )}
+              <div className="font-display text-base text-[#2D3A33] mb-1">Record performed treatment</div>
+              <p className="text-sm text-[#5C6C62] mb-4">
+                {bookedRef
+                  ? "Review or change the treatment below, then click Add item to record what was actually performed."
+                  : "Select the treatment performed during this session, then click Add item."}
+              </p>
             </>
           ) : (
             <>
@@ -399,7 +391,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </>
           )}
 
-          {(!workflowMode || showTreatmentPicker) && (loadingCatalog ? (
+          {loadingCatalog ? (
             <p className="text-sm text-[#5C6C62]">Loading treatments…</p>
           ) : catalog.length === 0 ? (
             <p className="text-sm text-[#5C6C62]">
@@ -599,30 +591,24 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </div>
 
           {(roleCatalog.length > 0) && (
-            <button type="submit" className="bl-btn-primary mt-4 inline-flex items-center gap-2" data-testid="treatment-add">
+            <button
+              type="submit"
+              className="bl-btn-primary mt-4 inline-flex items-center gap-2"
+              disabled={adding}
+              data-testid="treatment-add"
+            >
               <Plus className="w-4 h-4" />
-              {workflowMode && pickerMode === "additional" ? "Add additional item" : "Add item"}
+              {adding ? "Adding…" : "Add item"}
             </button>
           )}
             </>
-          ))}
+          )}
         </form>
-      )}
-
-      {editable && workflowMode && !bookedRef && (
-        <div className="bl-card p-5">
-          <p className="text-sm text-[#5C6C62] mb-3">
-            No booked treatment on this visit. Record what was actually performed.
-          </p>
-          <button type="button" className="bl-btn-primary text-sm" onClick={() => openPicker("change")}>
-            Record performed treatment
-          </button>
-        </div>
       )}
 
       {items.length === 0 && (
         <div className="bl-card p-8 text-center text-[#5C6C62] md:hidden" data-testid="treatment-items-empty">
-          {workflowMode ? "No performed treatments recorded yet" : "No treatment items added"}
+          {workflowMode ? "No performed treatment recorded yet." : "No treatment items added"}
         </div>
       )}
 
@@ -721,7 +707,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                     }
                     className="text-center py-8 text-[#5C6C62]"
                   >
-                    {workflowMode ? "No performed treatments recorded yet" : "No treatment items added"}
+                    {workflowMode ? "No performed treatment recorded yet." : "No treatment items added"}
                   </td>
                 </tr>
               )}

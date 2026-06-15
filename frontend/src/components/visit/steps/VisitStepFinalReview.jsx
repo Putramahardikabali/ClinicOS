@@ -310,7 +310,7 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
           <div className="bl-card p-6 max-w-md w-full space-y-4">
             <div className="font-display text-lg text-[#2D3A33]">No performed treatment recorded</div>
             <p className="text-sm text-[#5C6C62]">
-              No performed treatment has been recorded. Please confirm the booked treatment, add the actual treatment, or mark as no treatment performed.
+              No performed treatment has been recorded. Please add the actual treatment performed before submitting.
             </p>
             <div>
               <label className="label-eyebrow block mb-2">Reason (required for no treatment performed)</label>

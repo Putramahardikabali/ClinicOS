@@ -23,6 +23,8 @@ import AdminPage from "@/pages/AdminPage";
 import MessagingPage from "@/pages/MessagingPage";
 import FormsPage from "@/pages/FormsPage";
 import FinanceSettingsPage from "@/pages/FinanceSettingsPage";
+import CampaignsPage from "@/pages/marketing/CampaignsPage";
+import LoyaltyPage from "@/pages/marketing/LoyaltyPage";
 import { legacyAdminTabRedirect } from "@/lib/settingsNavigation";
 import StaffPage from "@/pages/StaffPage";
 import StaffProfilePage from "@/pages/StaffProfilePage";
@@ -154,7 +156,11 @@ export default function App() {
               <Route path="/visit-settings" element={<Protected anyPermission={["settings.manage", "consent.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="consent"><FormsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/forms" element={<Navigate to="/visit-settings" replace />} />
               <Route path="/catalog-settings" element={<Navigate to="/treatments" replace />} />
-              <Route path="/finance-settings" element={<Protected anyPermission={["commission.manage", "billing.manage", "settings.manage", "coupons.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FinanceSettingsPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/finance-settings" element={<Protected anyPermission={["commission.manage", "billing.manage", "settings.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FinanceSettingsPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/campaigns" element={<Protected anyPermission={["campaigns.manage", "campaigns.view", "coupons.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><CampaignsPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/loyalty" element={<Protected anyPermission={["loyalty.manage", "loyalty.view"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><LoyaltyPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/finance-settings/campaigns" element={<Navigate to="/campaigns" replace />} />
+              <Route path="/finance-settings/loyalty" element={<Navigate to="/loyalty" replace />} />
               <Route path="/reports" element={<Protected anyPermission={["reports.view", "billing.view", "accounting.view"]} roles={["super_admin", "manager", "accounting"]}><OnboardingRedirect><Shell><FeatureRoute feature="reports"><ReportsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/analytics" element={<Protected permission="analytics.view" roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="reports"><AnalyticsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/help" element={<Protected><OnboardingRedirect><Shell><HelpPage /></Shell></OnboardingRedirect></Protected>} />

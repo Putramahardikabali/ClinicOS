@@ -1218,6 +1218,7 @@ def register_invoices(
             for key in (
                 "campaign_id", "campaign_name_snapshot", "campaign_code_snapshot",
                 "discount_type_snapshot", "discount_value_snapshot", "discount_amount_applied",
+                "applies_to_snapshot", "eligible_summary_snapshot",
                 "campaign_applied_by_user_id", "campaign_applied_at",
             ):
                 inv.pop(key, None)

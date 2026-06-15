@@ -4,31 +4,17 @@ import {
   serializeItemPerformers,
   CLINICAL_PERFORMER_ROLES,
 } from "@/lib/performerUtils";
-import InvoiceItemPerformers from "@/components/invoices/InvoiceItemPerformers";
+import InvoiceLineItemRow from "@/components/invoices/InvoiceLineItemRow";
+import InvoiceAddItemBar from "@/components/invoices/InvoiceAddItemBar";
+import InvoiceCheckoutPanel from "@/components/invoices/InvoiceCheckoutPanel";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { resolveLineQuantity, formatQuantityDisplay, parseQuantityInput, lineGrossIdr } from "@/lib/invoiceLineQuantity";
+import { resolveLineQuantity, lineGrossIdr } from "@/lib/invoiceLineQuantity";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Printer, Trash2, CheckCircle2, Package } from "lucide-react";
-import GiftCardPaymentFields from "@/components/giftcards/GiftCardPaymentFields";
+import { ArrowLeft, Printer } from "lucide-react";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { hasPermission } from "@/lib/auth";
-import PaymentAmountQuickFill from "@/components/payments/PaymentAmountQuickFill";
-import { computeChangeDue, isCashPayment } from "@/lib/paymentAmountQuickFill";
-
-const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
-
-const METHODS = [
-  { value: "cash", label: "Cash" },
-  { value: "card", label: "Card" },
-  { value: "bank_transfer", label: "Bank transfer" },
-  { value: "qris", label: "QRIS" },
-  { value: "gift_card", label: "Gift Card" },
-  { value: "store_credit", label: "Store Credit" },
-  { value: "package", label: "Package" },
-  { value: "mixed", label: "Mixed" },
-  { value: "other", label: "Other" },
-];
+import { isCashPayment } from "@/lib/paymentAmountQuickFill";
 
 const emptyItem = (defaultPerformer) => ({
   item_type: "custom",
@@ -87,6 +73,8 @@ export default function InvoiceDetailPage() {
   const [eligibleByItem, setEligibleByItem] = useState({});
   const [packagePick, setPackagePick] = useState({});
   const [packageBusy, setPackageBusy] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [addMode, setAddMode] = useState(null);
 
   const loadCatalogs = useCallback(async () => {
     try {
@@ -137,12 +125,17 @@ export default function InvoiceDetailPage() {
   useEffect(() => { load().catch(() => toast.error("Invoice not found")); }, [load]);
 
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || !invoice?.id) return;
     const invoiceDate = (invoice?.created_at || "").slice(0, 10);
-    api.get("/campaigns/active", { params: invoiceDate ? { date: invoiceDate } : {} })
+    api.get("/campaigns/active", {
+      params: {
+        ...(invoiceDate ? { date: invoiceDate } : {}),
+        invoice_id: invoice.id,
+      },
+    })
       .then((r) => setCampaigns(r.data || []))
       .catch(() => setCampaigns([]));
-  }, [canEdit, invoice?.created_at]);
+  }, [canEdit, invoice?.id, invoice?.created_at, items]);
 
   const appliedCampaign = useMemo(() => {
     if (!invoice?.campaign_id) return null;
@@ -152,9 +145,10 @@ export default function InvoiceDetailPage() {
       code: invoice.campaign_code_snapshot,
       discount_type: invoice.discount_type_snapshot,
       discount_value: invoice.discount_value_snapshot,
+      applies_to: invoice.applies_to_snapshot,
+      eligible_summary_snapshot: invoice.eligible_summary_snapshot,
       start_date: null,
       end_date: null,
-      applies_to: "all",
     };
   }, [invoice, campaigns]);
 
@@ -436,7 +430,12 @@ export default function InvoiceDetailPage() {
     });
   };
 
-  const addCustomLine = () => setItems([...items, emptyItem(defaultPerformer)]);
+  const addCustomLine = () => {
+    const nextIdx = items.length;
+    setItems([...items, emptyItem(defaultPerformer)]);
+    setEditingItem({ idx: nextIdx, mode: "item" });
+    setAddMode(null);
+  };
   const updateItem = (idx, patch) => {
     setItems(items.map((it, i) => {
       if (i !== idx) return it;
@@ -503,6 +502,16 @@ export default function InvoiceDetailPage() {
 
   const catalogOptions = pickType === "treatment" ? treatments : pickType === "package" ? packages : products;
 
+  const clearAdjustments = async () => {
+    setDiscountType("none");
+    setDiscountValue(0);
+    setDiscountReason("");
+    setSelectedCampaignId("");
+    if (invoice?.campaign_id) {
+      await applyCampaign(null);
+    }
+  };
+
   if (!invoice) return <div className="p-10 text-[#5C6C62]">Loading invoice…</div>;
 
   const readOnly = !canEdit || invoice.payment_status === "cancelled";
@@ -550,7 +559,7 @@ export default function InvoiceDetailPage() {
   };
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 max-w-6xl mx-auto" data-testid="invoice-detail-page">
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto" data-testid="invoice-detail-page">
       <Link to="/invoices" className="text-sm text-[#5C6C62] inline-flex items-center gap-1 mb-4">
         <ArrowLeft className="w-4 h-4" /> All invoices
       </Link>
@@ -566,7 +575,7 @@ export default function InvoiceDetailPage() {
             )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <span className={`bl-chip ${preview.status === "paid" ? "success" : preview.status === "partial" ? "info" : "warning"}`}>
             {preview.status}
           </span>
@@ -578,359 +587,136 @@ export default function InvoiceDetailPage() {
 
       {invoice?.patient_id && patientPackages.length > 0 && !readOnly && (
         <p className="mt-4 text-sm text-[#5C6C62]">
-          Active packages available — use &quot;Pay with package&quot; on eligible treatment lines below.
+          Active packages available — edit a treatment line to pay with package.
         </p>
       )}
 
-      <div className="mt-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
-      <div className="bl-card p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="font-display text-lg text-[#2D3A33]">Line items</div>
-          <span className="text-xs text-[#5C6C62]">{items.length} item{items.length === 1 ? "" : "s"}</span>
-        </div>
-        {items.length === 0 && <p className="text-sm text-[#5C6C62]">No items yet — add from catalog or enter a custom line.</p>}
-        {items.map((it, idx) => (
-          <div key={it.id || idx} className="rounded-xl border border-[#EAE6D7] p-4 space-y-3 bg-[#FDFBF7]/50">
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-            <div className="sm:col-span-4">
-              <label className="label-eyebrow block mb-1">Name</label>
-              <input className="bl-input text-sm" disabled={readOnly || it.paid_by === "package"} value={it.name} onChange={(e) => updateItem(idx, { name: e.target.value })} />
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 items-start">
+        <div className="space-y-4 min-w-0">
+          <div className="bl-card p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-display text-lg text-[#2D3A33]">Invoice items</div>
+              <span className="text-xs text-[#5C6C62]">{items.length} item{items.length === 1 ? "" : "s"}</span>
             </div>
-            <div className="sm:col-span-2">
-              <label className="label-eyebrow block mb-1">Price</label>
-              <input type="number" min="0" className="bl-input text-sm font-mono" disabled={readOnly || it.paid_by === "package"} value={it.unit_price_idr} onChange={(e) => updateItem(idx, { unit_price_idr: Number(e.target.value) })} />
-            </div>
-            <div className="sm:col-span-1">
-              <label className="label-eyebrow block mb-1">Qty</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="bl-input text-sm font-mono"
-                disabled={readOnly || it.paid_by === "package"}
-                value={formatQuantityDisplay(it)}
-                data-testid={`invoice-line-qty-${it.id || idx}`}
-                onChange={(e) => updateItem(idx, { quantity: parseQuantityInput(e.target.value) })}
-              />
-            </div>
-            <div className="sm:col-span-2 text-sm font-medium pt-6 text-right">
-              {it.paid_by === "package" ? (
-                <span className="text-[#5C6C62] line-through text-xs">{fmtIDR(lineServiceValue(it))}</span>
-              ) : (
-                fmtIDR(lineDisplayAmount(it))
-              )}
-            </div>
-            {!readOnly && it.paid_by !== "package" && (
-              <button type="button" onClick={() => removeItem(idx)} className="sm:col-span-1 p-2 text-[#B14A2C] justify-self-end" aria-label="Remove">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-            </div>
-            <div className="sm:col-span-full">
-              <label className="label-eyebrow block mb-1">
-                Assigned staff{it.item_type === "treatment" ? " *" : ""}
-              </label>
-              <InvoiceItemPerformers
-                item={it}
-                staff={performers}
-                readOnly={readOnly || it.paid_by === "package"}
-                onPerformersChange={(built) => setItemPerformers(idx, built)}
-              />
-            </div>
-            {it.paid_by === "package" && (
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="bl-chip success inline-flex items-center gap-1">
-                  <Package className="w-3.5 h-3.5" /> Paid by Package
-                </span>
-                <span className="text-[#5C6C62]">
-                  Service value {fmtIDR(lineServiceValue(it))} · due {fmtIDR(0)}
-                </span>
-              </div>
-            )}
-            {!readOnly && canEdit && it.paid_by !== "package" && ["treatment", "custom"].includes(it.item_type) && eligibleOptionsForItem(it).length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pl-0 sm:pl-1" data-testid={`pay-with-package-${it.id}`}>
-                <select
-                  className="bl-input text-sm w-auto min-w-[220px]"
-                  value={packagePick[it.id] || ""}
-                  onChange={(e) => setPackagePick((prev) => ({ ...prev, [it.id]: e.target.value }))}
-                >
-                  <option value="">Use package…</option>
-                  {eligibleOptionsForItem(it).map((p) => {
-                    const comp = p.eligible_component;
-                    const val = comp?.id ? `${p.id}:${comp.id}` : p.id;
-                    const compName = comp?.treatment_name_snapshot;
-                    const rem = comp?.remaining_quantity ?? p.remaining_sessions;
-                    return (
-                      <option key={val} value={val}>
-                        {p.package_name_snapshot}{compName ? ` · ${compName}` : ""} ({rem} left)
-                      </option>
-                    );
-                  })}
-                </select>
-                <button
-                  type="button"
-                  disabled={packageBusy === it.id || !packagePick[it.id]}
-                  onClick={() => payLineWithPackage(it)}
-                  className="bl-btn-ghost text-sm disabled:opacity-50"
-                >
-                  {packageBusy === it.id ? "Applying…" : "Confirm use session"}
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
 
-        {!readOnly && (
-          <>
-            {defaultPerformer && (
-              <p className="text-xs text-[#5C6C62]">
-                Default assigned staff from treatment session: {defaultPerformer.performer_name_snapshot} ({defaultPerformer.performer_role_snapshot})
+            {items.length > 0 && (
+              <div className="hidden md:grid grid-cols-[minmax(0,2fr)_auto_auto_auto_minmax(0,1.2fr)_auto] gap-3 px-4 text-xs uppercase tracking-widest text-[#5C6C62]">
+                <span>Item</span>
+                <span className="text-right">Qty</span>
+                <span className="text-right">Unit</span>
+                <span className="text-right">Total</span>
+                <span>Staff</span>
+                <span className="text-right">Actions</span>
+              </div>
+            )}
+
+            {items.length === 0 && (
+              <p className="text-sm text-[#5C6C62] py-4 text-center">
+                No items yet — add from catalog or enter a custom line.
               </p>
             )}
-            <div className="pt-2 flex flex-wrap gap-2">
-              <button type="button" onClick={addCustomLine} className="bl-btn-ghost text-sm inline-flex items-center gap-1">
-                <Plus className="w-4 h-4" /> Custom line
-              </button>
-            <select className="bl-input w-auto text-sm" value={pickType} onChange={(e) => { setPickType(e.target.value); setPickId(""); }}>
-              <option value="treatment">Treatment</option>
-              <option value="package">Package</option>
-              <option value="product">Product</option>
-            </select>
-            <select className="bl-input flex-1 min-w-[160px] text-sm" value={pickId} onChange={(e) => setPickId(e.target.value)}>
-              <option value="">Add from catalog…</option>
-              {catalogOptions.map((c) => (
-                <option key={c.id || c.key} value={c.id || c.key}>{c.name}</option>
-              ))}
-            </select>
-            <button type="button" disabled={!pickId || busy} onClick={addCatalogLine} className="bl-btn-ghost text-sm">Add</button>
-            </div>
-          </>
-        )}
 
-        <div className="pt-3 space-y-1.5 text-sm bl-card p-4 bg-[#F8F5EC]/60">
-          <div className="flex justify-between"><span className="text-[#5C6C62]">Cash due (subtotal)</span><span>{fmtIDR(preview.subtotal)}</span></div>
-          {preview.packageCovered > 0 && (
-            <div className="flex justify-between text-[#5C6C62]">
-              <span>Covered by package (service value)</span>
-              <span>{fmtIDR(preview.packageCovered)}</span>
-            </div>
-          )}
-          {preview.discountAmount > 0 && (
-            <div className="flex justify-between text-[#B14A2C]">
-              <span>{invoice?.campaign_id ? "Campaign discount" : "Discount"}</span>
-              <span>−{fmtIDR(preview.discountAmount)}</span>
-            </div>
-          )}
-          <div className="flex justify-between font-display text-lg pt-2 border-t border-[#EAE6D7]">
-            <span>Total due</span><span data-testid="invoice-total">{fmtIDR(preview.total)}</span>
-          </div>
-        </div>
-      </div>
-        </div>
-
-        <div className="space-y-6">
-      <div className="bl-card p-5 space-y-3">
-        <div className="font-display text-lg text-[#2D3A33]">Campaign</div>
-        <select
-          className="bl-input"
-          disabled={readOnly || campaignBusy}
-          value={selectedCampaignId}
-          onChange={(e) => setSelectedCampaignId(e.target.value)}
-          data-testid="invoice-campaign-select"
-        >
-          <option value="">{campaigns.length ? "Select active campaign" : "No active campaigns available"}</option>
-          {campaigns.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}{c.code ? ` (${c.code})` : ""}</option>
-          ))}
-        </select>
-        {!readOnly && (
-          <button
-            type="button"
-            className="bl-btn-ghost text-sm"
-            disabled={campaignBusy || (!selectedCampaignId && !invoice?.campaign_id)}
-            onClick={() => applyCampaign(selectedCampaignId || null)}
-            data-testid="invoice-apply-campaign"
-          >
-            {campaignBusy ? "Applying…" : selectedCampaignId ? "Apply campaign" : "Clear campaign"}
-          </button>
-        )}
-        {appliedCampaign && (
-          <div className="text-sm text-[#5C6C62] space-y-1 rounded-lg bg-[#F8F5EC] p-3" data-testid="invoice-campaign-details">
-            <div className="font-medium text-[#2D3A33]">{appliedCampaign.name}</div>
-            <div>
-              {appliedCampaign.discount_type === "percent" || appliedCampaign.discount_type === "percentage"
-                ? `${appliedCampaign.discount_value}% off`
-                : `${fmtIDR(appliedCampaign.discount_value)} off`}
-            </div>
-            {(appliedCampaign.start_date || appliedCampaign.end_date) && (
-              <div className="text-xs">
-                Valid: {(appliedCampaign.start_date || "—").slice(0, 10)} → {(appliedCampaign.end_date || "—").slice(0, 10)}
-              </div>
-            )}
-            <div className="text-xs capitalize">Applies to: {(appliedCampaign.applies_to || "all").replace("_", " ")}</div>
-          </div>
-        )}
-      </div>
-
-      <div className="bl-card p-5 space-y-3">
-        <div className="font-display text-lg text-[#2D3A33]">Manual discount</div>
-        <p className="text-xs text-[#5C6C62]">For ad-hoc adjustments not covered by a campaign.</p>
-          <select className="bl-input" disabled={readOnly} value={discountType} onChange={(e) => setDiscountType(e.target.value)}>
-            <option value="none">None</option>
-            <option value="percentage">Percentage</option>
-            <option value="fixed">Fixed amount (IDR)</option>
-          </select>
-          {discountType !== "none" && (
-            <>
-              <input type="number" min="0" className="bl-input font-mono" disabled={readOnly} value={discountValue} onChange={(e) => setDiscountValue(Number(e.target.value))} />
-              <input className="bl-input" disabled={readOnly} placeholder="Reason (required if discount applied)" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} data-testid="discount-reason" />
-            </>
-          )}
-        </div>
-
-        <div className="bl-card p-5 space-y-3">
-          <div className="font-display text-lg text-[#2D3A33]">Payment</div>
-          {closingLocked && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
-              This invoice is included in a closed daily closing. Reopen the closing or record a refund/adjustment.
-            </p>
-          )}
-          {(invoice.payments || []).length > 0 && (
-            <div className="rounded-lg border border-[#EAE6D7] p-3 space-y-2" data-testid="invoice-payment-history">
-              <p className="label-eyebrow">Payment history</p>
-              {(invoice.payments || []).map((p) => (
-                <div key={p.id} className="flex justify-between gap-2 text-sm">
-                  <div>
-                    <span className="capitalize">{p.method || "—"}</span>
-                    {" · "}
-                    <span className="font-mono">{fmtIDR(p.amount_idr)}</span>
-                    {p.voided && <span className="text-[#B14A2C] ml-1">(voided)</span>}
-                    <div className="text-xs text-[#5C6C62]">
-                      {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
-                    </div>
-                  </div>
-                  {canVoidPayment && !p.voided && !closingLocked && (
-                    <button type="button" className="text-xs text-[#B14A2C]" onClick={() => voidPayment(p.id)}>
-                      Void
-                    </button>
-                  )}
-                </div>
+            <div className="space-y-2">
+              {items.map((it, idx) => (
+                <InvoiceLineItemRow
+                  key={it.id || idx}
+                  item={it}
+                  idx={idx}
+                  readOnly={readOnly}
+                  performers={performers}
+                  editing={editingItem}
+                  onEdit={() => setEditingItem({ idx, mode: "item" })}
+                  onEditStaff={() => setEditingItem({ idx, mode: "staff" })}
+                  onCancelEdit={() => setEditingItem(null)}
+                  onUpdate={(patch) => updateItem(idx, patch)}
+                  onRemove={() => removeItem(idx)}
+                  onPerformersChange={(built) => setItemPerformers(idx, built)}
+                  lineDisplayAmount={lineDisplayAmount}
+                  lineServiceValue={lineServiceValue}
+                  eligibleOptions={
+                    !readOnly && canEdit && it.paid_by !== "package" && ["treatment", "custom"].includes(it.item_type)
+                      ? eligibleOptionsForItem(it)
+                      : []
+                  }
+                  packagePick={packagePick[it.id]}
+                  onPackagePickChange={(val) => setPackagePick((prev) => ({ ...prev, [it.id]: val }))}
+                  onPayWithPackage={() => payLineWithPackage(it)}
+                  packageBusy={packageBusy === it.id}
+                />
               ))}
             </div>
-          )}
-          {(invoice.refunds || []).length > 0 && (
-            <div className="rounded-lg border border-[#EAE6D7] p-3 space-y-1">
-              <p className="label-eyebrow">Refunds recorded</p>
-              {invoice.refunds.map((r) => (
-                <div key={r.id} className="text-sm flex justify-between">
-                  <span className="font-mono">{fmtIDR(r.amount_idr)}</span>
-                  <span className="text-xs text-[#5C6C62] capitalize">{r.method}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <select
-            className="bl-input"
-            disabled={readOnlyPayment}
-            value={paymentMethod}
-            onChange={(e) => {
-              setPaymentMethod(e.target.value);
-              if (e.target.value !== "gift_card") setGiftLookup(null);
-            }}
-            data-testid="invoice-payment-method"
-          >
-            {METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-          {paymentMethod === "gift_card" && canRedeemGiftCard && !readOnlyPayment && (
-            <GiftCardPaymentFields
-              amountDue={preview.outstanding}
-              lineItems={items}
-              patientId={invoice?.patient_id}
-              giftCardCode={giftCardCode}
-              onGiftCardCodeChange={setGiftCardCode}
-              giftCardAmount={giftCardAmount}
-              onGiftCardAmountChange={setGiftCardAmount}
-              onLookup={setGiftLookup}
-              lookup={giftLookup}
-              loading={busy}
-              disabled={closed}
-              testIdPrefix="invoice-gift"
+
+            <InvoiceAddItemBar
+              readOnly={readOnly}
+              defaultPerformer={defaultPerformer}
+              pickType={pickType}
+              pickId={pickId}
+              catalogOptions={catalogOptions}
+              busy={busy}
+              addMode={addMode}
+              onSetAddMode={setAddMode}
+              onPickTypeChange={(v) => { setPickType(v); setPickId(""); }}
+              onPickIdChange={setPickId}
+              onAddCatalog={addCatalogLine}
+              onAddCustom={addCustomLine}
             />
-          )}
-          {paymentMethod === "store_credit" && canUseWallet && invoice?.patient_id && !readOnlyPayment && (
-            <div className="text-sm space-y-2 rounded-lg border border-[#EAE6D7] p-3">
-              <div className="flex justify-between">
-                <span className="text-[#5C6C62]">Wallet balance</span>
-                <span className="font-mono">{fmtIDR(walletBalance)}</span>
-              </div>
-              <input
-                className="bl-input font-mono"
-                placeholder={`Max ${Math.min(walletBalance, preview.outstanding).toLocaleString("id-ID")}`}
-                value={walletAmount}
-                onChange={(e) => setWalletAmount(e.target.value.replace(/\D/g, ""))}
-                data-testid="invoice-wallet-amount"
-              />
-            </div>
-          )}
-          <input className="bl-input" disabled={readOnlyPayment} placeholder="Reference (optional)" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} />
-          {paymentMethod !== "gift_card" && paymentMethod !== "store_credit" && (
-            <div>
-              <label className="label-eyebrow block mb-1">Amount received (IDR)</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                className="bl-input font-mono"
-                disabled={readOnlyPayment || closed}
-                value={amountReceived}
-                onChange={(e) => setAmountReceived(e.target.value.replace(/\D/g, ""))}
-                data-testid="invoice-amount-received"
-              />
-              <PaymentAmountQuickFill
-                balanceDue={preview.outstanding}
-                paymentMethod={paymentMethod}
-                disabled={readOnlyPayment || closed}
-                onSelectAmount={(amount) => setAmountReceived(String(amount))}
-                onClear={() => setAmountReceived("")}
-                testIdPrefix="invoice-payment-quick"
-              />
-            </div>
-          )}
-          <div className="text-sm text-[#5C6C62] space-y-1">
-            {preview.alreadyPaid > 0 && (
-              <div>Already paid: {fmtIDR(preview.alreadyPaid)}</div>
-            )}
-            <div>Balance: {fmtIDR(preview.outstanding)}</div>
-            {isCashPayment(paymentMethod) && computeChangeDue(amountReceived, preview.outstanding) > 0 && (
-              <div data-testid="invoice-change-due">
-                Change due: {fmtIDR(computeChangeDue(amountReceived, preview.outstanding))}
-              </div>
-            )}
-            {preview.remaining > 0 && preview.remaining < preview.outstanding && (
-              <div>Remaining after payment: {fmtIDR(preview.remaining)}</div>
-            )}
           </div>
-          <textarea className="bl-input min-h-[72px]" disabled={readOnlyPayment} placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
-      {canEdit && invoice.payment_status !== "cancelled" && (
-        <div className="flex flex-col gap-2">
-          <button type="button" disabled={busy || readOnlyPayment} onClick={saveInvoice} className="bl-btn-primary w-full disabled:opacity-50">Save invoice</button>
-          <button type="button" disabled={busy || readOnlyPayment} onClick={() => savePayment(false)} className="bl-btn-ghost w-full disabled:opacity-50">Update payment</button>
-          {!closed && !closingLocked && (
-            <button type="button" disabled={busy} onClick={() => savePayment(true)} className="bl-btn-ghost w-full inline-flex items-center justify-center gap-2 disabled:opacity-50" data-testid="mark-paid-button">
-              <CheckCircle2 className="w-4 h-4" /> Mark as paid
-            </button>
-          )}
-          {canRecordRefund && (invoice.amount_paid || 0) > 0 && (
-            <button type="button" disabled={busy} onClick={recordRefund} className="bl-btn-ghost w-full text-sm" data-testid="invoice-record-refund">
-              Record refund
-            </button>
-          )}
-          {closed && invoice.visit?.status !== "completed" && (
-            <button type="button" onClick={closeVisitIfPaid} className="bl-btn-ghost w-full">Close treatment session</button>
-          )}
-        </div>
-      )}
+        <div className="lg:sticky lg:top-6 space-y-4">
+          <InvoiceCheckoutPanel
+            invoice={{ ...invoice, items }}
+            preview={preview}
+            appliedCampaign={appliedCampaign}
+            campaigns={campaigns}
+            selectedCampaignId={selectedCampaignId}
+            onCampaignSelect={setSelectedCampaignId}
+            onApplyCampaign={applyCampaign}
+            campaignBusy={campaignBusy}
+            discountType={discountType}
+            discountValue={discountValue}
+            discountReason={discountReason}
+            onDiscountTypeChange={setDiscountType}
+            onDiscountValueChange={setDiscountValue}
+            onDiscountReasonChange={setDiscountReason}
+            onClearAdjustments={clearAdjustments}
+            paymentMethod={paymentMethod}
+            paymentReference={paymentReference}
+            amountReceived={amountReceived}
+            notes={notes}
+            onPaymentMethodChange={(v) => {
+              setPaymentMethod(v);
+              if (v !== "gift_card") setGiftLookup(null);
+            }}
+            onPaymentReferenceChange={setPaymentReference}
+            onAmountReceivedChange={setAmountReceived}
+            onNotesChange={setNotes}
+            giftCardCode={giftCardCode}
+            giftCardAmount={giftCardAmount}
+            walletAmount={walletAmount}
+            walletBalance={walletBalance}
+            giftLookup={giftLookup}
+            onGiftCardCodeChange={setGiftCardCode}
+            onGiftCardAmountChange={setGiftCardAmount}
+            onGiftLookup={setGiftLookup}
+            onWalletAmountChange={setWalletAmount}
+            canRedeemGiftCard={canRedeemGiftCard}
+            canUseWallet={canUseWallet}
+            canVoidPayment={canVoidPayment}
+            canRecordRefund={canRecordRefund}
+            canEdit={canEdit}
+            readOnly={readOnly}
+            readOnlyPayment={readOnlyPayment}
+            closed={closed}
+            closingLocked={closingLocked}
+            busy={busy}
+            onSaveInvoice={saveInvoice}
+            onSavePayment={() => savePayment(false)}
+            onMarkPaid={() => savePayment(true)}
+            onVoidPayment={voidPayment}
+            onRecordRefund={recordRefund}
+            onCloseVisit={closeVisitIfPaid}
+          />
         </div>
       </div>
 

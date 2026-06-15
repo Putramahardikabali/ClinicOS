@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
@@ -29,6 +29,7 @@ import {
   ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
+import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
@@ -1714,6 +1715,10 @@ export default function BookingsPage() {
   const [overtimeSlot, setOvertimeSlot] = useState(null);
   const [overtimeMeta, setOvertimeMeta] = useState(null);
   const [automationActive, setAutomationActive] = useState(false);
+  const scheduleModalPortalRef = useRef(null);
+  const [scheduleFullscreen, setScheduleFullscreen] = useState(false);
+  const onScheduleFullscreenChange = useCallback((fs) => setScheduleFullscreen(Boolean(fs)), []);
+  const useScheduleModalPortal = viewMode === "schedule" && scheduleFullscreen;
   const clinicName = branding?.clinic_name || clinic?.name || "our clinic";
   const canCreateOvertime =
     ["super_admin", "manager"].includes(user?.role) ||
@@ -1896,6 +1901,8 @@ export default function BookingsPage() {
             reloadAt={reloadAt}
             canManage={canManage}
             canCreateOvertime={canCreateOvertime}
+            modalPortalRef={scheduleModalPortalRef}
+            onFullscreenChange={onScheduleFullscreenChange}
             onSelectBooking={setDetailBooking}
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
@@ -2043,7 +2050,8 @@ export default function BookingsPage() {
       </>
       )}
 
-      {detailBooking && (
+      <BookingModalPortal active={!!detailBooking} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
+        {detailBooking && (
         <BookingDetailPanel
           booking={detailBooking}
           startInEditMode={detailStartEdit}
@@ -2062,8 +2070,10 @@ export default function BookingsPage() {
           startVisitBusy={startVisitBusy}
           onEditBlock={(b) => { setDetailBooking(null); setBlockEdit(b); setBlockInitial(null); setBlockOpen(true); }}
         />
-      )}
-      {slotAction && (
+        )}
+      </BookingModalPortal>
+      <BookingModalPortal active={!!slotAction} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
+        {slotAction && (
         <SlotActionModal
           initial={slotAction}
           staff={scheduleStaff}
@@ -2080,8 +2090,10 @@ export default function BookingsPage() {
             setBlockOpen(true);
           }}
         />
-      )}
-      {blockOpen && (
+        )}
+      </BookingModalPortal>
+      <BookingModalPortal active={blockOpen} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
+        {blockOpen && (
         <BlockTimeModal
           initial={blockInitial}
           booking={blockEdit}
@@ -2091,9 +2103,11 @@ export default function BookingsPage() {
             refresh();
           }}
         />
-      )}
+        )}
+      </BookingModalPortal>
       {waBooking && <WaPanel booking={waBooking} templates={templates} clinicName={clinicName} automationActive={automationActive} canSendViaProvider={canSendViaProvider} onClose={() => setWaBooking(null)} onSent={() => { setWaBooking(null); refresh(); }} />}
-      {overtimeSlot && (
+      <BookingModalPortal active={!!overtimeSlot} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
+        {overtimeSlot && (
         <OutsideWorkingHoursModal
           slot={overtimeSlot}
           staffMember={overtimeSlot.staff}
@@ -2113,15 +2127,18 @@ export default function BookingsPage() {
             setNewOpen(true);
           }}
         />
-      )}
-      {newOpen && (
+        )}
+      </BookingModalPortal>
+      <BookingModalPortal active={newOpen} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
+        {newOpen && (
         <NewBookingModal
           initial={newInitial}
           overtimeMeta={overtimeMeta}
           onClose={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); }}
           onCreated={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); refresh(); }}
         />
-      )}
+        )}
+      </BookingModalPortal>
     </div>
   );
 }

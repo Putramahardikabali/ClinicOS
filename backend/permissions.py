@@ -32,6 +32,8 @@ PERMISSION_CATALOG: Dict[str, List[Dict[str, str]]] = {
         {"key": "coupons.manage", "label": "Manage campaigns (legacy permission key)"},
         {"key": "campaigns.view", "label": "View campaigns"},
         {"key": "campaigns.manage", "label": "Manage campaigns"},
+        {"key": "loyalty.view", "label": "View loyalty program"},
+        {"key": "loyalty.manage", "label": "Manage loyalty program"},
     ],
     "Visits": [
         {"key": "visits.view", "label": "View all visits"},
@@ -191,6 +193,7 @@ SYSTEM_ROLE_DEFINITIONS = [
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
             "bookings.create_overtime", "coupons.manage", "campaigns.view", "campaigns.manage",
+            "loyalty.view", "loyalty.manage",
             "visits.view", "clinical_records.view", "billing.view", "billing.create", "billing.edit",
             "payments.void", "refunds.view", "refunds.create",
             "billing.subscription_view", "billing.subscribe",
