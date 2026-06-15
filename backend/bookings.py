@@ -861,6 +861,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             },
             booking,
         )
+        from clinic_realtime import safe_emit_booking_event
+        safe_emit_booking_event(booking, "booking_created", message="Online booking received")
         return booking
 
     # ---------- Authenticated FO Bookings ----------
@@ -1695,6 +1697,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 pass
         else:
             await audit(user, "create", "booking", b["id"], {"booking_type": "block"})
+        from clinic_realtime import safe_emit_booking_event
+        if b.get("booking_type") != "block":
+            safe_emit_booking_event(b, "booking_created", message="Booking created")
         return b
 
     @api.get("/bookings/{bid}")
@@ -1896,6 +1901,11 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], cid, updated, "rescheduled")
                 except Exception:
                     pass
+        from clinic_realtime import safe_emit_booking_event
+        msg = "Booking updated"
+        if get_performers(existing) != get_performers(updated):
+            msg = "Performer assigned to booking"
+        safe_emit_booking_event(updated, "booking_updated", message=msg)
         return updated
 
     @api.put("/bookings/{bid}/status")
@@ -1931,6 +1941,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "cancelled")
             except Exception:
                 pass
+        from clinic_realtime import safe_emit_booking_event
+        evt_msg = "Booking cancelled" if payload.status == "cancelled" else f"Booking status: {payload.status}"
+        safe_emit_booking_event(updated, "booking_updated", message=evt_msg)
         return updated
 
     @api.post("/bookings/{bid}/start-visit")
@@ -2001,6 +2014,12 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 pass
         else:
             await audit(user, "cancel", "booking", bid)
+        from clinic_realtime import safe_emit_booking_event
+        safe_emit_booking_event(
+            {**existing, "status": "cancelled"},
+            "booking_updated",
+            message="Booking cancelled",
+        )
         return {"ok": True}
 
     # ---------- WhatsApp Templates ----------

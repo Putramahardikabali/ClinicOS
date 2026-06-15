@@ -355,6 +355,8 @@ async def ensure_invoice_for_visit(
             existing["updated_at"] = _now_iso()
             await db.invoices.update_one({"id": existing["id"]}, {"$set": existing})
             await sync_visit_from_invoice(db, existing)
+            from clinic_realtime import safe_emit_invoice_event
+            safe_emit_invoice_event(existing, message="Invoice updated from visit")
         return existing
 
     inv_id = str(uuid.uuid4())
@@ -395,6 +397,8 @@ async def ensure_invoice_for_visit(
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
     await sync_visit_from_invoice(db, doc)
+    from clinic_realtime import safe_emit_invoice_event
+    safe_emit_invoice_event(doc, message="Invoice created from visit", visit=visit)
     return doc
 
 
@@ -816,6 +820,15 @@ def register_invoices(
                 )
             except Exception:
                 pass
+        from clinic_realtime import safe_emit_invoice_event
+        visit_doc = None
+        if saved.get("visit_id"):
+            visit_doc = await db.visits.find_one(
+                {"id": saved["visit_id"], "clinic_id": saved["clinic_id"]},
+                {"_id": 0},
+            )
+        pay_msg = "Invoice payment updated" if old_status != new_status else "Invoice updated"
+        safe_emit_invoice_event(saved, message=pay_msg, visit=visit_doc)
         return saved
 
     async def _enrich_invoice(inv: dict) -> dict:

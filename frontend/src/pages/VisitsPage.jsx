@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, hasPermission } from "@/lib/auth";
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 
 export default function VisitsPage() {
   const { user } = useAuth();
@@ -31,6 +33,10 @@ export default function VisitsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.VISITS, load);
+  useRealtimeInvalidation(REALTIME_TOPICS.MY_VISITS, load);
+  useVisibilityPolling(load, 30000);
 
   useEffect(() => {
     if (!canFilterPerformer) return;

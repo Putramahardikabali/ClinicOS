@@ -97,6 +97,7 @@ from saas import (
 from bookings import register_bookings, DEFAULT_TREATMENTS, DEFAULT_WA_TEMPLATES
 from dashboard_operations import register_dashboard_operations
 from front_desk_dashboard import register_front_desk_dashboard
+from clinic_realtime import register_realtime, safe_emit_visit_event
 from invoices import register_invoices
 from commissions import register_commissions, sync_commission_records_for_invoice, ensure_default_commission_rules
 from patient_packages import register_patient_packages
@@ -1764,6 +1765,7 @@ async def create_visit(payload: VisitIn, user: dict = Depends(require_roles("sup
         )
     v.pop("_id", None)
     await audit(user, "create", "visit", v["id"])
+    safe_emit_visit_event(v, "visit_created", message="Visit created")
     return v
 
 @api.get("/visits")
@@ -1875,6 +1877,27 @@ async def update_visit_status(vid: str, payload: VisitStatusIn, user: dict = Dep
         except Exception:
             pass
     await audit(user, "status_change", "visit", vid, {"to": payload.status})
+    updated_visit = await db.visits.find_one(scope(user, {"id": vid}), {"_id": 0})
+    if updated_visit:
+        if payload.status == "submitted":
+            safe_emit_visit_event(
+                updated_visit,
+                "visit_submitted",
+                message="Visit submitted",
+            )
+        elif payload.status == "completed":
+            safe_emit_visit_event(
+                updated_visit,
+                "visit_updated",
+                message="Visit completed",
+                extra_payload={"completed": True},
+            )
+        else:
+            safe_emit_visit_event(
+                updated_visit,
+                "visit_updated",
+                message=f"Visit status: {payload.status}",
+            )
     if payload.status == "completed":
         try:
             from messaging_automation import safe_trigger_automation_rules
@@ -1956,7 +1979,16 @@ async def upsert_clinical(vid: str, payload: ClinicalRecordIn, user: dict = Depe
     await db.clinical_records.update_one({"visit_id": vid}, {"$set": data}, upsert=True)
     if submit:
         from visit_workflow import mark_visit_submitted
-        await mark_visit_submitted(db, user.get("clinic_id"), vid, created_by=user["id"])
+        await mark_visit_submitted(
+            db, user.get("clinic_id"), vid, created_by=user["id"],
+            note_role="doctor", staff_name=user.get("name") or "",
+        )
+    else:
+        safe_emit_visit_event(
+            visit, "visit_updated",
+            message="Doctor note saved",
+            extra_payload={"note_role": "doctor"},
+        )
     if submit:
         await log_clinical_note(
             db, user, "completed", vid, "doctor",
@@ -2008,7 +2040,16 @@ async def upsert_therapist(vid: str, payload: TherapistRecordIn, user: dict = De
     await db.therapist_records.update_one({"visit_id": vid}, {"$set": data}, upsert=True)
     if submit:
         from visit_workflow import mark_visit_submitted
-        await mark_visit_submitted(db, user.get("clinic_id"), vid, created_by=user["id"])
+        await mark_visit_submitted(
+            db, user.get("clinic_id"), vid, created_by=user["id"],
+            note_role="therapist", staff_name=user.get("name") or "",
+        )
+    else:
+        safe_emit_visit_event(
+            visit, "visit_updated",
+            message="Therapist note saved",
+            extra_payload={"note_role": "therapist"},
+        )
     if submit:
         await log_clinical_note(
             db, user, "completed", vid, "therapist",
@@ -2072,6 +2113,20 @@ async def upsert_performer_note(vid: str, staff_id: str, payload: PerformerNoteI
         await db.performer_visit_notes.insert_one(doc)
     else:
         await db.performer_visit_notes.update_one({"visit_id": vid, "staff_id": staff_id}, {"$set": doc})
+    if submit:
+        role_label = doc.get("staff_role") or user.get("role") or "staff"
+        safe_emit_visit_event(
+            visit,
+            "visit_submitted",
+            message=f"{doc.get('staff_name') or user.get('name') or 'Staff'} submitted visit notes",
+            extra_payload={"note_role": role_label},
+        )
+    else:
+        safe_emit_visit_event(
+            visit, "visit_updated",
+            message="Performer note saved",
+            extra_payload={"note_role": doc.get("staff_role") or user.get("role")},
+        )
     if submit:
         await log_clinical_note(
             db, user, "completed", vid, doc.get("note_type") or "performer",
@@ -2394,6 +2449,11 @@ register_front_desk_dashboard(
     db=db,
     get_current_user=get_operational_user,
     get_active_clinic=get_active_clinic,
+)
+
+register_realtime(
+    api=api,
+    get_current_user=get_operational_user,
 )
 
 register_invoices(

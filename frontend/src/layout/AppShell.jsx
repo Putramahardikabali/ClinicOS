@@ -13,6 +13,7 @@ import ExpiryGate from "@/components/ExpiryGate";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import FrontDeskReminderLayer from "@/components/frontdesk/FrontDeskReminderLayer";
 import { FrontDeskReminderProvider } from "@/lib/frontDeskReminderContext";
+import { RealtimeEventsProvider } from "@/lib/realtimeEventsContext";
 import { HelpDrawer } from "@/pages/HelpPage";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
@@ -228,6 +229,7 @@ export default function AppShell({ children }) {
   );
 
   return (
+    <RealtimeEventsProvider>
     <FrontDeskReminderProvider>
     <div className="min-h-screen flex" style={{ background: "var(--bl-background)" }}>
       <ExpiryGate />
@@ -377,5 +379,6 @@ export default function AppShell({ children }) {
       <FrontDeskReminderLayer />
     </div>
     </FrontDeskReminderProvider>
+    </RealtimeEventsProvider>
   );
 }

@@ -5,6 +5,8 @@ import { useAuth, hasPermission } from "@/lib/auth";
 import { formatIdr } from "@/lib/clinic";
 import { AppointmentRemindersPanel } from "@/components/frontdesk/AppointmentReminders";
 import { useFrontDeskReminders } from "@/lib/frontDeskReminderContext";
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 import {
   Users,
   Lock,
@@ -89,6 +91,9 @@ export default function FrontDeskDashboard({ embedded = false }) {
   useEffect(() => {
     fetchDashboard(false);
   }, [fetchDashboard]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.FRONT_DESK, () => fetchDashboard(true));
+  useVisibilityPolling(() => fetchDashboard(true), 30000);
 
   useEffect(() => {
     if (searchParams.get("fd_reminders") !== "1") return;

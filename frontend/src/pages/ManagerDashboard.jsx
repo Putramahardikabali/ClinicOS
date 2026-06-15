@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 import { useAuth } from "@/lib/auth";
 import { useClinic, formatIdr, hasFeature } from "@/lib/clinic";
 import OnboardingChecklist from "@/components/OnboardingChecklist";
@@ -116,13 +118,20 @@ export default function ManagerDashboard() {
   const checklistDismissed = Boolean(clinic?.setup_checklist_dismissed);
   const checklistComplete = Boolean(checklist?.complete);
 
-  useEffect(() => {
+  const loadOperations = useCallback(() => {
     setLoading(true);
     api.get("/dashboard/operations")
       .then((r) => setData(r.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadOperations();
+  }, [loadOperations]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.DASHBOARD, loadOperations);
+  useVisibilityPolling(loadOperations, 30000);
 
   useEffect(() => {
     if (showSetupChecklist) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 import api from "@/lib/api";
 
@@ -9,6 +9,9 @@ import ClinicalDashboardSections from "@/pages/ClinicalDashboardSections";
 import ManagerDashboard from "@/pages/ManagerDashboard";
 
 import FrontDeskDashboard from "@/pages/FrontDeskDashboard";
+
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 
 import { useClinic, formatIdr, hasFeature } from "@/lib/clinic";
 
@@ -136,25 +139,23 @@ function FrontOfficeDashboard({ user, clinic }) {
 
   const showBilling = hasFeature(clinic, "billing") && hasPermission(user, "billing.view");
 
-
+  const loadDashboard = useCallback(() => {
+    api.get("/dashboard/owner").then(r => setData(r.data || {})).catch(() => {});
+    api.get("/visits").then(r => setRecent((r.data || []).slice(0, 6))).catch(() => {});
+    api.get("/bookings", { params: { scope: "today", appointments_only: true } }).then(r => setBookings(r.data || [])).catch(() => {});
+    api.get("/dashboard/me-queue").then(r => setQueue(r.data || { items: [] })).catch(() => {});
+    if (showBilling) {
+      api.get("/invoices/dashboard/summary").then(r => setBillingSummary(r.data)).catch(() => {});
+    }
+  }, [showBilling]);
 
   useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
-    api.get("/dashboard/owner").then(r => setData(r.data || {})).catch(() => {});
-
-    api.get("/visits").then(r => setRecent((r.data || []).slice(0, 6))).catch(() => {});
-
-    api.get("/bookings", { params: { scope: "today", appointments_only: true } }).then(r => setBookings(r.data || [])).catch(() => {});
-
-    api.get("/dashboard/me-queue").then(r => setQueue(r.data || { items: [] })).catch(() => {});
-
-    if (showBilling) {
-
-      api.get("/invoices/dashboard/summary").then(r => setBillingSummary(r.data)).catch(() => {});
-
-    }
-
-  }, [showBilling]);
+  useRealtimeInvalidation(REALTIME_TOPICS.DASHBOARD, loadDashboard);
+  useRealtimeInvalidation(REALTIME_TOPICS.MY_VISITS, loadDashboard);
+  useVisibilityPolling(loadDashboard, 30000);
 
 
 
@@ -470,17 +471,18 @@ export default function DashboardPage() {
 
   const [clinicalData, setClinicalData] = useState(null);
 
-
+  const loadClinical = useCallback(() => {
+    if (!isClinicalDash) return;
+    api.get("/dashboard/clinical").then(r => setClinicalData(r.data || {})).catch(() => setClinicalData({}));
+  }, [isClinicalDash]);
 
   useEffect(() => {
+    loadClinical();
+  }, [loadClinical]);
 
-    if (isClinicalDash) {
-
-      api.get("/dashboard/clinical").then(r => setClinicalData(r.data || {})).catch(() => setClinicalData({}));
-
-    }
-
-  }, [isClinicalDash]);
+  useRealtimeInvalidation(REALTIME_TOPICS.CLINICAL, loadClinical, isClinicalDash);
+  useRealtimeInvalidation(REALTIME_TOPICS.MY_VISITS, loadClinical, isClinicalDash);
+  useVisibilityPolling(loadClinical, 30000, isClinicalDash);
 
 
 

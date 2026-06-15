@@ -444,6 +444,11 @@ async def create_visit_from_booking(
 
     visit["patient_name"] = (p or {}).get("full_name") or booking.get("patient_name")
 
+    from clinic_realtime import safe_emit_visit_event, safe_emit_booking_event
+    safe_emit_visit_event(visit, "visit_started", message="Visit started from booking")
+    updated_booking = {**booking, **booking_upd}
+    safe_emit_booking_event(updated_booking, "booking_updated", message="Booking checked in")
+
     return visit
 
 
@@ -492,7 +497,15 @@ async def visit_emr_submitted(db, visit_id: str) -> bool:
     return bool((cr and cr.get("submitted")) or (tr and tr.get("submitted")))
 
 
-async def mark_visit_submitted(db, clinic_id: str, visit_id: str, *, created_by: str) -> None:
+async def mark_visit_submitted(
+    db,
+    clinic_id: str,
+    visit_id: str,
+    *,
+    created_by: str,
+    note_role: str = "",
+    staff_name: str = "",
+) -> None:
     """Set visit status to submitted and ensure FO invoice has treatment lines."""
     await db.visits.update_one(
         {"id": visit_id, "clinic_id": clinic_id, "status": {"$nin": ["completed", "cancelled"]}},
@@ -503,6 +516,16 @@ async def mark_visit_submitted(db, clinic_id: str, visit_id: str, *, created_by:
         return
     from invoices import ensure_invoice_for_visit
     await ensure_invoice_for_visit(db, clinic_id, visit, created_by=created_by)
+    visit = await db.visits.find_one({"id": visit_id, "clinic_id": clinic_id}, {"_id": 0}) or visit
+    from clinic_realtime import safe_emit_visit_event
+    who = (staff_name or "Staff").strip()
+    role = note_role or "staff"
+    safe_emit_visit_event(
+        visit,
+        "visit_submitted",
+        message=f"Visit submitted by {who}",
+        extra_payload={"note_role": role, "staff_name": who},
+    )
 
 
 def format_loyalty_idr(amount: float) -> str:

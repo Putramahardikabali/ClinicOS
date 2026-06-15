@@ -23,6 +23,8 @@ import VisitConsentPanel from "@/components/consent/VisitConsentPanel";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import FeatureGate from "@/components/FeatureGate";
 import { useClinic } from "@/lib/clinic";
+import { REALTIME_TOPICS, visitTopicKey } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation } from "@/lib/realtimeEventsContext";
 
 function initialStepForUser(user, visit, steps) {
   if (!user || !visit || !steps.length) return steps[0]?.id || "overview";
@@ -77,6 +79,9 @@ export default function VisitDetailPage() {
   }, [vid]);
 
   useEffect(() => { load(); }, [load]);
+
+  useRealtimeInvalidation(visitTopicKey(vid), load);
+  useRealtimeInvalidation(REALTIME_TOPICS.VISITS, load);
 
   useEffect(() => {
     if (!visit?.id || !canViewBilling) {

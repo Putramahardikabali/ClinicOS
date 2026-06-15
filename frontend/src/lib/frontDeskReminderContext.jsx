@@ -9,6 +9,8 @@ import {
   groupReminders,
   loadDismissedReminderKeys,
 } from "@/lib/appointmentReminders";
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation } from "@/lib/realtimeEventsContext";
 
 const FrontDeskReminderContext = createContext(null);
 
@@ -55,6 +57,8 @@ export function FrontDeskReminderProvider({ children }) {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [enabled, refreshReminders]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.FRONT_DESK, refreshReminders, enabled);
 
   const activeReminders = useMemo(
     () => (enabled ? filterActiveReminders(reminders, dismissedMap) : []),

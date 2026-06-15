@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
+import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 import {
   buildBookingPerformers,
   filterEligibleStaff,
@@ -1922,6 +1924,9 @@ export default function BookingsPage() {
   }, [scope, statusFilter, viewMode]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.BOOKINGS, refresh);
+  useVisibilityPolling(refresh, 30000);
   useEffect(() => { api.get("/wa-templates").then(r => setTemplates(r.data || [])); }, []);
   useEffect(() => {
     api.get("/settings/messaging").then(r => setAutomationActive(!!r.data?.automation_active)).catch(() => {});
