@@ -95,6 +95,7 @@ from saas import (
     validate_booking_slug, BookingSlugError,
 )
 from bookings import register_bookings, DEFAULT_TREATMENTS, DEFAULT_WA_TEMPLATES
+from campaigns import register_campaigns
 from dashboard_operations import register_dashboard_operations
 from front_desk_dashboard import register_front_desk_dashboard
 from clinic_realtime import register_realtime, safe_emit_visit_event
@@ -520,6 +521,8 @@ async def audit(
 # ---------------- Object Storage ----------------
 storage_key: Optional[str] = None
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+PHOTO_TOO_LARGE_MESSAGE = "Photo is too large. Please try another photo or reduce camera resolution."
+UNSUPPORTED_PHOTO_MESSAGE = "Unsupported photo format. Please use JPG, PNG, or WebP."
 
 def _safe_rel_path(path: str) -> str:
     rel = str(path or "").strip().lstrip("/").replace("\\", "/")
@@ -721,6 +724,12 @@ class TreatmentItemIn(BaseModel):
     product_id: Optional[str] = None
     quantity_used: Optional[float] = None
     dose_notes: Optional[str] = ""
+    source: Optional[str] = None
+    confirmed_by_staff: Optional[bool] = None
+
+class TreatmentOutcomeIn(BaseModel):
+    no_treatment_performed: bool = False
+    no_treatment_reason: Optional[str] = ""
 
 class MappingIn(BaseModel):
     map_type: str  # face | body_front | body_back
@@ -2165,6 +2174,10 @@ async def add_treatment(vid: str, payload: TreatmentItemIn, user: dict = Depends
     product_id = item.pop("product_id", None)
     quantity_used = item.pop("quantity_used", None)
     dose_notes = item.pop("dose_notes", "") or ""
+    if not item.get("source"):
+        item["source"] = "manual"
+    if item.get("confirmed_by_staff") is None:
+        item["confirmed_by_staff"] = True
     item.update(performer_snap)
     item["id"] = str(uuid.uuid4())
     item["visit_id"] = vid
@@ -2194,6 +2207,69 @@ async def add_treatment(vid: str, payload: TreatmentItemIn, user: dict = Depends
             raise
     await audit(user, "create", "treatment_item", item["id"])
     return item
+
+@api.post("/visits/{vid}/treatments/confirm-booked")
+async def confirm_booked_treatment(
+    vid: str,
+    user: dict = Depends(require_roles("super_admin", "doctor", "therapist", "nurse")),
+):
+    """Add the booking treatment as a confirmed performed treatment line."""
+    await assert_writeable(user)
+    await assert_feature(user, "emr")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    await assert_staff_visit_access(db, user, visit)
+    await assert_required_consents_signed(db, user.get("clinic_id"), vid)
+    if not visit.get("booking_id"):
+        raise HTTPException(status_code=400, detail="Visit has no linked booking")
+    booking = await db.bookings.find_one(
+        {"clinic_id": user.get("clinic_id"), "id": visit["booking_id"]},
+        {"_id": 0},
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    from treatment_items_logic import confirm_booked_treatment_item
+    item = await confirm_booked_treatment_item(
+        db,
+        clinic_id=user.get("clinic_id"),
+        visit=visit,
+        booking=booking,
+        user_id=user["id"],
+    )
+    await audit(user, "create", "treatment_item", item["id"])
+    return item
+
+@api.put("/visits/{vid}/treatment-outcome")
+async def set_visit_treatment_outcome(
+    vid: str,
+    payload: TreatmentOutcomeIn,
+    user: dict = Depends(require_roles("super_admin", "doctor", "therapist", "nurse")),
+):
+    """Record that no treatment was performed during the visit."""
+    await assert_writeable(user)
+    await assert_feature(user, "emr")
+    visit = await db.visits.find_one(scope(user, {"id": vid}))
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    await assert_staff_visit_access(db, user, visit)
+    if payload.no_treatment_performed:
+        reason = (payload.no_treatment_reason or "").strip()
+        if not reason:
+            raise HTTPException(status_code=400, detail="Reason is required when no treatment was performed.")
+        upd = {
+            "no_treatment_performed": True,
+            "no_treatment_reason": reason,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    else:
+        upd = {
+            "no_treatment_performed": False,
+            "no_treatment_reason": "",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    await db.visits.update_one(scope(user, {"id": vid}), {"$set": upd})
+    return {"ok": True, **upd}
 
 @api.delete("/visits/{vid}/treatments/{iid}")
 async def delete_treatment(vid: str, iid: str, user: dict = Depends(require_roles("super_admin", "doctor", "therapist", "nurse"))):
@@ -2228,12 +2304,12 @@ async def upload_photo(
     await assert_staff_visit_access(db, user, visit)
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() or "jpg"
     if ext not in ("jpg", "jpeg", "png", "webp"):
-        raise HTTPException(status_code=400, detail="Unsupported photo format. Use JPG, PNG, or WebP.")
+        raise HTTPException(status_code=400, detail=UNSUPPORTED_PHOTO_MESSAGE)
     pid = str(uuid.uuid4())
     path = f"{APP_NAME}/visits/{vid}/{pid}.{ext}"
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"Photo too large. Maximum {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+        raise HTTPException(status_code=413, detail=PHOTO_TOO_LARGE_MESSAGE)
     await assert_storage_capacity(user, len(data))
     try:
         result = put_object(path, data, file.content_type or f"image/{ext}")
@@ -2454,6 +2530,14 @@ register_front_desk_dashboard(
 register_realtime(
     api=api,
     get_current_user=get_operational_user,
+)
+
+register_campaigns(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    audit=audit,
+    scope=scope,
 )
 
 register_invoices(
@@ -2793,6 +2877,8 @@ async def startup():
     await db.bookings.create_index([("clinic_id", 1), ("scheduled_at", 1)])
     await db.bookings.create_index([("clinic_id", 1), ("status", 1)])
     await db.coupons.create_index([("clinic_id", 1), ("code", 1)], unique=True)
+    await db.campaigns.create_index([("clinic_id", 1), ("code", 1)], unique=True, sparse=True)
+    await db.campaigns.create_index([("clinic_id", 1), ("active", 1)])
     await db.commission_rules.create_index([("clinic_id", 1), ("is_active", 1)])
     await db.commission_records.create_index(
         [("clinic_id", 1), ("invoice_id", 1), ("invoice_item_id", 1), ("staff_id", 1)],

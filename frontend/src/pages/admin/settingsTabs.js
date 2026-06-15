@@ -3,6 +3,7 @@ export {
   ScheduleTab,
   SecuritySettingsTab,
   CouponsTab,
+  CampaignsTab,
   LoyaltyTab,
   DoctorFormTab,
   TherapistFormTab,

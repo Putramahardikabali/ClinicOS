@@ -4,6 +4,7 @@ import api, { fileUrl } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 import { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import { formatBillingLabel, visitNoteTabRoles } from "@/lib/visitUi";
+import { bookedTreatmentLabel, performedTreatmentItems } from "@/lib/visitWorkflow";
 
 const EMPTY = "No data recorded";
 
@@ -66,6 +67,8 @@ export default function PrintVisitPage() {
   const hasDoctor = hasDoctorNoteContent(cr);
   const hasTherapist = hasTherapistNoteContent(tr);
   const signatureCount = [showDoctor, showTherapist, showNurse].filter(Boolean).length;
+  const bookedTreatment = bookedTreatmentLabel(visit);
+  const performedItems = performedTreatmentItems(visit);
 
   const renderAssessment = () => {
     if (!cr?.assessment) return <p className="text-[#5C6C62]">{EMPTY}</p>;
@@ -188,18 +191,37 @@ export default function PrintVisitPage() {
           {hasTherapist ? renderTherapistNoteBody() : <p className="text-[#5C6C62]">{EMPTY}</p>}
         </PrintSection>
 
-        <PrintSection title="Treatment items">
-          {(visit.treatment_items || []).length > 0 ? (
+        <PrintSection title="Booked treatment">
+          {bookedTreatment ? (
+            <div className="text-sm space-y-1">
+              <div><span className="text-[#5C6C62]">Treatment:</span> {bookedTreatment}</div>
+              {visit.booking?.duration_min != null && (
+                <div><span className="text-[#5C6C62]">Duration:</span> {visit.booking.duration_min} min</div>
+              )}
+              {visit.booking?.notes && (
+                <div><span className="text-[#5C6C62]">Booking note:</span> {visit.booking.notes}</div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[#5C6C62]">{EMPTY}</p>
+          )}
+        </PrintSection>
+
+        <PrintSection title="Performed treatment">
+          {visit.no_treatment_performed ? (
+            <p className="text-[#5C6C62]">No treatment performed{visit.no_treatment_reason ? `: ${visit.no_treatment_reason}` : ""}</p>
+          ) : performedItems.length > 0 ? (
             <table className="w-full text-sm border-t border-b border-[#2D3A33]/30">
               <thead className="text-left">
                 <tr className="border-b border-[#2D3A33]/30">
-                  <th className="py-1.5">Category</th><th>Name</th><th>Product</th><th>Area</th><th>Qty</th>
+                  <th className="py-1.5">Treatment</th><th>Product</th><th>Area</th><th>Qty</th>
                 </tr>
               </thead>
               <tbody>
-                {visit.treatment_items.map((it) => (
+                {performedItems.map((it) => (
                   <tr key={it.id} className="border-b border-[#2D3A33]/10">
-                    <td className="py-1.5">{it.category}</td><td>{it.name}</td><td>{it.product_used || "—"}</td><td>{it.area_treated || "—"}</td>
+                    <td className="py-1.5">{it.name}{it.source === "additional" ? " (additional)" : ""}</td>
+                    <td>{it.product_used || "—"}</td><td>{it.area_treated || "—"}</td>
                     <td>{it.quantity} {it.unit_type}</td>
                   </tr>
                 ))}

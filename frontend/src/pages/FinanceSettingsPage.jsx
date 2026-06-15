@@ -7,6 +7,7 @@ import CommissionSettingsPanel from "@/components/commission/CommissionSettingsP
 import {
   OnlineBookingPaymentTab,
   CouponsTab,
+  CampaignsTab,
   LoyaltyTab,
 } from "@/pages/admin/settingsTabs";
 
@@ -21,13 +22,13 @@ export default function FinanceSettingsPage() {
   const canBilling =
     (isOwner || hasPermission(user, "billing.manage") || hasPermission(user, "settings.manage"))
     && hasFeature(clinic, "online_booking_payment");
-  const canCoupons = hasPermission(user, "coupons.manage");
+  const canCampaigns = hasPermission(user, "campaigns.manage") || hasPermission(user, "coupons.manage");
   const canLoyalty = isOwner || isManager;
 
   const tabs = [
     canCommission && { key: "commission", label: "Commission", icon: Percent },
     canBilling && { key: "online-booking-payment", label: "Online appointment payment", icon: CreditCard },
-    canCoupons && { key: "coupons", label: "Coupons", icon: Tag },
+    canCampaigns && { key: "campaigns", label: "Campaigns", icon: Tag },
     canLoyalty && { key: "loyalty", label: "Loyalty", icon: Award },
   ].filter(Boolean);
 
@@ -35,7 +36,7 @@ export default function FinanceSettingsPage() {
     <SettingsModuleLayout
       eyebrow="Finance"
       title="Finance Settings"
-      description="Commission rules, online booking payments, coupons, and loyalty programs."
+      description="Commission rules, online booking payments, campaigns, and loyalty programs."
       tabs={tabs}
       defaultTab={canCommission ? "commission" : "online-booking-payment"}
       testIdPrefix="finance-settings"
@@ -48,7 +49,8 @@ export default function FinanceSettingsPage() {
           {tab === "online-booking-payment" && canBilling && isOwner && (
             <FeatureRoute feature="online_booking_payment"><OnlineBookingPaymentTab /></FeatureRoute>
           )}
-          {tab === "coupons" && canCoupons && <CouponsTab />}
+          {tab === "campaigns" && canCampaigns && <CampaignsTab />}
+          {tab === "coupons" && canCampaigns && <CampaignsTab />}
           {tab === "loyalty" && canLoyalty && <LoyaltyTab />}
         </>
       )}

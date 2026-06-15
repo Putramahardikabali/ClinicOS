@@ -1302,100 +1302,106 @@ function LoyaltyTab() {
   );
 }
 
-function CouponsTab() {
-  const emptyCouponForm = () => ({
-    code: "",
+function CampaignsTab() {
+  const emptyForm = () => ({
     name: "",
+    code: "",
+    description: "",
     discount_type: "percent",
     discount_value: 10,
     max_discount_idr: "",
-    min_subtotal_idr: 0,
+    min_invoice_amount_idr: 0,
     active: true,
-    valid_from: "",
-    valid_until: "",
-    max_uses: "",
+    start_date: "",
+    end_date: "",
+    max_uses_total: "",
+    applies_to: "all",
   });
 
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(emptyCouponForm());
+  const [form, setForm] = useState(emptyForm());
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  const load = () => api.get("/coupons").then(r => setRows(r.data || []));
+  const load = () => api.get("/campaigns").then(r => setRows(r.data || []));
   useEffect(() => { load(); }, []);
 
   const resetForm = () => {
     setEditingId(null);
-    setForm(emptyCouponForm());
+    setForm(emptyForm());
   };
 
   const startEdit = (c) => {
     setEditingId(c.id);
     setForm({
-      code: c.code || "",
       name: c.name || "",
+      code: c.code || "",
+      description: c.description || "",
       discount_type: c.discount_type || "percent",
       discount_value: c.discount_value ?? 10,
       max_discount_idr: c.max_discount_idr ?? "",
-      min_subtotal_idr: c.min_subtotal_idr ?? 0,
+      min_invoice_amount_idr: c.min_invoice_amount_idr ?? c.min_subtotal_idr ?? 0,
       active: c.active !== false,
-      valid_from: c.valid_from ? c.valid_from.slice(0, 10) : "",
-      valid_until: c.valid_until ? c.valid_until.slice(0, 10) : "",
-      max_uses: c.max_uses ?? "",
+      start_date: (c.start_date || c.valid_from || "").slice(0, 10),
+      end_date: (c.end_date || c.valid_until || "").slice(0, 10),
+      max_uses_total: c.max_uses_total ?? c.max_uses ?? "",
+      applies_to: c.applies_to || "all",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const payloadFromForm = () => ({
-    code: form.code.trim().toUpperCase(),
-    name: form.name.trim() || form.code.trim().toUpperCase(),
+    name: form.name.trim(),
+    code: form.code.trim().toUpperCase() || null,
+    description: form.description.trim(),
     discount_type: form.discount_type,
     discount_value: Number(form.discount_value) || 0,
     max_discount_idr: form.max_discount_idr === "" ? null : Number(form.max_discount_idr),
-    min_subtotal_idr: Number(form.min_subtotal_idr) || 0,
+    min_invoice_amount_idr: Number(form.min_invoice_amount_idr) || 0,
     active: form.active,
-    valid_from: form.valid_from || null,
-    valid_until: form.valid_until || null,
-    max_uses: form.max_uses === "" ? null : Number(form.max_uses),
+    start_date: form.start_date || null,
+    end_date: form.end_date || null,
+    max_uses_total: form.max_uses_total === "" ? null : Number(form.max_uses_total),
+    applies_to: form.applies_to,
   });
 
   const save = async (e) => {
     e.preventDefault();
-    if (!form.code.trim()) { toast.error("Coupon code is required"); return; }
+    if (!form.name.trim()) { toast.error("Campaign name is required"); return; }
     setBusy(true);
     try {
       const body = payloadFromForm();
       if (editingId) {
-        await api.put(`/coupons/${editingId}`, body);
-        toast.success("Coupon updated");
+        await api.put(`/campaigns/${editingId}`, body);
+        toast.success("Campaign updated");
       } else {
-        await api.post("/coupons", body);
-        toast.success("Coupon created");
+        await api.post("/campaigns", body);
+        toast.success("Campaign created");
       }
       resetForm();
       load();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Failed to save coupon");
+      toast.error(err?.response?.data?.detail || "Failed to save campaign");
     } finally { setBusy(false); }
   };
 
   const toggleActive = async (c) => {
-    await api.put(`/coupons/${c.id}`, { active: !c.active });
+    await api.put(`/campaigns/${c.id}`, { active: !c.active });
     load();
   };
 
   const remove = async (c) => {
-    await api.delete(`/coupons/${c.id}`);
-    toast.success("Coupon deleted");
+    await api.delete(`/campaigns/${c.id}`);
+    toast.success("Campaign deleted");
     setDeleteConfirmId(null);
     if (editingId === c.id) resetForm();
     load();
   };
 
   const formatDateRange = (c) => {
-    const from = c.valid_from ? c.valid_from.slice(0, 10) : null;
-    const until = c.valid_until ? c.valid_until.slice(0, 10) : null;
+    const from = (c.start_date || c.valid_from || "").slice(0, 10) || null;
+    const until = (c.end_date || c.valid_until || "").slice(0, 10) || null;
     if (from && until) return `${from} → ${until}`;
     if (from) return `From ${from}`;
     if (until) return `Until ${until}`;
@@ -1403,67 +1409,80 @@ function CouponsTab() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6" data-testid="coupons-tab">
+    <div className="max-w-3xl space-y-6" data-testid="campaigns-tab">
       <div className="bl-card p-5">
-        <div className="font-display text-lg text-[#2D3A33]">{editingId ? "Edit coupon" : "New coupon"}</div>
+        <div className="font-display text-lg text-[#2D3A33]">{editingId ? "Edit campaign" : "New campaign"}</div>
         <p className="text-sm text-[#5C6C62] mt-1 mb-4">
-          Create discount codes for front desk staff to apply when making appointments. Set optional start and end dates to control when a code is valid.
+          Create promotion campaigns applied at invoice time. Staff select active campaigns when billing — not during booking.
         </p>
-        <form onSubmit={save} className="space-y-3" data-testid="coupon-create-form">
+        <form onSubmit={save} className="space-y-3" data-testid="campaign-create-form">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="label-eyebrow block mb-1.5">Code</label>
-              <input className="bl-input font-mono uppercase" value={form.code} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} required placeholder="SUMMER20" data-testid="coupon-code-input" />
+              <label className="label-eyebrow block mb-1.5">Campaign name</label>
+              <input className="bl-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="June Body Treatment Happy Hours" data-testid="campaign-name-input" />
             </div>
             <div>
-              <label className="label-eyebrow block mb-1.5">Label (optional)</label>
-              <input className="bl-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Summer promo" data-testid="coupon-name-input" />
+              <label className="label-eyebrow block mb-1.5">Internal code (optional)</label>
+              <input className="bl-input font-mono uppercase" value={form.code} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="JUNE_BODY_HH" data-testid="campaign-code-input" />
             </div>
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-1.5">Description</label>
+            <textarea className="bl-input min-h-[60px]" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional details for staff" data-testid="campaign-description-input" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="label-eyebrow block mb-1.5">Type</label>
-              <select className="bl-input" value={form.discount_type} onChange={e => setForm({ ...form, discount_type: e.target.value })} data-testid="coupon-type-select">
-                <option value="percent">Percent (%)</option>
-                <option value="fixed">Fixed (IDR)</option>
+              <label className="label-eyebrow block mb-1.5">Discount type</label>
+              <select className="bl-input" value={form.discount_type} onChange={e => setForm({ ...form, discount_type: e.target.value })} data-testid="campaign-type-select">
+                <option value="percent">Percentage (%)</option>
+                <option value="fixed">Fixed amount (IDR)</option>
               </select>
             </div>
             <div>
-              <label className="label-eyebrow block mb-1.5">Value</label>
-              <input type="number" min="0" className="bl-input" value={form.discount_value} onChange={e => setForm({ ...form, discount_value: Number(e.target.value) })} required data-testid="coupon-value-input" />
+              <label className="label-eyebrow block mb-1.5">Discount value</label>
+              <input type="number" min="0" className="bl-input" value={form.discount_value} onChange={e => setForm({ ...form, discount_value: Number(e.target.value) })} required data-testid="campaign-value-input" />
             </div>
             <div>
               <label className="label-eyebrow block mb-1.5">Max discount (IDR)</label>
-              <input type="number" min="0" className="bl-input" value={form.max_discount_idr} onChange={e => setForm({ ...form, max_discount_idr: e.target.value })} placeholder="Optional" data-testid="coupon-max-discount-input" />
+              <input type="number" min="0" className="bl-input" value={form.max_discount_idr} onChange={e => setForm({ ...form, max_discount_idr: e.target.value })} placeholder="Optional" data-testid="campaign-max-discount-input" />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="label-eyebrow block mb-1.5">Min. subtotal (IDR)</label>
-              <input type="number" min="0" className="bl-input" value={form.min_subtotal_idr} onChange={e => setForm({ ...form, min_subtotal_idr: Number(e.target.value) })} data-testid="coupon-min-subtotal-input" />
+              <label className="label-eyebrow block mb-1.5">Min. invoice amount (IDR)</label>
+              <input type="number" min="0" className="bl-input" value={form.min_invoice_amount_idr} onChange={e => setForm({ ...form, min_invoice_amount_idr: Number(e.target.value) })} data-testid="campaign-min-invoice-input" />
             </div>
             <div>
-              <label className="label-eyebrow block mb-1.5">Max uses</label>
-              <input type="number" min="1" className="bl-input" value={form.max_uses} onChange={e => setForm({ ...form, max_uses: e.target.value })} placeholder="Unlimited" data-testid="coupon-max-uses-input" />
+              <label className="label-eyebrow block mb-1.5">Max uses (total)</label>
+              <input type="number" min="1" className="bl-input" value={form.max_uses_total} onChange={e => setForm({ ...form, max_uses_total: e.target.value })} placeholder="Unlimited" data-testid="campaign-max-uses-input" />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="label-eyebrow block mb-1.5">Start date (optional)</label>
-              <input type="date" className="bl-input" value={form.valid_from} onChange={e => setForm({ ...form, valid_from: e.target.value })} data-testid="coupon-start-date" />
+              <label className="label-eyebrow block mb-1.5">Start date</label>
+              <input type="date" className="bl-input" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} data-testid="campaign-start-date" />
             </div>
             <div>
-              <label className="label-eyebrow block mb-1.5">End date (optional)</label>
-              <input type="date" className="bl-input" value={form.valid_until} onChange={e => setForm({ ...form, valid_until: e.target.value })} data-testid="coupon-end-date" />
+              <label className="label-eyebrow block mb-1.5">End date</label>
+              <input type="date" className="bl-input" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} data-testid="campaign-end-date" />
             </div>
+          </div>
+          <div>
+            <label className="label-eyebrow block mb-1.5">Applies to</label>
+            <select className="bl-input" value={form.applies_to} onChange={e => setForm({ ...form, applies_to: e.target.value })} data-testid="campaign-applies-to">
+              <option value="all">All treatments & packages</option>
+              <option value="treatments">Selected treatments (configure in advanced)</option>
+              <option value="categories">Selected categories (configure in advanced)</option>
+              <option value="packages">Selected packages (configure in advanced)</option>
+            </select>
           </div>
           <label className="inline-flex items-center gap-2 text-sm text-[#2D3A33] cursor-pointer">
-            <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} data-testid="coupon-active-toggle" />
-            Active — available for staff to apply
+            <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} data-testid="campaign-active-toggle" />
+            Active — eligible for invoice selection when within date range
           </label>
           <div className="flex flex-wrap gap-2 pt-1">
-            <button type="submit" disabled={busy} className="bl-btn-primary" data-testid="coupon-create-submit">
-              {busy ? "Saving…" : editingId ? "Save coupon" : "Add coupon"}
+            <button type="submit" disabled={busy} className="bl-btn-primary" data-testid="campaign-create-submit">
+              {busy ? "Saving…" : editingId ? "Save campaign" : "Add campaign"}
             </button>
             {editingId && (
               <button type="button" onClick={resetForm} className="bl-btn-ghost">Cancel edit</button>
@@ -1476,64 +1495,38 @@ function CouponsTab() {
         <table className="w-full">
           <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
             <tr>
-              <th className="px-4 py-3">Code</th>
+              <th className="px-4 py-3">Campaign</th>
               <th className="px-4 py-3">Discount</th>
               <th className="px-4 py-3">Valid dates</th>
+              <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Uses</th>
-              <th className="px-4 py-3">Active</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[#5C6C62]">No coupons yet.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[#5C6C62]">No campaigns yet.</td></tr>
             )}
             {rows.map(c => (
               <tr key={c.id} className="border-t border-[#EAE6D7]">
                 <td className="px-4 py-3">
-                  <div className="font-mono font-medium">{c.code}</div>
-                  {c.name && c.name !== c.code && <div className="text-xs text-[#5C6C62]">{c.name}</div>}
+                  <div className="font-medium">{c.name}</div>
+                  {c.code && <div className="text-xs font-mono text-[#5C6C62]">{c.code}</div>}
                 </td>
                 <td className="px-4 py-3 text-sm">
                   {c.discount_type === "percent" ? `${c.discount_value}%` : fmtIDRShort(c.discount_value)}
-                  {c.max_discount_idr ? <span className="text-[#5C6C62]"> · max {fmtIDRShort(c.max_discount_idr)}</span> : null}
                 </td>
                 <td className="px-4 py-3 text-xs text-[#5C6C62] whitespace-nowrap">{formatDateRange(c)}</td>
-                <td className="px-4 py-3 text-sm text-[#5C6C62]">{c.uses_count || 0}{c.max_uses != null ? ` / ${c.max_uses}` : ""}</td>
-                <td className="px-4 py-3">
-                  <button type="button" onClick={() => toggleActive(c)} className={`bl-chip ${c.active ? "success" : ""}`} data-testid={`coupon-toggle-${c.id}`}>
-                    {c.active ? "Active" : "Inactive"}
-                  </button>
-                </td>
+                <td className="px-4 py-3 text-xs capitalize text-[#5C6C62]">{c.status || (c.active ? "active" : "inactive")}</td>
+                <td className="px-4 py-3 text-sm text-[#5C6C62]">{c.uses_count || 0}{c.max_uses_total != null ? ` / ${c.max_uses_total}` : ""}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="inline-flex items-center gap-1">
-                    <button type="button" onClick={() => startEdit(c)} className="text-xs px-2 py-1 rounded hover:bg-[#F3F1EB] inline-flex items-center gap-1" data-testid={`coupon-edit-${c.id}`}>
+                    <button type="button" onClick={() => toggleActive(c)} className={`bl-chip ${c.active ? "success" : ""}`} data-testid={`campaign-toggle-${c.id}`}>
+                      {c.active ? "Active" : "Inactive"}
+                    </button>
+                    <button type="button" onClick={() => startEdit(c)} className="text-xs px-2 py-1 rounded hover:bg-[#F3F1EB] inline-flex items-center gap-1" data-testid={`campaign-edit-${c.id}`}>
                       <Edit2 className="w-3.5 h-3.5" /> Edit
                     </button>
-                    <DropdownMenu onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
-                      <DropdownMenuTrigger asChild>
-                        <button type="button" className="p-1.5 rounded-lg text-[#5C6C62] hover:bg-[#F3F1EB]" aria-label="More actions" data-testid={`coupon-menu-${c.id}`}>
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-[160px]">
-                        {deleteConfirmId !== c.id ? (
-                          <DropdownMenuItem
-                            className="text-[#B14A2C] focus:text-[#B14A2C] cursor-pointer"
-                            onSelect={(e) => { e.preventDefault(); setDeleteConfirmId(c.id); }}
-                          >
-                            Delete…
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            className="text-[#B14A2C] focus:text-[#B14A2C] font-medium cursor-pointer"
-                            onSelect={() => remove(c)}
-                          >
-                            Confirm delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                   </div>
                 </td>
               </tr>
@@ -1544,6 +1537,8 @@ function CouponsTab() {
     </div>
   );
 }
+
+const CouponsTab = CampaignsTab;
 
 function SecuritySettingsTab() {
   const [require2fa, setRequire2fa] = useState(false);
@@ -2806,6 +2801,7 @@ export {
   ScheduleTab,
   SecuritySettingsTab,
   CouponsTab,
+  CampaignsTab,
   LoyaltyTab,
   DoctorFormTab,
   TherapistFormTab,

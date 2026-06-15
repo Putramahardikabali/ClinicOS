@@ -558,10 +558,9 @@ def register_online_booking_payment(
 
         await expire_stale_online_payments(db, c["id"])
 
+        from public_booking_time import assert_public_scheduled_at_valid
         try:
-            scheduled = parse_iso(payload.scheduled_at)
-            if scheduled < now_utc() - timedelta(minutes=5):
-                raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+            assert_public_scheduled_at_valid(c, payload.scheduled_at)
         except HTTPException:
             raise
         except Exception:

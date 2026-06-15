@@ -276,28 +276,16 @@ async def refresh_invoice_from_visit(db, clinic_id: str, inv: dict) -> dict:
 
 
 async def build_invoice_items_from_visit(db, clinic_id: str, visit: dict) -> List[dict]:
-    """Map visit treatment lines (and booking fallback) to invoice items with performers."""
-    from visit_workflow import _booking_line_price
+    """Map confirmed visit treatment lines to invoice items with performers."""
+    from treatment_items_logic import filter_performed_treatment_items
 
     default_perf = await resolve_visit_default_performer(db, clinic_id, visit)
     performers = await _visit_performers(db, clinic_id, visit)
-    treatment_items = await db.treatment_items.find(
+    all_items = await db.treatment_items.find(
         {"visit_id": visit["id"], "clinic_id": clinic_id},
         {"_id": 0},
     ).to_list(200)
-
-    if not treatment_items and visit.get("booking_id"):
-        booking = await db.bookings.find_one(
-            {"id": visit["booking_id"], "clinic_id": clinic_id},
-            {"_id": 0},
-        )
-        if booking:
-            price = await _booking_line_price(db, booking, clinic_id)
-            treatment_items = [{
-                "name": booking.get("treatment") or visit.get("chief_complaint") or "Appointment",
-                "quantity": 1,
-                "price": price,
-            }]
+    treatment_items = filter_performed_treatment_items(all_items)
 
     items: List[dict] = []
     for ti in treatment_items:
@@ -376,6 +364,14 @@ async def ensure_invoice_for_visit(
         "discount_value": 0,
         "discount_amount": 0,
         "discount_reason": "",
+        "campaign_id": None,
+        "campaign_name_snapshot": "",
+        "campaign_code_snapshot": "",
+        "discount_type_snapshot": "",
+        "discount_value_snapshot": 0,
+        "discount_amount_applied": 0,
+        "campaign_applied_by_user_id": None,
+        "campaign_applied_at": None,
         "subtotal": 0,
         "total_amount": 0,
         "amount_paid": 0,
@@ -680,6 +676,10 @@ class InvoiceAddCatalogItemIn(BaseModel):
     performers: Optional[List[dict]] = None
 
 
+class InvoiceApplyCampaignIn(BaseModel):
+    campaign_id: Optional[str] = None
+
+
 class InvoiceDiscountIn(BaseModel):
     discount_type: str = "none"
     discount_value: float = 0
@@ -757,7 +757,8 @@ def register_invoices(
         discount_type = inv.get("discount_type") or "none"
         discount_amount = int(inv.get("discount_amount") or 0)
         if discount_amount > 0 and not (inv.get("discount_reason") or "").strip():
-            raise HTTPException(status_code=400, detail="Discount reason is required when discount is applied")
+            if not inv.get("campaign_id"):
+                raise HTTPException(status_code=400, detail="Discount reason is required when discount is applied")
         inv = _apply_totals_and_payment(inv)
         inv["updated_at"] = _now_iso()
         await db.invoices.update_one(
@@ -1199,6 +1200,42 @@ def register_invoices(
         inv["discount_type"] = payload.discount_type if payload.discount_type in DISCOUNT_TYPES else "none"
         inv["discount_value"] = payload.discount_value
         inv["discount_reason"] = (payload.discount_reason or "").strip()
+        return await _save_invoice(user, inv)
+
+    @api.post("/invoices/{invoice_id}/apply-campaign")
+    async def apply_campaign_to_invoice(
+        invoice_id: str,
+        payload: InvoiceApplyCampaignIn,
+        user: dict = Depends(require_permission("billing.edit")),
+    ):
+        await assert_writeable(user)
+        await assert_feature(user, "billing")
+        from campaign_io import campaign_snapshot_fields, clinic_today_str
+        from campaigns import prepare_campaign_for_invoice
+
+        inv = await _get_invoice_scoped(user, invoice_id)
+        if not payload.campaign_id:
+            for key in (
+                "campaign_id", "campaign_name_snapshot", "campaign_code_snapshot",
+                "discount_type_snapshot", "discount_value_snapshot", "discount_amount_applied",
+                "campaign_applied_by_user_id", "campaign_applied_at",
+            ):
+                inv.pop(key, None)
+            inv["discount_type"] = "none"
+            inv["discount_value"] = 0
+            inv["discount_reason"] = ""
+            return await _save_invoice(user, inv)
+
+        clinic = await db.clinics.find_one({"id": user["clinic_id"]}, {"_id": 0, "timezone": 1}) or {}
+        invoice_date = (inv.get("created_at") or "")[:10] or clinic_today_str(clinic)
+        campaign, pricing = await prepare_campaign_for_invoice(
+            db, user, inv, payload.campaign_id, invoice_date,
+        )
+        discount_amt = int(pricing.get("discount_amount_applied") or 0)
+        inv.update(campaign_snapshot_fields(campaign, discount_amt, user["id"]))
+        inv["discount_type"] = "fixed"
+        inv["discount_value"] = discount_amt
+        inv["discount_reason"] = f"Campaign: {campaign.get('name') or 'Promotion'}"
         return await _save_invoice(user, inv)
 
     @api.put("/invoices/{invoice_id}/payment")

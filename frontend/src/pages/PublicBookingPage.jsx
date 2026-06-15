@@ -12,6 +12,12 @@ import { Sparkles, Calendar as CalendarIcon, Clock, Check, ArrowRight, ArrowLeft
 import SearchInput from "@/components/ui/SearchInput";
 import NationalityCombobox from "@/components/patient/NationalityCombobox";
 import { PATIENT_SOURCE_OPTIONS } from "@/lib/patientProfile";
+import {
+  daysFromClinicToday,
+  filterPublicBookingSlots,
+  getClinicNowParts,
+  resolveClinicTimezone,
+} from "@/components/bookings/scheduleUtils";
 
 
 
@@ -211,27 +217,13 @@ function StepBackLink({ onClick, children, testId }) {
 
 
 
-function daysFromToday(n) {
-
-  const arr = [];
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-
-  for (let i = 0; i < n; i++) {
-
-    const d = new Date(today); d.setDate(today.getDate() + i);
-
-    arr.push(d);
-
-  }
-
-  return arr;
-
+function formatDateStripLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  return {
+    weekday: d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+    day: d.getUTCDate(),
+  };
 }
-
-
-
-const toDateString = (d) => d.toISOString().slice(0, 10);
 
 
 
@@ -292,7 +284,7 @@ export default function PublicBookingPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [date, setDate] = useState(toDateString(new Date()));
+  const [date, setDate] = useState(() => getClinicNowParts().dateStr);
 
   const [slots, setSlots] = useState([]);
 
@@ -323,7 +315,9 @@ export default function PublicBookingPage() {
   const [bookingDisabled, setBookingDisabled] = useState(false);
   const [bookingDisabledMessage, setBookingDisabledMessage] = useState("");
 
-  const dates = useMemo(() => daysFromToday(14), []);
+  const timezone = resolveClinicTimezone(clinic);
+  const clinicToday = useMemo(() => getClinicNowParts(timezone).dateStr, [timezone]);
+  const dates = useMemo(() => daysFromClinicToday(timezone, 14), [timezone]);
 
 
 
@@ -444,6 +438,13 @@ export default function PublicBookingPage() {
 
 
   useEffect(() => {
+    if (!clinicToday) return;
+    setDate((current) => (current < clinicToday ? clinicToday : current));
+  }, [clinicToday]);
+
+
+
+  useEffect(() => {
 
     if (searchParams.get("payment") !== "return" || !slug) return;
 
@@ -549,7 +550,19 @@ export default function PublicBookingPage() {
 
       .finally(() => setLoadingSlots(false));
 
-  }, [step, date, selection, slug]);
+  }, [step, date, selection, slug, bookingDisabledMessage]);
+
+
+
+  useEffect(() => {
+    if (step !== 1 || loadingSlots || closedReason) return;
+    const visible = filterPublicBookingSlots(slots, date, timezone);
+    const selectable = visible.filter((s) => s.available);
+    setSelSlot((prev) => {
+      if (prev && selectable.some((s) => s.time === prev.time)) return prev;
+      return selectable[0] || null;
+    });
+  }, [step, loadingSlots, slots, closedReason, date, timezone]);
 
 
 
@@ -1228,11 +1241,10 @@ export default function PublicBookingPage() {
 
                 <div className="mt-2 flex gap-2 overflow-x-auto pb-2" data-testid="date-strip">
 
-                  {dates.map(d => {
-
-                    const ds = toDateString(d);
+                  {dates.map((ds) => {
 
                     const active = date === ds;
+                    const { weekday, day } = formatDateStripLabel(ds);
 
                     return (
 
@@ -1256,9 +1268,9 @@ export default function PublicBookingPage() {
 
                       >
 
-                        <div className="text-[10px] uppercase tracking-wider">{d.toLocaleDateString("en-US", { weekday: "short" })}</div>
+                        <div className="text-[10px] uppercase tracking-wider">{weekday}</div>
 
-                        <div className="font-display text-lg">{d.getDate()}</div>
+                        <div className="font-display text-lg">{day}</div>
 
                       </button>
 
@@ -1286,11 +1298,25 @@ export default function PublicBookingPage() {
 
                 ) : (() => {
 
-                  const visibleSlots = slots.filter(s => !s.past);
+                  const visibleSlots = filterPublicBookingSlots(slots, date, timezone);
 
                   if (visibleSlots.length === 0) {
 
-                    return <div className="text-sm text-[#5C6C62] mt-3">No remaining slots for this day. Please pick another date.</div>;
+                    const isToday = date === clinicToday;
+
+                    return (
+
+                      <div className="text-sm text-[#5C6C62] mt-3" data-testid="no-slots-message">
+
+                        {isToday
+
+                          ? "No more available times for today. Please choose another date."
+
+                          : "No remaining slots for this day. Please pick another date."}
+
+                      </div>
+
+                    );
 
                   }
 

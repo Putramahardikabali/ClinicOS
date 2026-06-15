@@ -2,7 +2,9 @@ import { useState } from "react";
 
 import { ShoppingCart } from "lucide-react";
 
-import { POS_PRIMARY_PAYMENT_METHODS, fmtIDR } from "@/lib/posUtils";
+import { POS_PRIMARY_PAYMENT_METHODS, fmtIDR, parseIdr } from "@/lib/posUtils";
+import PaymentAmountQuickFill from "@/components/payments/PaymentAmountQuickFill";
+import { computeChangeDue, isCashPayment } from "@/lib/paymentAmountQuickFill";
 
 import PosGiftCardPayment from "@/components/pos/PosGiftCardPayment";
 import PosWalletPayment from "@/components/pos/PosWalletPayment";
@@ -47,6 +49,8 @@ export default function PosPaymentPanel({
 
   balanceDue,
 
+  cashDue = 0,
+
   paymentMethod,
 
   onPaymentMethodChange,
@@ -90,6 +94,9 @@ export default function PosPaymentPanel({
   const [storeCreditOpen, setStoreCreditOpen] = useState(false);
 
   const [walletOpen, setWalletOpen] = useState(false);
+  const fillBalance = Math.max(0, Number(cashDue) || 0);
+  const paidAmount = amountPaid === "" ? 0 : parseIdr(amountPaid);
+  const changeDue = isCashPayment(paymentMethod) ? computeChangeDue(paidAmount, fillBalance) : 0;
 
 
 
@@ -219,33 +226,37 @@ export default function PosPaymentPanel({
 
 
 
-        <div className="flex justify-between items-center gap-2">
-
-          <span className="text-[#5C6C62]">Amount paid</span>
-
-          <input
-
-            className="bl-input w-32 font-mono text-right py-1"
-
-            placeholder={String(total)}
-
-            value={amountPaid}
-
-            onChange={(e) => onAmountPaidChange(e.target.value)}
-
-            data-testid="pos-amount-paid"
-
+        <div>
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-[#5C6C62]">Amount received</span>
+            <input
+              className="bl-input w-32 font-mono text-right py-1"
+              placeholder={String(fillBalance || total)}
+              value={amountPaid}
+              onChange={(e) => onAmountPaidChange(e.target.value.replace(/\D/g, ""))}
+              data-testid="pos-amount-paid"
+            />
+          </div>
+          <PaymentAmountQuickFill
+            balanceDue={fillBalance}
+            paymentMethod={paymentMethod}
+            onSelectAmount={(amount) => onAmountPaidChange(String(amount))}
+            onClear={() => onAmountPaidChange("")}
+            testIdPrefix="pos-payment-quick"
           />
-
         </div>
 
         <div className="flex justify-between text-[#5C6C62]">
-
           <span>Balance due</span>
-
           <span className="font-mono">{fmtIDR(balanceDue)}</span>
-
         </div>
+
+        {changeDue > 0 && (
+          <div className="flex justify-between text-[#52796F]" data-testid="pos-change-due">
+            <span>Change due</span>
+            <span className="font-mono">{fmtIDR(changeDue)}</span>
+          </div>
+        )}
 
       </div>
 
@@ -387,7 +398,7 @@ export default function PosPaymentPanel({
 
               />
 
-              {walletApplied > 0 && paid > Math.max(0, total - walletApplied) && walletPatientId && (
+              {walletApplied > 0 && paidAmount > Math.max(0, total - walletApplied) && walletPatientId && (
 
                 <label className="flex items-center gap-2 mt-2 text-xs text-[#5C6C62]">
 

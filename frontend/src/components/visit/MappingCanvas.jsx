@@ -3,6 +3,7 @@ import api, { API_BASE } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
 import { useSettings } from "@/lib/settings";
+import { compressDataUrlBeforeUpload, COMPRESSION_FAILED_MESSAGE } from "@/utils/imageCompression";
 import { Pen, Eraser, MapPin, Type, Trash2, Save, RotateCcw } from "lucide-react";
 
 const COLORS = ["#E76F51", "#8A9A86", "#457B9D", "#D4A373", "#2D3A33"];
@@ -21,6 +22,7 @@ export default function MappingCanvas({ visit, onSaved }) {
   const [markers, setMarkers] = useState([]); // [{x,y,label,color}]
   const [labelInput, setLabelInput] = useState("0.5 ml");
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const cur = useRef(null);
@@ -140,10 +142,12 @@ export default function MappingCanvas({ visit, onSaved }) {
   const save = async () => {
     const c = canvasRef.current;
     const dataUrl = c.toDataURL("image/png");
+    setSaving(true);
     try {
+      const compressed = await compressDataUrlBeforeUpload(dataUrl);
       await api.post(`/visits/${visit.id}/mappings`, {
         map_type: mapType,
-        image_data: dataUrl,
+        image_data: compressed.dataUrl,
         raw_json: { strokes, markers },
         notes: "",
       });
@@ -152,7 +156,9 @@ export default function MappingCanvas({ visit, onSaved }) {
       clearAll();
       setDirty(false);
     } catch (e) {
-      toast.error("Failed to save mapping");
+      toast.error(e?.message || COMPRESSION_FAILED_MESSAGE);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -215,7 +221,9 @@ export default function MappingCanvas({ visit, onSaved }) {
               )}
               <button onClick={undo} className="bl-btn-ghost text-sm inline-flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> Undo</button>
               <button onClick={clearAll} className="bl-btn-ghost text-sm inline-flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Clear</button>
-              <button onClick={save} className="bl-btn-primary text-sm inline-flex items-center gap-1.5" data-testid="map-save"><Save className="w-3.5 h-3.5" /> Save mapping</button>
+              <button onClick={save} disabled={saving} className="bl-btn-primary text-sm inline-flex items-center gap-1.5" data-testid="map-save">
+                <Save className="w-3.5 h-3.5" /> {saving ? "Optimizing photo..." : "Save mapping"}
+              </button>
             </div>
           </div>
 

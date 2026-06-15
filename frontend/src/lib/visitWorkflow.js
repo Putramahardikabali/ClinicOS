@@ -69,9 +69,42 @@ export function bookedTreatmentLabel(visit) {
   return (
     (visit?.booking?.treatment || "").trim()
     || (visit?.chief_complaint || "").trim()
-    || (visit?.treatment_items?.[0]?.name || "").trim()
     || ""
   );
+}
+
+/** True when item is a confirmed/performed treatment line (legacy items without source count as performed). */
+export function isPerformedTreatmentItem(item) {
+  if (!item) return false;
+  if (item.source === "booking_reference") return false;
+  if (item.confirmed_by_staff === false) return false;
+  return true;
+}
+
+export function performedTreatmentItems(visit) {
+  return (visit?.treatment_items || []).filter(isPerformedTreatmentItem);
+}
+
+export function hasPerformedOrWaivedTreatment(visit) {
+  if (visit?.no_treatment_performed) {
+    return Boolean((visit?.no_treatment_reason || "").trim());
+  }
+  return performedTreatmentItems(visit).length > 0;
+}
+
+export function hasConfirmedBookedTreatment(visit) {
+  return performedTreatmentItems(visit).some((it) => it.source === "confirmed_booked");
+}
+
+export function bookedTreatmentReference(visit) {
+  const booking = visit?.booking;
+  if (!booking && !bookedTreatmentLabel(visit)) return null;
+  return {
+    name: bookedTreatmentLabel(visit) || "—",
+    durationMin: booking?.duration_min ?? null,
+    notes: (booking?.notes || "").trim(),
+    staff: visit?.performers || [],
+  };
 }
 
 function consentStepStatus(visit) {
@@ -136,7 +169,7 @@ export function computeStepStatus(stepId, visit, clinic, invoice, options = {}) 
       if (!clinic || !hasFeature(clinic, "mapping")) return "pending";
       return (visit?.mappings || []).length > 0 ? "done" : "pending";
     case "treatments":
-      return (visit?.treatment_items || []).length > 0 ? "done" : "pending";
+      return hasPerformedOrWaivedTreatment(visit) ? "done" : "pending";
     case "photos_after":
       if (!clinic || !hasFeature(clinic, "photos")) return "pending";
       return afterCount > 0 ? "done" : "pending";

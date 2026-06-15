@@ -363,6 +363,9 @@ def register_clinic_reports(
         by_method: Dict[str, int] = defaultdict(int)
         discount_total = 0
         discount_reasons: Dict[str, int] = defaultdict(int)
+        campaign_discounts: Dict[str, int] = defaultdict(int)
+        campaign_counts: Dict[str, int] = defaultdict(int)
+        gross_before_discount = 0
         outstanding = 0
         rows_out = []
 
@@ -372,9 +375,15 @@ def register_clinic_reports(
             by_status[st] += 1
             by_method[inv.get("payment_method") or "other"] += int(inv.get("amount_paid") or 0)
             discount_total += int(inv.get("discount_amount") or 0)
+            gross_before_discount += int(inv.get("total_amount") or 0) + int(inv.get("discount_amount") or 0)
             reason = (inv.get("discount_reason") or "").strip() or "(none)"
             if int(inv.get("discount_amount") or 0) > 0:
                 discount_reasons[reason] += int(inv.get("discount_amount") or 0)
+            if inv.get("campaign_id"):
+                cname = inv.get("campaign_name_snapshot") or inv.get("campaign_id")
+                camt = int(inv.get("discount_amount_applied") or inv.get("discount_amount") or 0)
+                campaign_discounts[cname] += camt
+                campaign_counts[cname] += 1
             outstanding += int(inv.get("remaining_balance") or 0)
             pid = inv.get("patient_id")
             if pid and pid not in patient_names:
@@ -401,9 +410,16 @@ def register_clinic_reports(
                 "cancelled_count": by_status.get("cancelled", 0),
                 "outstanding_balance_idr": outstanding,
                 "discount_total_idr": discount_total,
+                "gross_sales_idr": gross_before_discount,
+                "campaign_discount_total_idr": sum(campaign_discounts.values()),
+                "net_sales_idr": gross_before_discount - discount_total,
             },
             "by_payment_method": [{"method": k, "amount_idr": v} for k, v in sorted(by_method.items(), key=lambda x: -x[1])],
             "discount_by_reason": [{"reason": k, "amount_idr": v} for k, v in sorted(discount_reasons.items(), key=lambda x: -x[1])],
+            "discount_by_campaign": [
+                {"campaign": k, "amount_idr": campaign_discounts[k], "invoice_count": campaign_counts[k]}
+                for k in sorted(campaign_discounts.keys(), key=lambda x: -campaign_discounts[x])
+            ],
             "invoices": rows_out[:500],
         }
 

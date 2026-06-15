@@ -29,7 +29,9 @@ PERMISSION_CATALOG: Dict[str, List[Dict[str, str]]] = {
         {"key": "appointments.edit", "label": "Edit bookings"},
         {"key": "appointments.cancel", "label": "Cancel bookings"},
         {"key": "bookings.create_overtime", "label": "Create overtime bookings (outside working hours)"},
-        {"key": "coupons.manage", "label": "Manage booking coupons"},
+        {"key": "coupons.manage", "label": "Manage campaigns (legacy permission key)"},
+        {"key": "campaigns.view", "label": "View campaigns"},
+        {"key": "campaigns.manage", "label": "Manage campaigns"},
     ],
     "Visits": [
         {"key": "visits.view", "label": "View all visits"},
@@ -188,7 +190,7 @@ SYSTEM_ROLE_DEFINITIONS = [
         "permissions": sorted({
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
-            "bookings.create_overtime", "coupons.manage",
+            "bookings.create_overtime", "coupons.manage", "campaigns.view", "campaigns.manage",
             "visits.view", "clinical_records.view", "billing.view", "billing.create", "billing.edit",
             "payments.void", "refunds.view", "refunds.create",
             "billing.subscription_view", "billing.subscribe",
@@ -216,7 +218,6 @@ SYSTEM_ROLE_DEFINITIONS = [
         "permissions": sorted({
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
-            "coupons.manage",
             "visits.view", "billing.view", "billing.create", "billing.edit",
             "payments.void", "refunds.create",
             "packages.view", "packages.use", "packages.report",

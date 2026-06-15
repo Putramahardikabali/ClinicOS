@@ -558,9 +558,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   const [availablePerformers, setAvailablePerformers] = useState(null);
   const [loadingPerformers, setLoadingPerformers] = useState(false);
   const [suggestedPerformerId, setSuggestedPerformerId] = useState(null);
-  const [couponInput, setCouponInput] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState(null);
-  const [couponBusy, setCouponBusy] = useState(false);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [appliedGiftCard, setAppliedGiftCard] = useState(null);
 
@@ -604,7 +601,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   const serviceLabel = isPackage ? "package" : "treatment";
   const serviceSelected = isPackage ? !!form.package_id : !!form.treatment;
   const subtotalIdr = selectedService ? Number(selectedService.price_idr || 0) : 0;
-  const displayTotal = appliedCoupon ? appliedCoupon.total_idr : subtotalIdr;
 
   const eligibleStaff = useMemo(
     () => filterEligibleStaff(staff, selectedService),
@@ -727,8 +723,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
-    setAppliedCoupon(null);
-    setCouponInput("");
     setForm(f => ({
       ...f,
       treatment: name,
@@ -742,8 +736,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const selectPackage = (id) => {
     const p = packages.find(x => x.id === id);
-    setAppliedCoupon(null);
-    setCouponInput("");
     setForm(f => ({
       ...f,
       package_id: id,
@@ -767,8 +759,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const switchBookingKind = (kind) => {
     if (giftCardLocksService) return;
-    setAppliedCoupon(null);
-    setCouponInput("");
     setForm(f => ({
       ...f,
       booking_kind: kind,
@@ -796,40 +786,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     setForm(f => ({ ...f, patient_id: "", patient_name: "", patient_phone: "", patient_email: "" }));
     setNewPatient(true);
     setStep("details");
-  };
-
-  const applyCoupon = async () => {
-    const code = couponInput.trim();
-    if (!code) {
-      setAppliedCoupon(null);
-      return;
-    }
-    if (!serviceSelected) {
-      toast.error("Select a treatment or package first");
-      return;
-    }
-    setCouponBusy(true);
-    try {
-      const r = await api.post("/bookings/validate-coupon", {
-        code,
-        subtotal_idr: subtotalIdr,
-        booking_type: isPackage ? "package" : "treatment",
-        treatment: form.treatment,
-        package_id: isPackage ? form.package_id : null,
-      });
-      setAppliedCoupon(r.data);
-      toast.success("Coupon applied");
-    } catch (e) {
-      setAppliedCoupon(null);
-      toast.error(e?.response?.data?.detail || "Invalid coupon");
-    } finally {
-      setCouponBusy(false);
-    }
-  };
-
-  const clearCoupon = () => {
-    setCouponInput("");
-    setAppliedCoupon(null);
   };
 
   const submit = async () => {
@@ -870,7 +826,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         notes: form.notes,
         booking_type: isPackage ? "package" : "treatment",
         package_id: isPackage ? form.package_id : null,
-        coupon_code: appliedCoupon?.coupon_code || null,
       };
       if (overtimeMeta) {
         body.is_overtime = true;
@@ -1182,48 +1137,12 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
             {serviceSelected && (
               <div className="bl-card p-4 space-y-3" data-testid="nb-pricing">
-                <div className="label-eyebrow text-[#5C6C62]">Pricing</div>
+                <div className="label-eyebrow text-[#5C6C62]">Estimated price</div>
                 <div className="flex justify-between text-sm">
                   <span className="text-[#5C6C62]">Subtotal</span>
-                  <span className="text-[#2D3A33] font-medium">{fmtIDR(subtotalIdr)}</span>
+                  <span className="text-[#2D3A33] font-medium" data-testid="nb-total-price">{fmtIDR(subtotalIdr)}</span>
                 </div>
-                {appliedCoupon && appliedCoupon.discount_idr > 0 && (
-                  <div className="flex justify-between text-sm text-[#52796F]">
-                    <span>Discount ({appliedCoupon.coupon_code})</span>
-                    <span>− {fmtIDR(appliedCoupon.discount_idr)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-medium pt-2 border-t border-[#EAE6D7]">
-                  <span className="text-[#2D3A33]">Total</span>
-                  <span className="text-[#2D3A33]" data-testid="nb-total-price">{fmtIDR(displayTotal)}</span>
-                </div>
-                <div>
-                  <label className="label-eyebrow block mb-1.5">Coupon code</label>
-                  <div className="flex gap-2">
-                    <input
-                      className="bl-input flex-1 font-mono uppercase"
-                      placeholder="e.g. SUMMER20"
-                      value={couponInput}
-                      onChange={e => setCouponInput(e.target.value.toUpperCase())}
-                      disabled={!serviceSelected}
-                      data-testid="nb-coupon-input"
-                    />
-                    <button
-                      type="button"
-                      onClick={applyCoupon}
-                      disabled={couponBusy || !couponInput.trim() || !serviceSelected}
-                      className="bl-btn-ghost whitespace-nowrap disabled:opacity-50"
-                      data-testid="nb-coupon-apply"
-                    >
-                      {couponBusy ? "…" : "Apply"}
-                    </button>
-                    {appliedCoupon && (
-                      <button type="button" onClick={clearCoupon} className="bl-btn-ghost text-sm" data-testid="nb-coupon-clear">
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <p className="text-xs text-[#5C6C62]">Campaign discounts are applied when creating the invoice.</p>
               </div>
             )}
 
@@ -1289,7 +1208,6 @@ function bookingToForm(booking, treatments = [], packages = []) {
     performer_id: booking.performer_id || "",
     assistant_performers: additionalRowsFromBooking(booking),
     notes: booking.notes || "",
-    coupon_code: booking.coupon_code || "",
   };
 }
 
@@ -1304,9 +1222,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   const [availablePerformers, setAvailablePerformers] = useState(null);
   const [loadingPerformers, setLoadingPerformers] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [couponInput, setCouponInput] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState(null);
-  const [couponBusy, setCouponBusy] = useState(false);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [consentForms, setConsentForms] = useState([]);
 
@@ -1314,18 +1229,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
     const next = bookingToForm(booking, treatments, packages);
     setForm(next);
     setEditing(startInEditMode && canManage && !isTimeBlock(booking) && !["cancelled", "completed", "no_show"].includes(booking?.status));
-    const code = booking?.coupon_code || "";
-    setCouponInput(code);
-    if (code && booking?.subtotal_idr != null) {
-      setAppliedCoupon({
-        coupon_code: code,
-        subtotal_idr: booking.subtotal_idr,
-        discount_idr: booking.discount_idr || 0,
-        total_idr: booking.total_idr ?? booking.subtotal_idr,
-      });
-    } else {
-      setAppliedCoupon(null);
-    }
   }, [booking?.id, treatments, packages, startInEditMode, canManage]);
 
   useEffect(() => {
@@ -1361,7 +1264,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   const viewSubtotal = booking?.subtotal_idr ?? subtotalIdr;
   const viewDiscount = booking?.discount_idr || 0;
   const viewTotal = booking?.total_idr ?? viewSubtotal;
-  const editTotal = appliedCoupon ? appliedCoupon.total_idr : subtotalIdr;
 
   const eligibleStaff = filterEligibleStaff(staff, selectedService);
   const allowMultiple = serviceAllowsMultiple(selectedService);
@@ -1408,15 +1310,8 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
     && ["booked", "confirmed", "checked_in"].includes(booking.status)
     && !editing;
 
-  const clearCouponState = () => {
-    setAppliedCoupon(null);
-    setCouponInput("");
-    setForm(f => ({ ...f, coupon_code: "" }));
-  };
-
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
-    clearCouponState();
     setForm(f => ({
       ...f,
       treatment: name,
@@ -1428,7 +1323,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
 
   const selectPackage = (id) => {
     const p = packages.find(x => x.id === id);
-    clearCouponState();
     setForm(f => ({
       ...f,
       package_id: id,
@@ -1439,7 +1333,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   };
 
   const switchBookingKind = (kind) => {
-    clearCouponState();
     setForm(f => ({
       ...f,
       booking_kind: kind,
@@ -1449,38 +1342,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
       package_type: "",
     }));
   };
-
-  const applyCoupon = async () => {
-    const code = couponInput.trim();
-    if (!code) {
-      setAppliedCoupon(null);
-      return;
-    }
-    if (!serviceSelected) {
-      toast.error("Select a treatment or package first");
-      return;
-    }
-    setCouponBusy(true);
-    try {
-      const r = await api.post("/bookings/validate-coupon", {
-        code,
-        subtotal_idr: subtotalIdr,
-        booking_type: isPackage ? "package" : "treatment",
-        treatment: form.treatment,
-        package_id: isPackage ? form.package_id : null,
-      });
-      setAppliedCoupon(r.data);
-      setForm(f => ({ ...f, coupon_code: r.data.coupon_code }));
-      toast.success("Coupon applied");
-    } catch (e) {
-      setAppliedCoupon(null);
-      toast.error(e?.response?.data?.detail || "Invalid coupon");
-    } finally {
-      setCouponBusy(false);
-    }
-  };
-
-  const clearCoupon = () => clearCouponState();
 
   const save = async () => {
     if (!form.patient_name?.trim() || !form.patient_phone?.trim() || !serviceSelected || !form.scheduled_date || !form.scheduled_time) {
@@ -1512,7 +1373,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
         notes: form.notes || "",
         booking_type: isPackage ? "package" : "treatment",
         package_id: isPackage ? form.package_id : null,
-        coupon_code: appliedCoupon?.coupon_code || null,
       };
       const r = await api.put(`/bookings/${booking.id}`, payload);
       toast.success("Appointment updated");
@@ -1667,39 +1527,12 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
             </div>
             {serviceSelected && (
               <div className="bl-card p-4 space-y-3" data-testid="edit-booking-pricing">
-                <div className="label-eyebrow text-[#5C6C62]">Pricing</div>
+                <div className="label-eyebrow text-[#5C6C62]">Estimated price</div>
                 <div className="flex justify-between text-sm">
                   <span className="text-[#5C6C62]">Subtotal</span>
-                  <span className="text-[#2D3A33] font-medium">{fmtIDR(subtotalIdr)}</span>
+                  <span className="text-[#2D3A33] font-medium" data-testid="edit-booking-total">{fmtIDR(subtotalIdr)}</span>
                 </div>
-                {appliedCoupon && appliedCoupon.discount_idr > 0 && (
-                  <div className="flex justify-between text-sm text-[#52796F]">
-                    <span>Discount ({appliedCoupon.coupon_code})</span>
-                    <span>− {fmtIDR(appliedCoupon.discount_idr)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-medium pt-2 border-t border-[#EAE6D7]">
-                  <span className="text-[#2D3A33]">Total</span>
-                  <span className="text-[#2D3A33]" data-testid="edit-booking-total">{fmtIDR(editTotal)}</span>
-                </div>
-                <div>
-                  <label className="label-eyebrow block mb-1.5">Coupon code</label>
-                  <div className="flex gap-2">
-                    <input
-                      className="bl-input flex-1 font-mono uppercase"
-                      placeholder="e.g. SUMMER20"
-                      value={couponInput}
-                      onChange={e => setCouponInput(e.target.value.toUpperCase())}
-                      data-testid="edit-coupon-input"
-                    />
-                    <button type="button" onClick={applyCoupon} disabled={couponBusy || !couponInput.trim()} className="bl-btn-ghost whitespace-nowrap disabled:opacity-50" data-testid="edit-coupon-apply">
-                      {couponBusy ? "…" : "Apply"}
-                    </button>
-                    {appliedCoupon && (
-                      <button type="button" onClick={clearCoupon} className="bl-btn-ghost text-sm" data-testid="edit-coupon-clear">Clear</button>
-                    )}
-                  </div>
-                </div>
+                <p className="text-xs text-[#5C6C62]">Campaign discounts are applied when creating the invoice.</p>
               </div>
             )}
             <div className="flex gap-2 pt-1">
@@ -1708,18 +1541,6 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 const next = bookingToForm(booking, treatments, packages);
                 setForm(next);
                 setEditing(false);
-                const code = booking?.coupon_code || "";
-                setCouponInput(code);
-                if (code && booking?.subtotal_idr != null) {
-                  setAppliedCoupon({
-                    coupon_code: code,
-                    subtotal_idr: booking.subtotal_idr,
-                    discount_idr: booking.discount_idr || 0,
-                    total_idr: booking.total_idr ?? booking.subtotal_idr,
-                  });
-                } else {
-                  setAppliedCoupon(null);
-                }
               }} className="bl-btn-ghost" data-testid="edit-booking-cancel">Cancel</button>
             </div>
           </div>
@@ -1764,7 +1585,7 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                   </div>
                   {viewDiscount > 0 && (
                     <div className="flex justify-between text-sm text-[#52796F]">
-                      <span>Discount{booking.coupon_code ? ` (${booking.coupon_code})` : ""}</span>
+                      <span>Legacy booking discount{booking.coupon_code ? ` (${booking.coupon_code})` : ""}</span>
                       <span>− {fmtIDR(viewDiscount)}</span>
                     </div>
                   )}

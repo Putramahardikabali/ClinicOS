@@ -404,9 +404,7 @@ async def create_visit_from_booking(
 
 
 
-    if seed_emr:
-
-        await _seed_treatment_item_from_booking(db, visit["id"], clinic_id, booking)
+    # Booked treatment stays on the booking record only; performed items are confirmed by staff.
 
     try:
         from consent_forms import ensure_consent_forms_for_visit
@@ -478,13 +476,11 @@ async def sync_booking_when_visit_completed(db, visit: dict) -> None:
 
 
 def compute_visit_charges(treatment_items: list) -> Dict[str, int]:
+    from treatment_items_logic import filter_performed_treatment_items
 
     subtotal = 0
-
-    for it in treatment_items or []:
-
+    for it in filter_performed_treatment_items(treatment_items):
         subtotal += int(float(it.get("price") or 0) * float(it.get("quantity") or 1))
-
     return {"subtotal_idr": subtotal, "total_idr": subtotal}
 
 
@@ -507,6 +503,10 @@ async def mark_visit_submitted(
     staff_name: str = "",
 ) -> None:
     """Set visit status to submitted and ensure FO invoice has treatment lines."""
+    visit = await db.visits.find_one({"id": visit_id, "clinic_id": clinic_id}, {"_id": 0})
+    if visit:
+        from treatment_items_logic import validate_visit_treatment_outcome
+        await validate_visit_treatment_outcome(db, visit, clinic_id)
     await db.visits.update_one(
         {"id": visit_id, "clinic_id": clinic_id, "status": {"$nin": ["completed", "cancelled"]}},
         {"$set": {"status": "submitted", "submitted_at": iso(now_utc())}},

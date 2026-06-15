@@ -9,7 +9,7 @@ import NoteStatusBadge from "@/components/visit/NoteStatusBadge";
 import { recordNoteStatus, canEditClinicalNote, requiresEditReason } from "@/lib/clinicalNotes";
 import EditReasonDialog from "@/components/visit/EditReasonDialog";
 import { visitNoteTabRoles } from "@/lib/visitUi";
-import { bookedTreatmentLabel, billingSummaryForReview } from "@/lib/visitWorkflow";
+import { bookedTreatmentLabel, billingSummaryForReview, performedTreatmentItems, hasPerformedOrWaivedTreatment } from "@/lib/visitWorkflow";
 import { productUsageName } from "@/components/visit/ProductUsageSelector";
 import VisitReviewMedia from "@/components/visit/steps/VisitReviewMedia";
 
@@ -43,6 +43,8 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
   const [busy, setBusy] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [treatmentDialog, setTreatmentDialog] = useState(false);
+  const [noTreatmentReason, setNoTreatmentReason] = useState(visit.no_treatment_reason || "");
 
   useEffect(() => {
     const rec = showDoctor ? cr : tr;
@@ -57,6 +59,58 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
   const consentInfo = consentSummary(visit.consent_forms || []);
   const billing = billingSummaryForReview(visit, invoice);
   const booked = bookedTreatmentLabel(visit);
+  const performed = performedTreatmentItems(visit);
+
+  const finalizeSubmit = async (editReason) => {
+    const role = primaryFinalizeRole();
+    if (role === "doctor") await saveDoctor(true, editReason);
+    else if (role === "therapist") await saveTherapist(true, editReason);
+    toast.success("Session record submitted");
+    onSaved?.();
+  };
+
+  const submitLock = async () => {
+    const role = primaryFinalizeRole();
+    const record = role === "doctor" ? cr : tr;
+    if (!hasPerformedOrWaivedTreatment(visit)) {
+      setTreatmentDialog(true);
+      return;
+    }
+    if (requiresEditReason(user, visit, record) && canOverride) {
+      setPendingSubmit(true);
+      setEditDialog(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      await finalizeSubmit();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmNoTreatment = async () => {
+    const reason = noTreatmentReason.trim();
+    if (!reason) {
+      toast.error("Please enter a reason");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.put(`/visits/${visit.id}/treatment-outcome`, {
+        no_treatment_performed: true,
+        no_treatment_reason: reason,
+      });
+      setTreatmentDialog(false);
+      await finalizeSubmit();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const clinicalSummary = () => {
     if (showDoctor && cr) {
@@ -129,26 +183,12 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
     }
   };
 
-  const submitLock = async () => {
-    const role = primaryFinalizeRole();
-    const record = role === "doctor" ? cr : tr;
-    if (requiresEditReason(user, visit, record) && canOverride) {
-      setPendingSubmit(true);
-      setEditDialog(true);
-      return;
-    }
-    setBusy(true);
-    try {
-      if (role === "doctor") await saveDoctor(true);
-      else if (role === "therapist") await saveTherapist(true);
-      toast.success("Session record submitted");
-      onSaved?.();
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to save");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const usageRows = performed.map((it) => {
+    const usage = (visit.product_usages || []).find(
+      (u) => u.treatment_item_id === it.id && u.status === "active",
+    );
+    return { it, usage };
+  });
 
   useImperativeHandle(ref, () => ({
     saveDraft,
@@ -161,13 +201,6 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
   const roleLabel = finalizeRole === "doctor" ? "Doctor" : therapistNoteRole === "nurse" ? "Nurse" : "Therapist";
   const noteStatus = finalizeRole === "doctor" ? doctorStatus : therapistStatus;
 
-  const usageRows = (visit.treatment_items || []).map((it) => {
-    const usage = (visit.product_usages || []).find(
-      (u) => u.treatment_item_id === it.id && u.status === "active",
-    );
-    return { it, usage };
-  });
-
   return (
     <div className="space-y-6" data-testid="visit-step-final-review">
       <div className="bl-card p-5">
@@ -176,12 +209,13 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
           <div><span className="text-[#5C6C62]">Patient:</span> {visit.patient.full_name}</div>
           <div><span className="text-[#5C6C62]">Treatment session:</span> {visit.visit_type} · {new Date(visit.visit_date || visit.created_at).toLocaleDateString()}</div>
           <div><span className="text-[#5C6C62]">Treatment booked:</span> {booked || "—"}</div>
+          <div><span className="text-[#5C6C62]">Treatment performed:</span> {visit.no_treatment_performed ? "None recorded" : performed.length ? performed.map((it) => it.name).join(", ") : "—"}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[#5C6C62]">Consent:</span>
             <ConsentStatusBadge status={consentInfo.status} compact />
           </div>
           <div><span className="text-[#5C6C62]">Clinical notes:</span> {clinicalSummary()}</div>
-          <div><span className="text-[#5C6C62]">Product usage lines:</span> {(visit.treatment_items || []).length}</div>
+          <div><span className="text-[#5C6C62]">Performed treatment lines:</span> {performed.length}</div>
           {showBilling && (
             <div>
               <span className="text-[#5C6C62]">Billing:</span>{" "}
@@ -256,12 +290,49 @@ const VisitStepFinalReview = forwardRef(function VisitStepFinalReview(
         open={editDialog}
         busy={busy}
         onCancel={() => { setEditDialog(false); setPendingSubmit(null); }}
-        onConfirm={(reason) => {
+        onConfirm={async (reason) => {
           setEditDialog(false);
-          doSave(pendingSubmit ?? false, reason);
-          setPendingSubmit(null);
+          setBusy(true);
+          try {
+            if (pendingSubmit) await finalizeSubmit(reason);
+            else await doSave(false, reason);
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || "Failed to save");
+          } finally {
+            setBusy(false);
+            setPendingSubmit(null);
+          }
         }}
       />
+
+      {treatmentDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="treatment-outcome-dialog">
+          <div className="bl-card p-6 max-w-md w-full space-y-4">
+            <div className="font-display text-lg text-[#2D3A33]">No performed treatment recorded</div>
+            <p className="text-sm text-[#5C6C62]">
+              No performed treatment has been recorded. Please confirm the booked treatment, add the actual treatment, or mark as no treatment performed.
+            </p>
+            <div>
+              <label className="label-eyebrow block mb-2">Reason (required for no treatment performed)</label>
+              <textarea
+                className="bl-input min-h-[5rem] w-full"
+                value={noTreatmentReason}
+                onChange={(e) => setNoTreatmentReason(e.target.value)}
+                placeholder="e.g. Patient cancelled procedure, consultation only"
+                data-testid="no-treatment-reason"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button type="button" className="bl-btn-secondary" onClick={() => setTreatmentDialog(false)} disabled={busy}>
+                Go back
+              </button>
+              <button type="button" className="bl-btn-primary" onClick={confirmNoTreatment} disabled={busy} data-testid="confirm-no-treatment">
+                No treatment performed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

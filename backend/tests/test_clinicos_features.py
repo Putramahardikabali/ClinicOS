@@ -928,7 +928,7 @@ class TestBookingVisitWorkflow:
 
         v = requests.get(f"{API}/visits/{vid}", headers=H(fo), timeout=TIMEOUT)
         assert v.status_code == 200
-        assert len(v.json().get("treatment_items") or []) >= 1
+        assert len(v.json().get("treatment_items") or []) == 0
 
         rp = requests.put(f"{API}/visits/{vid}/payment", headers=H(fo), json={
             "payment_status": "paid",

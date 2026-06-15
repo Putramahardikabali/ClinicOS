@@ -539,6 +539,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             "phone": c.get("phone", ""),
             "logo_path": branding.get("logo_path") or c.get("logo_path", ""),
             "booking_slot_interval": int(c.get("booking_slot_interval") or 30),
+            "timezone": c.get("timezone") or "Asia/Makassar",
         }
 
     # ---------- Public endpoints ----------
@@ -615,6 +616,14 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             d = datetime.fromisoformat(date)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid date — use YYYY-MM-DD")
+        from public_booking_time import (
+            PAST_DATE_MSG,
+            clinic_local_now,
+            clinic_today_str,
+            is_public_date_in_past,
+        )
+        if is_public_date_in_past(c, date):
+            return {"date": date, "slots": [], "closed": True, "closed_reason": PAST_DATE_MSG}
         hours = c.get("operating_hours") or {}
         day_key = _day_key(d)
         day_hours = hours.get(day_key)
@@ -682,13 +691,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 continue
 
         slots: List[Dict[str, Any]] = []
-        # Compute "now" in the clinic's local timezone for past-slot filtering
-        tz_name = c.get("timezone") or "Asia/Makassar"
-        try:
-            local_now = datetime.now(ZoneInfo(tz_name)) if ZoneInfo else datetime.now(timezone.utc)
-        except Exception:
-            local_now = datetime.now(timezone.utc)
-        today_str = local_now.strftime("%Y-%m-%d")
+        local_now = clinic_local_now(c)
+        today_str = clinic_today_str(c, local_now)
         is_today = (date == today_str)
         now_minute = local_now.hour * 60 + local_now.minute if is_today else None
         for s_min in base:
@@ -696,6 +700,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             if s_end > close_min:
                 continue
             past = is_today and s_min < (now_minute or 0)
+            if past:
+                continue
             # Overlapping bookings
             busy_assigned = set()
             unassigned = 0
@@ -730,13 +736,10 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     available = remaining > 0
                 else:
                     available = True  # no role-matching staff at all (legacy/setup-incomplete) → open
-            if past:
-                available = False
             slots.append({
                 "time": _format_slot(date, s_min),
                 "label": f"{s_min // 60:02d}:{s_min % 60:02d}",
                 "available": available,
-                "past": past,
             })
         return {
             "date": date,
@@ -756,10 +759,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if blocked:
             raise HTTPException(status_code=402, detail=blocked)
         # check feature: online_booking is included for all current plans + trial
+        from public_booking_time import assert_public_scheduled_at_valid
         try:
-            scheduled = _parse_iso(payload.scheduled_at)
-            if scheduled < now_utc() - timedelta(minutes=5):
-                raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+            scheduled = assert_public_scheduled_at_valid(c, payload.scheduled_at)
         except HTTPException:
             raise
         except Exception:
@@ -1637,27 +1639,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 ):
                     raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
         subtotal = await _resolve_booking_subtotal(cid, booking_type, treatment_name, package_id)
-        pricing = await _pricing_with_coupon(cid, subtotal, payload.coupon_code)
-        if not payload.coupon_code and payload.patient_id:
-            pct = await patient_loyalty_discount_percent(db, cid, payload.patient_id)
-            if pct > 0 and pricing.get("discount_idr", 0) == 0:
-                discount = int(subtotal * pct / 100)
-                pricing = {
-                    **pricing,
-                    "discount_idr": discount,
-                    "total_idr": max(0, subtotal - discount),
-                    "loyalty_discount_percent": pct,
-                }
         b = payload.model_dump()
         b["treatment"] = treatment_name
         b["duration_min"] = duration_min
         b["booking_type"] = booking_type
         b["package_id"] = package_id if booking_type == "package" else None
-        b["subtotal_idr"] = pricing["subtotal_idr"]
-        b["discount_idr"] = pricing["discount_idr"]
-        b["total_idr"] = pricing["total_idr"]
-        b["coupon_code"] = pricing["coupon_code"]
-        b["coupon_id"] = pricing["coupon_id"]
+        b["subtotal_idr"] = subtotal
+        b["discount_idr"] = 0
+        b["total_idr"] = subtotal
+        b["coupon_code"] = None
+        b["coupon_id"] = None
         b["performers"] = performers
         sync_legacy_performer_fields(b)
         b["id"] = str(uuid.uuid4())
@@ -1674,7 +1665,6 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             b["overtime_created_by"] = user["id"]
             b["overtime_created_at"] = iso(now_utc())
         await db.bookings.insert_one(b)
-        await _increment_coupon_use(cid, pricing.get("coupon_id"))
         b.pop("_id", None)
         if payload.gift_card_id:
             from gift_cards_booking import attach_gift_card_to_new_booking
@@ -1868,19 +1858,19 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     raise HTTPException(status_code=409, detail="Selected performer is already booked at this time")
                 raise HTTPException(status_code=409, detail="No available performer for this slot")
 
-        pricing_keys = ("treatment", "package_id", "booking_type", "coupon_code")
-        if any(k in upd for k in pricing_keys) or "coupon_code" in raw:
-            coupon_code = merged.get("coupon_code")
-            if "coupon_code" in raw and (raw["coupon_code"] is None or raw["coupon_code"] == ""):
-                coupon_code = None
+        pricing_keys = ("treatment", "package_id", "booking_type")
+        if any(k in upd for k in pricing_keys):
             subtotal = await _resolve_booking_subtotal(
                 cid,
                 merged.get("booking_type") or "treatment",
                 merged.get("treatment", ""),
                 merged.get("package_id"),
             )
-            pricing = await _pricing_with_coupon(cid, subtotal, coupon_code)
-            upd.update(pricing)
+            upd["subtotal_idr"] = subtotal
+            upd["discount_idr"] = 0
+            upd["total_idr"] = subtotal
+            upd["coupon_code"] = None
+            upd["coupon_id"] = None
 
         r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
         if r.matched_count == 0:

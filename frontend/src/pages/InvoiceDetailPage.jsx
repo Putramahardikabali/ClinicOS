@@ -13,6 +13,8 @@ import { ArrowLeft, Plus, Printer, Trash2, CheckCircle2, Package } from "lucide-
 import GiftCardPaymentFields from "@/components/giftcards/GiftCardPaymentFields";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { hasPermission } from "@/lib/auth";
+import PaymentAmountQuickFill from "@/components/payments/PaymentAmountQuickFill";
+import { computeChangeDue, isCashPayment } from "@/lib/paymentAmountQuickFill";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 
@@ -57,10 +59,13 @@ export default function InvoiceDetailPage() {
   const [discountType, setDiscountType] = useState("none");
   const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState("");
+  const [campaigns, setCampaigns] = useState([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [campaignBusy, setCampaignBusy] = useState(false);
   const [notes, setNotes] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [paymentReference, setPaymentReference] = useState("");
-  const [amountPaid, setAmountPaid] = useState(0);
+  const [amountReceived, setAmountReceived] = useState("");
   const [giftCardCode, setGiftCardCode] = useState("");
   const [giftCardAmount, setGiftCardAmount] = useState("");
   const [walletAmount, setWalletAmount] = useState("");
@@ -114,7 +119,8 @@ export default function InvoiceDetailPage() {
     setNotes(inv.notes || "");
     setPaymentMethod(inv.payment_method || "cash");
     setPaymentReference(inv.payment_reference || "");
-    setAmountPaid(inv.amount_paid || 0);
+    setAmountReceived("");
+    setSelectedCampaignId(inv.campaign_id || "");
   };
 
   const load = useCallback(async () => {
@@ -129,6 +135,45 @@ export default function InvoiceDetailPage() {
 
   useEffect(() => { loadCatalogs(); }, [loadCatalogs]);
   useEffect(() => { load().catch(() => toast.error("Invoice not found")); }, [load]);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    const invoiceDate = (invoice?.created_at || "").slice(0, 10);
+    api.get("/campaigns/active", { params: invoiceDate ? { date: invoiceDate } : {} })
+      .then((r) => setCampaigns(r.data || []))
+      .catch(() => setCampaigns([]));
+  }, [canEdit, invoice?.created_at]);
+
+  const appliedCampaign = useMemo(() => {
+    if (!invoice?.campaign_id) return null;
+    return campaigns.find((c) => c.id === invoice.campaign_id) || {
+      id: invoice.campaign_id,
+      name: invoice.campaign_name_snapshot,
+      code: invoice.campaign_code_snapshot,
+      discount_type: invoice.discount_type_snapshot,
+      discount_value: invoice.discount_value_snapshot,
+      start_date: null,
+      end_date: null,
+      applies_to: "all",
+    };
+  }, [invoice, campaigns]);
+
+  const applyCampaign = async (campaignId) => {
+    if (!invoice?.id) return;
+    setCampaignBusy(true);
+    try {
+      const r = await api.post(`/invoices/${invoice.id}/apply-campaign`, {
+        campaign_id: campaignId || null,
+      });
+      applyInvoice(r.data);
+      setSelectedCampaignId(r.data.campaign_id || "");
+      toast.success(campaignId ? "Campaign applied" : "Campaign removed");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to apply campaign");
+    } finally {
+      setCampaignBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!invoice?.patient_id || !canUseWallet) {
@@ -210,28 +255,40 @@ export default function InvoiceDetailPage() {
     else if (discountType === "fixed") discountAmount = Number(discountValue || 0);
     discountAmount = Math.max(0, Math.min(discountAmount, subtotal));
     const total = subtotal - discountAmount;
-    const paid = Number(amountPaid || 0);
+    const alreadyPaid = Number(invoice?.amount_paid || 0);
+    const received = parseInt(String(amountReceived).replace(/\D/g, ""), 10) || 0;
+    const outstanding = Math.max(0, total - alreadyPaid);
     const hasPackageCovered = items.some((it) => it.paid_by === "package");
     let status = "unpaid";
     if (total === 0 && hasPackageCovered) status = "paid";
-    else if (paid >= total && total > 0) status = "paid";
-    else if (paid > 0) status = "partial";
-    return { subtotal, serviceSubtotal, packageCovered, discountAmount, total, remaining: Math.max(0, total - paid), status };
-  }, [items, discountType, discountValue, amountPaid]);
+    else if (alreadyPaid + received >= total && total > 0) status = "paid";
+    else if (alreadyPaid + received > 0) status = "partial";
+    return {
+      subtotal,
+      serviceSubtotal,
+      packageCovered,
+      discountAmount,
+      total,
+      alreadyPaid,
+      outstanding,
+      remaining: Math.max(0, outstanding - received),
+      status,
+    };
+  }, [items, discountType, discountValue, amountReceived, invoice?.amount_paid]);
 
   const giftRedemption = useMemo(
     () => resolveGiftCardRedemption({
       card: giftLookup?.card,
       lineItems: items,
       patientId: invoice?.patient_id,
-      amountDue: preview.remaining,
+      amountDue: preview.outstanding,
       userEnteredAmount: giftCardAmount,
     }),
-    [giftLookup, items, invoice?.patient_id, preview.remaining, giftCardAmount],
+    [giftLookup, items, invoice?.patient_id, preview.outstanding, giftCardAmount],
   );
 
   const saveInvoice = async () => {
-    if (preview.discountAmount > 0 && !discountReason.trim()) {
+    if (preview.discountAmount > 0 && !discountReason.trim() && !invoice?.campaign_id) {
       toast.error("Discount reason is required");
       return;
     }
@@ -278,8 +335,19 @@ export default function InvoiceDetailPage() {
         }
         return;
       }
-      if (!giftRedemption.standaloneRedeem && gcApplied > preview.remaining && !markPaid) {
+      if (!giftRedemption.standaloneRedeem && gcApplied > preview.outstanding && !markPaid) {
         toast.error("Redemption cannot exceed balance due");
+        return;
+      }
+    }
+    const received = parseInt(String(amountReceived).replace(/\D/g, ""), 10) || 0;
+    if (!markPaid && paymentMethod !== "gift_card" && paymentMethod !== "store_credit") {
+      if (received <= 0) {
+        toast.error("Enter amount received");
+        return;
+      }
+      if (!isCashPayment(paymentMethod) && received > preview.outstanding) {
+        toast.error("Amount cannot exceed balance due for this payment method");
         return;
       }
     }
@@ -295,7 +363,7 @@ export default function InvoiceDetailPage() {
         payment_reference: paymentReference,
       });
       const r = await api.put(`/invoices/${invoice.id}/payment`, {
-        amount_paid: paymentMethod === "gift_card" ? undefined : (markPaid ? preview.total : Number(amountPaid)),
+        amount_paid: paymentMethod === "gift_card" ? undefined : (markPaid ? undefined : received),
         payment_method: paymentMethod,
         payment_reference: paymentReference,
         notes,
@@ -307,7 +375,7 @@ export default function InvoiceDetailPage() {
         gift_card_amount_idr: gcApplied > 0 ? gcApplied : undefined,
         wallet_amount_idr: (() => {
           const w = parseInt(String(walletAmount).replace(/\D/g, ""), 10) || 0;
-          return w > 0 ? w : (paymentMethod === "store_credit" ? preview.remaining : undefined);
+          return w > 0 ? w : (paymentMethod === "store_credit" ? preview.outstanding : undefined);
         })(),
       });
       applyInvoice(r.data);
@@ -648,7 +716,10 @@ export default function InvoiceDetailPage() {
             </div>
           )}
           {preview.discountAmount > 0 && (
-            <div className="flex justify-between text-[#B14A2C]"><span>Discount</span><span>−{fmtIDR(preview.discountAmount)}</span></div>
+            <div className="flex justify-between text-[#B14A2C]">
+              <span>{invoice?.campaign_id ? "Campaign discount" : "Discount"}</span>
+              <span>−{fmtIDR(preview.discountAmount)}</span>
+            </div>
           )}
           <div className="flex justify-between font-display text-lg pt-2 border-t border-[#EAE6D7]">
             <span>Total due</span><span data-testid="invoice-total">{fmtIDR(preview.total)}</span>
@@ -659,7 +730,51 @@ export default function InvoiceDetailPage() {
 
         <div className="space-y-6">
       <div className="bl-card p-5 space-y-3">
-        <div className="font-display text-lg text-[#2D3A33]">Discount</div>
+        <div className="font-display text-lg text-[#2D3A33]">Campaign</div>
+        <select
+          className="bl-input"
+          disabled={readOnly || campaignBusy}
+          value={selectedCampaignId}
+          onChange={(e) => setSelectedCampaignId(e.target.value)}
+          data-testid="invoice-campaign-select"
+        >
+          <option value="">{campaigns.length ? "Select active campaign" : "No active campaigns available"}</option>
+          {campaigns.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}{c.code ? ` (${c.code})` : ""}</option>
+          ))}
+        </select>
+        {!readOnly && (
+          <button
+            type="button"
+            className="bl-btn-ghost text-sm"
+            disabled={campaignBusy || (!selectedCampaignId && !invoice?.campaign_id)}
+            onClick={() => applyCampaign(selectedCampaignId || null)}
+            data-testid="invoice-apply-campaign"
+          >
+            {campaignBusy ? "Applying…" : selectedCampaignId ? "Apply campaign" : "Clear campaign"}
+          </button>
+        )}
+        {appliedCampaign && (
+          <div className="text-sm text-[#5C6C62] space-y-1 rounded-lg bg-[#F8F5EC] p-3" data-testid="invoice-campaign-details">
+            <div className="font-medium text-[#2D3A33]">{appliedCampaign.name}</div>
+            <div>
+              {appliedCampaign.discount_type === "percent" || appliedCampaign.discount_type === "percentage"
+                ? `${appliedCampaign.discount_value}% off`
+                : `${fmtIDR(appliedCampaign.discount_value)} off`}
+            </div>
+            {(appliedCampaign.start_date || appliedCampaign.end_date) && (
+              <div className="text-xs">
+                Valid: {(appliedCampaign.start_date || "—").slice(0, 10)} → {(appliedCampaign.end_date || "—").slice(0, 10)}
+              </div>
+            )}
+            <div className="text-xs capitalize">Applies to: {(appliedCampaign.applies_to || "all").replace("_", " ")}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="bl-card p-5 space-y-3">
+        <div className="font-display text-lg text-[#2D3A33]">Manual discount</div>
+        <p className="text-xs text-[#5C6C62]">For ad-hoc adjustments not covered by a campaign.</p>
           <select className="bl-input" disabled={readOnly} value={discountType} onChange={(e) => setDiscountType(e.target.value)}>
             <option value="none">None</option>
             <option value="percentage">Percentage</option>
@@ -728,7 +843,7 @@ export default function InvoiceDetailPage() {
           </select>
           {paymentMethod === "gift_card" && canRedeemGiftCard && !readOnlyPayment && (
             <GiftCardPaymentFields
-              amountDue={preview.remaining}
+              amountDue={preview.outstanding}
               lineItems={items}
               patientId={invoice?.patient_id}
               giftCardCode={giftCardCode}
@@ -750,7 +865,7 @@ export default function InvoiceDetailPage() {
               </div>
               <input
                 className="bl-input font-mono"
-                placeholder={`Max ${Math.min(walletBalance, preview.remaining).toLocaleString("id-ID")}`}
+                placeholder={`Max ${Math.min(walletBalance, preview.outstanding).toLocaleString("id-ID")}`}
                 value={walletAmount}
                 onChange={(e) => setWalletAmount(e.target.value.replace(/\D/g, ""))}
                 data-testid="invoice-wallet-amount"
@@ -761,10 +876,39 @@ export default function InvoiceDetailPage() {
           {paymentMethod !== "gift_card" && paymentMethod !== "store_credit" && (
             <div>
               <label className="label-eyebrow block mb-1">Amount received (IDR)</label>
-              <input type="number" min="0" className="bl-input font-mono" disabled={readOnlyPayment || closed} value={amountPaid} onChange={(e) => setAmountPaid(Number(e.target.value))} />
+              <input
+                type="text"
+                inputMode="numeric"
+                className="bl-input font-mono"
+                disabled={readOnlyPayment || closed}
+                value={amountReceived}
+                onChange={(e) => setAmountReceived(e.target.value.replace(/\D/g, ""))}
+                data-testid="invoice-amount-received"
+              />
+              <PaymentAmountQuickFill
+                balanceDue={preview.outstanding}
+                paymentMethod={paymentMethod}
+                disabled={readOnlyPayment || closed}
+                onSelectAmount={(amount) => setAmountReceived(String(amount))}
+                onClear={() => setAmountReceived("")}
+                testIdPrefix="invoice-payment-quick"
+              />
             </div>
           )}
-          <div className="text-sm text-[#5C6C62]">Balance: {fmtIDR(preview.remaining)}</div>
+          <div className="text-sm text-[#5C6C62] space-y-1">
+            {preview.alreadyPaid > 0 && (
+              <div>Already paid: {fmtIDR(preview.alreadyPaid)}</div>
+            )}
+            <div>Balance: {fmtIDR(preview.outstanding)}</div>
+            {isCashPayment(paymentMethod) && computeChangeDue(amountReceived, preview.outstanding) > 0 && (
+              <div data-testid="invoice-change-due">
+                Change due: {fmtIDR(computeChangeDue(amountReceived, preview.outstanding))}
+              </div>
+            )}
+            {preview.remaining > 0 && preview.remaining < preview.outstanding && (
+              <div>Remaining after payment: {fmtIDR(preview.remaining)}</div>
+            )}
+          </div>
           <textarea className="bl-input min-h-[72px]" disabled={readOnlyPayment} placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 

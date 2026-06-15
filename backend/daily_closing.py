@@ -227,6 +227,8 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     inv_wallet_redemptions = 0
     inv_count = 0
     inv_transactions: List[dict] = []
+    inv_campaign_discount_idr = 0
+    inv_gross_sales_idr = 0
 
     inv_rows = await db.invoices.find(
         {"clinic_id": clinic_id, "payment_status": "paid", "paid_at": paid_rx},
@@ -248,6 +250,9 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         inv_package += inv_cats["package_sales_idr"]
         inv_other += inv_cats["invoice_other_payments_idr"]
         inv_redemption_settled += inv_cats["gift_card_redemption_settled_idr"]
+        if inv.get("campaign_id"):
+            inv_campaign_discount_idr += int(inv.get("discount_amount_applied") or inv.get("discount_amount") or 0)
+        inv_gross_sales_idr += int(inv.get("total_amount") or 0) + int(inv.get("discount_amount") or 0)
 
     redemption_rows = await db.gift_card_redemptions.find(
         {
@@ -308,6 +313,9 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         "gift_card_to_wallet_idr": wallet_summary.get("gift_card_to_wallet_idr") or 0,
         "treatment_invoice_payments_idr": inv_treatment,
         "invoice_other_payments_idr": inv_other,
+        "invoice_campaign_discount_idr": inv_campaign_discount_idr,
+        "invoice_gross_sales_idr": inv_gross_sales_idr,
+        "invoice_net_sales_idr": max(0, inv_gross_sales_idr - inv_campaign_discount_idr),
         "payment_methods": payment_methods,
         "redemption_payment_methods": redemption_payment_methods,
         "refunds": refunds_summary,

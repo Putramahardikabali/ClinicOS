@@ -16,6 +16,7 @@ import PosDayClosingSnippet from "@/components/pos/PosDayClosingSnippet";
 import { buildGiftCardCartLine } from "@/lib/posGiftCard";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { computeInvoiceDiscount, lineTotal, parseIdr, receiptPhone } from "@/lib/posUtils";
+import { isCashPayment } from "@/lib/paymentAmountQuickFill";
 
 export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }) {
   const { user } = useAuth();
@@ -296,6 +297,10 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
       toast.error("Select a patient to use store credit from wallet");
       return;
     }
+    if (!isCashPayment(paymentMethod) && amountPaid !== "" && paid > cashDue) {
+      toast.error("Amount cannot exceed balance due for this payment method");
+      return;
+    }
     setBusy(true);
     try {
       const r = await api.post("/pos/sales", salePayload(true));
@@ -420,6 +425,7 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
             amountPaid={amountPaid}
             onAmountPaidChange={setAmountPaid}
             balanceDue={balanceDue}
+            cashDue={cashDue}
             paymentMethod={paymentMethod}
             onPaymentMethodChange={setPaymentMethod}
             onComplete={completeSale}

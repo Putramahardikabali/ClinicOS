@@ -3,6 +3,11 @@ import api, { fileUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth, can } from "@/lib/auth";
 import { Upload, Trash2, ImageIcon, Camera } from "lucide-react";
+import {
+  compressImageBeforeUpload,
+  photoUploadErrorMessage,
+  COMPRESSION_FAILED_MESSAGE,
+} from "@/utils/imageCompression";
 
 const ANGLES = [
   { v: "front", label: "Front" },
@@ -81,6 +86,7 @@ export default function Photos({ visit, onSaved, photoStep = null }) {
   const [photoNotes, setPhotoNotes] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [busy, setBusy] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
   const [pendingType, setPendingType] = useState(lockType || "before");
 
   const photos = visit.photos || [];
@@ -94,9 +100,21 @@ export default function Photos({ visit, onSaved, photoStep = null }) {
     else inputRef.current?.click();
   };
 
-  const uploadFile = async (file, type = uploadType) => {
+  const uploadFile = async (rawFile, type = uploadType) => {
     setBusy(true);
+    setUploadStatus("optimizing");
+    let file = rawFile;
     try {
+      try {
+        const result = await compressImageBeforeUpload(rawFile);
+        file = result.file;
+      } catch (err) {
+        const message = err?.message || COMPRESSION_FAILED_MESSAGE;
+        toast.error(message);
+        return;
+      }
+
+      setUploadStatus("uploading");
       const fd = new FormData();
       fd.append("file", file);
       fd.append("photo_type", type);
@@ -107,18 +125,31 @@ export default function Photos({ visit, onSaved, photoStep = null }) {
       setPhotoNotes("");
       onSaved?.();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Upload failed");
+      toast.error(photoUploadErrorMessage(err));
     } finally {
       setBusy(false);
+      setUploadStatus("");
     }
   };
 
   const onFile = async (e) => {
     const files = e.target.files;
     if (!files?.length) return;
-    for (const f of files) await uploadFile(f, pendingType);
+    for (const f of files) {
+      if (f.type && !f.type.startsWith("image/")) {
+        toast.error("Please select an image file.");
+        continue;
+      }
+      await uploadFile(f, pendingType);
+    }
     e.target.value = "";
   };
+
+  const busyLabel = uploadStatus === "optimizing"
+    ? "Optimizing photo..."
+    : uploadStatus === "uploading"
+      ? "Uploading..."
+      : "…";
 
   const del = async (id) => {
     try {
@@ -168,7 +199,7 @@ export default function Photos({ visit, onSaved, photoStep = null }) {
             className="bl-btn-primary inline-flex items-center justify-center gap-2 flex-1"
             data-testid="photo-open-camera"
           >
-            <Camera className="w-4 h-4" /> {busy ? "…" : "Open camera"}
+            <Camera className="w-4 h-4" /> {busy ? busyLabel : "Open camera"}
           </button>
           <button
             type="button"
@@ -177,7 +208,7 @@ export default function Photos({ visit, onSaved, photoStep = null }) {
             className="bl-btn-ghost inline-flex items-center justify-center gap-2 flex-1"
             data-testid="photo-upload-gallery"
           >
-            <Upload className="w-4 h-4" /> Upload
+            <Upload className="w-4 h-4" /> {busy ? busyLabel : "Upload"}
           </button>
         </div>
       </div>

@@ -11,7 +11,7 @@ import {
 } from "@/lib/visitUi";
 import { Plus, Trash2 } from "lucide-react";
 import ProductUsageSelector, { CUSTOM_PRODUCT_ID, productUsageName } from "@/components/visit/ProductUsageSelector";
-import { bookedTreatmentLabel } from "@/lib/visitWorkflow";
+import { bookedTreatmentLabel, bookedTreatmentReference, hasConfirmedBookedTreatment, performedTreatmentItems } from "@/lib/visitWorkflow";
 import { primaryAndAdditionalPerformers } from "@/lib/visitUi";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -58,9 +58,14 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState(() => emptyForm(UNITS));
   const [showTreatmentPicker, setShowTreatmentPicker] = useState(false);
-  const bookedLabel = bookedTreatmentLabel(visit);
+  const [pickerMode, setPickerMode] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const bookedRef = bookedTreatmentReference(visit);
+  const bookedLabel = bookedRef?.name || bookedTreatmentLabel(visit);
   const { primary, additional } = primaryAndAdditionalPerformers(visit);
-  const items = visit.treatment_items || [];
+  const performedItems = performedTreatmentItems(visit);
+  const items = performedItems;
+  const bookedAlreadyConfirmed = hasConfirmedBookedTreatment(visit);
   const inventoryDeductionEnabled = Boolean(clinic?.settings?.inventory_deduct_on_usage ?? clinic?.inventory_deduct_on_usage);
   const usageByTreatment = useMemo(() => {
     const map = new Map();
@@ -185,21 +190,36 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
 
   const resetForm = () => {
     setSelectedId("");
+    setPickerMode(null);
+    setShowTreatmentPicker(false);
     const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
     setForm(emptyForm(UNITS, defaultPid));
   };
 
-  useEffect(() => {
-    if (!workflowMode || showTreatmentPicker || loadingCatalog) return;
-    const label = bookedLabel.trim();
-    if (!label) return;
-    const match =
-      roleCatalog.find((t) => t.name.toLowerCase() === label.toLowerCase())
-      || roleCatalog.find((t) => label.toLowerCase().includes(t.name.toLowerCase()));
-    if (match) onSelectTreatment(match.id);
-    else setForm((f) => ({ ...f, name: label }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflowMode, bookedLabel, roleCatalog, showTreatmentPicker, loadingCatalog]);
+  const openPicker = (mode) => {
+    setSelectedId("");
+    const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
+    setForm(emptyForm(UNITS, defaultPid));
+    setPickerMode(mode);
+    setShowTreatmentPicker(true);
+  };
+
+  const confirmBooked = async () => {
+    if (bookedAlreadyConfirmed) {
+      toast.error("Booked treatment is already recorded as performed");
+      return;
+    }
+    setConfirmBusy(true);
+    try {
+      await api.post(`/visits/${visit.id}/treatments/confirm-booked`);
+      toast.success("Booked treatment recorded as performed");
+      onSaved?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to confirm treatment");
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
 
   const qtyNum = parseNum(form.quantity, 1);
   const priceNum = parseNum(form.price, 0);
@@ -231,7 +251,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       const hasInventoryProduct = pu?.product_id && pu.product_id !== CUSTOM_PRODUCT_ID && !pu?.is_custom;
       const hasCustomProduct = pu?.is_custom || pu?.product_id === CUSTOM_PRODUCT_ID;
       const customName = (pu?.custom_name || "").trim();
-      if (workflowMode && !hasInventoryProduct && !hasCustomProduct && !form.product_used?.trim()) {
+      if (workflowMode && !showTreatmentPicker && !hasInventoryProduct && !hasCustomProduct && !form.product_used?.trim()) {
         toast.error("Select a product or add a custom product");
         return;
       }
@@ -261,6 +281,8 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         notes: form.notes || "",
         price: parseNum(form.price, 0),
         performer_id: form.performer_id || undefined,
+        source: pickerMode === "additional" ? "additional" : "manual",
+        confirmed_by_staff: true,
       };
       if (hasInventoryProduct) {
         body.product_id = pu.product_id;
@@ -292,40 +314,78 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         <form onSubmit={add} className="bl-card p-5" data-testid="treatment-form">
           {workflowMode ? (
             <>
-              <div className="font-display text-base text-[#2D3A33] mb-1">Product usage</div>
-              <div className="bl-card p-4 bg-[#F8F5EC] border-[#EAE6D7] mb-4" data-testid="booked-treatment-banner">
-                <div className="text-xs uppercase tracking-widest text-[#5C6C62]">Booked treatment</div>
-                <div className="font-medium text-[#2D3A33] mt-1">{bookedLabel || form.name || "—"}</div>
-                {primary && (
-                  <div className="text-sm text-[#5C6C62] mt-2">
-                    Assigned staff: {primary.staff_name_snapshot}
-                    {primary.staff_role_snapshot ? ` (${ROLE_LABEL[primary.staff_role_snapshot] || primary.staff_role_snapshot})` : ""}
+              {bookedRef && (
+                <div className="bl-card p-4 bg-[#F8F5EC] border-[#EAE6D7] mb-4" data-testid="booked-treatment-banner">
+                  <div className="text-xs uppercase tracking-widest text-[#5C6C62]">Booked treatment</div>
+                  <div className="font-medium text-[#2D3A33] mt-1">{bookedRef.name}</div>
+                  {bookedRef.durationMin != null && (
+                    <div className="text-sm text-[#5C6C62] mt-2">Duration: {bookedRef.durationMin} min</div>
+                  )}
+                  {bookedRef.notes && (
+                    <div className="text-sm text-[#5C6C62] mt-2">Booking note: {bookedRef.notes}</div>
+                  )}
+                  {primary && (
+                    <div className="text-sm text-[#5C6C62] mt-2">
+                      Assigned staff: {primary.staff_name_snapshot}
+                      {primary.staff_role_snapshot ? ` (${ROLE_LABEL[primary.staff_role_snapshot] || primary.staff_role_snapshot})` : ""}
+                    </div>
+                  )}
+                  {additional.length > 0 && (
+                    <div className="text-sm text-[#5C6C62] mt-1">
+                      Additional: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <button
+                      type="button"
+                      className="bl-btn-primary text-sm"
+                      onClick={confirmBooked}
+                      disabled={confirmBusy || bookedAlreadyConfirmed || !editable}
+                      data-testid="treatment-use-booked"
+                    >
+                      {bookedAlreadyConfirmed ? "Booked treatment confirmed" : "Use as performed treatment"}
+                    </button>
+                    <button
+                      type="button"
+                      className="bl-btn-secondary text-sm"
+                      onClick={() => openPicker("change")}
+                      data-testid="treatment-change-treatment"
+                    >
+                      Change treatment
+                    </button>
+                    <button
+                      type="button"
+                      className="bl-btn-secondary text-sm"
+                      onClick={() => openPicker("additional")}
+                      data-testid="treatment-add-additional"
+                    >
+                      Add additional treatment
+                    </button>
                   </div>
-                )}
-                {additional.length > 0 && (
-                  <div className="text-sm text-[#5C6C62] mt-1">
-                    Additional: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}
+                </div>
+              )}
+              {showTreatmentPicker && (
+                <div className="mb-4">
+                  <div className="font-display text-base text-[#2D3A33] mb-1">
+                    {pickerMode === "additional" ? "Add additional treatment" : "Record performed treatment"}
                   </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-3 text-sm mb-4">
-                <button
-                  type="button"
-                  className="text-[var(--bl-primary)] underline-offset-2 hover:underline"
-                  onClick={() => setShowTreatmentPicker((v) => !v)}
-                  data-testid="treatment-change-treatment"
-                >
-                  {showTreatmentPicker ? "Hide treatment picker" : "Change treatment"}
-                </button>
-                <button
-                  type="button"
-                  className="text-[var(--bl-primary)] underline-offset-2 hover:underline"
-                  onClick={() => setShowTreatmentPicker(true)}
-                  data-testid="treatment-add-additional"
-                >
-                  Add additional treatment
-                </button>
-              </div>
+                  <p className="text-sm text-[#5C6C62] mb-3">
+                    {pickerMode === "additional"
+                      ? "Select an extra treatment performed during this session."
+                      : "Select the treatment actually performed. The booked treatment stays as reference only."}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-sm text-[var(--bl-primary)] underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setShowTreatmentPicker(false);
+                      setPickerMode(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -339,7 +399,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </>
           )}
 
-          {loadingCatalog ? (
+          {(!workflowMode || showTreatmentPicker) && (loadingCatalog ? (
             <p className="text-sm text-[#5C6C62]">Loading treatments…</p>
           ) : catalog.length === 0 ? (
             <p className="text-sm text-[#5C6C62]">
@@ -351,7 +411,6 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </p>
           ) : (
             <>
-            {(!workflowMode || showTreatmentPicker) && (
             <div
               className="mb-4 flex gap-1 bg-[#F3F1EB] rounded-xl p-1 w-fit max-w-full overflow-x-auto"
               data-testid="treatment-category-filter"
@@ -386,82 +445,8 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 </button>
               ))}
             </div>
-            )}
 
-            {workflowMode && !showTreatmentPicker ? (
-              <div className="space-y-4" data-testid="workflow-product-form">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="md:col-span-1">
-                    <label className="label-eyebrow block mb-1.5">Product used</label>
-                    <ProductUsageSelector
-                      value={form.productUsage}
-                      onChange={(productUsage) => setForm({ ...form, productUsage })}
-                      testId="treatment-product-usage"
-                      allowCustom
-                      hideQuantityFields
-                    />
-                    {inventoryDeductionEnabled && form.productUsage?.product && !form.productUsage?.is_custom && (
-                      <p className="text-xs text-[#5C6C62] mt-2" data-testid="treatment-stock-hint">
-                        Stock will be deducted. Current:{" "}
-                        {Number(form.productUsage.product.current_stock) || 0}{" "}
-                        {form.productUsage.product.unit || "pcs"}
-                        {Number(form.quantity) > Number(form.productUsage.product.current_stock) && (
-                          <span className="text-[#B14A2C] font-medium"> — insufficient stock</span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="label-eyebrow block mb-1.5">Quantity</label>
-                    <input
-                      className="bl-input"
-                      type="number"
-                      min="1"
-                      step="1"
-                      inputMode="numeric"
-                      value={form.quantity}
-                      onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                      data-testid="treatment-qty"
-                    />
-                  </div>
-                  <div>
-                    <label className="label-eyebrow block mb-1.5">Unit</label>
-                    <select
-                      className="bl-input w-full"
-                      value={form.unit_type}
-                      onChange={(e) => setForm({ ...form, unit_type: e.target.value })}
-                      data-testid="treatment-unit"
-                    >
-                      {UNITS.map((u) => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="label-eyebrow block mb-1.5">Area treated</label>
-                  <input
-                    className="bl-input"
-                    placeholder="e.g. forehead, full face"
-                    value={form.area_treated}
-                    onChange={(e) => setForm({ ...form, area_treated: e.target.value })}
-                    data-testid="treatment-area"
-                  />
-                </div>
-                <div>
-                  <label className="label-eyebrow block mb-1.5">Notes</label>
-                  <textarea
-                    className="bl-input min-h-[5.5rem]"
-                    placeholder="Optional notes"
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    data-testid="treatment-notes"
-                  />
-                </div>
-              </div>
-            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {(!workflowMode || showTreatmentPicker) && (
               <div className="md:col-span-2 lg:col-span-3">
                 <label className="label-eyebrow block mb-1.5">Treatment</label>
                 <select
@@ -498,9 +483,8 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                   </div>
                 )}
               </div>
-              )}
 
-              {multiPerformer && (!workflowMode || showTreatmentPicker) && (
+              {multiPerformer && (
                 <div className="md:col-span-2 lg:col-span-3">
                   <label className="label-eyebrow block mb-1.5">Performed by</label>
                   <select
@@ -613,21 +597,33 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 />
               </div>
             </div>
-            )}
-            </>
-          )}
 
-          {(roleCatalog.length > 0 || (workflowMode && bookedLabel)) && (
+          {(roleCatalog.length > 0) && (
             <button type="submit" className="bl-btn-primary mt-4 inline-flex items-center gap-2" data-testid="treatment-add">
               <Plus className="w-4 h-4" />
-              Add item
+              {workflowMode && pickerMode === "additional" ? "Add additional item" : "Add item"}
             </button>
           )}
+            </>
+          ))}
         </form>
       )}
 
+      {editable && workflowMode && !bookedRef && (
+        <div className="bl-card p-5">
+          <p className="text-sm text-[#5C6C62] mb-3">
+            No booked treatment on this visit. Record what was actually performed.
+          </p>
+          <button type="button" className="bl-btn-primary text-sm" onClick={() => openPicker("change")}>
+            Record performed treatment
+          </button>
+        </div>
+      )}
+
       {items.length === 0 && (
-        <div className="bl-card p-8 text-center text-[#5C6C62] md:hidden">No treatment items added</div>
+        <div className="bl-card p-8 text-center text-[#5C6C62] md:hidden" data-testid="treatment-items-empty">
+          {workflowMode ? "No performed treatments recorded yet" : "No treatment items added"}
+        </div>
       )}
 
       <div className="md:hidden space-y-3" data-testid="treatment-items-mobile">
@@ -682,6 +678,11 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       </div>
 
       <div className="hidden md:block bl-card overflow-hidden rounded-xl" data-testid="treatment-items-table">
+        {workflowMode && (
+          <div className="px-5 py-3 border-b border-[#EAE6D7] bg-[#F8F5EC]">
+            <div className="label-eyebrow">Performed treatments</div>
+          </div>
+        )}
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-[#F8F5EC]">
@@ -720,7 +721,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                     }
                     className="text-center py-8 text-[#5C6C62]"
                   >
-                    No treatment items added
+                    {workflowMode ? "No performed treatments recorded yet" : "No treatment items added"}
                   </td>
                 </tr>
               )}
@@ -736,6 +737,9 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                     <>
                       <td className="px-5 py-3 font-medium text-[#2D3A33]" data-testid={`treatment-row-treatment-${it.id}`}>
                         {treatmentName}
+                        {it.source === "additional" && (
+                          <span className="ml-2 bl-chip text-[10px]">Additional</span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-[#2D3A33]" data-testid={`treatment-row-product-${it.id}`}>
                         {productLabel}
