@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api, { API_BASE } from "@/lib/api";
 import { useSettings, logoUrl } from "@/lib/settings";
-import { useClinic } from "@/lib/clinic";
+import { useClinic, hasFeature } from "@/lib/clinic";
 import { useAuth, hasPermission } from "@/lib/auth";
 import { toast } from "sonner";
-import { Settings, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock, Calendar as CalendarIcon, Award, Tag, ChevronDown, ChevronUp, MoreHorizontal, Edit2, CreditCard, MessageSquare, Shield } from "lucide-react";
+import { Settings, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock, Calendar as CalendarIcon, Award, Tag, ChevronDown, ChevronUp, MoreHorizontal, Edit2, CreditCard, MessageSquare, Shield, Percent } from "lucide-react";
+import { FeatureRoute } from "@/components/FeatureGate";
+import CommissionSettingsPanel from "@/components/commission/CommissionSettingsPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,34 +15,70 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const ALL_TABS = [
-  { key: "branding", label: "Branding", icon: Settings, owner_only: true },
-  { key: "schedule", label: "Schedule", icon: CalendarClock, owner_only: false },
-  { key: "security", label: "Security", icon: Shield, owner_only: true },
-];
+const TAB_ALIASES = {
+  "business-hours": "schedule",
+  online_booking_payment: "online-booking-payment",
+};
+
+function buildGeneralSettingsTabs(user, clinic) {
+  const isOwner = user?.role === "super_admin";
+  const tabs = [];
+  if (isOwner) {
+    tabs.push({ key: "branding", label: "Branding", icon: Settings });
+  }
+  tabs.push({ key: "schedule", label: "Business Hours", icon: CalendarClock });
+  if (hasPermission(user, "commission.manage") && hasFeature(clinic, "commissions")) {
+    tabs.push({ key: "commission", label: "Commissions", icon: Percent });
+  }
+  if (
+    isOwner
+    && (hasPermission(user, "billing.manage") || hasPermission(user, "settings.manage"))
+    && hasFeature(clinic, "online_booking_payment")
+  ) {
+    tabs.push({ key: "online-booking-payment", label: "Online Payment", icon: CreditCard });
+  }
+  if (isOwner) {
+    tabs.push({ key: "security", label: "Security", icon: Shield });
+  }
+  return tabs;
+}
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const { clinic } = useClinic();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isOwner = user?.role === "super_admin";
-  const TABS = ALL_TABS.filter(t => {
-    if (t.owner_only) return isOwner;
-    return true;
-  });
+  const TABS = useMemo(() => buildGeneralSettingsTabs(user, clinic), [user, clinic]);
   const tabFromUrl = searchParams.get("tab");
-  const initialTab = TABS.some((t) => t.key === tabFromUrl) ? tabFromUrl : (TABS[0]?.key || "schedule");
+  const resolvedTab = TAB_ALIASES[tabFromUrl] || tabFromUrl;
+  const initialTab = TABS.some((t) => t.key === resolvedTab) ? resolvedTab : (TABS[0]?.key || "schedule");
   const [tab, setTab] = useState(initialTab);
 
   useEffect(() => {
-    if (tabFromUrl && TABS.some((t) => t.key === tabFromUrl)) {
-      setTab(tabFromUrl);
+    if (resolvedTab && TABS.some((t) => t.key === resolvedTab)) {
+      setTab(resolvedTab);
+    } else if (!TABS.some((t) => t.key === tab)) {
+      setTab(TABS[0]?.key || "schedule");
     }
-  }, [tabFromUrl, TABS]);
+  }, [resolvedTab, TABS, tab]);
+
+  const selectTab = (key) => {
+    setTab(key);
+    setSearchParams({ tab: key }, { replace: true });
+  };
+
+  const canCommission = hasPermission(user, "commission.manage") && hasFeature(clinic, "commissions");
+  const canOnlinePayment = isOwner
+    && (hasPermission(user, "billing.manage") || hasPermission(user, "settings.manage"))
+    && hasFeature(clinic, "online_booking_payment");
+
   return (
-    <div className="p-6 md:p-8 lg:p-10 max-w-7xl">
-      <div className="label-eyebrow">System</div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">{isOwner ? "Admin Settings" : "Clinic Schedule"}</h1>
-      <p className="mt-2 text-sm text-[#5C6C62] max-w-2xl">{isOwner ? "Core clinic-wide settings — branding, schedule, and security. Feature-specific settings live in their own modules." : "Manage operating hours, slot interval, and closed dates."}</p>
+    <div className="p-6 md:p-8 lg:p-10 max-w-7xl" data-testid="general-settings-page">
+      <div className="label-eyebrow">Settings</div>
+      <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">General Settings</h1>
+      <p className="mt-2 text-sm text-[#5C6C62] max-w-2xl">
+        Core clinic-wide settings for branding, business hours, commissions, online payments, and security.
+      </p>
 
       <div
         className="mt-7 border-b border-[#EAE6D7] flex gap-1 overflow-x-auto pb-px -mx-1 px-1"
@@ -53,7 +91,7 @@ export default function AdminPage() {
             <button
               key={t.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => selectTab(t.key)}
               className={`px-3 sm:px-4 py-3 text-sm font-medium border-b-2 inline-flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 transition ${active ? "text-[#2D3A33]" : "border-transparent text-[#5C6C62] hover:text-[#2D3A33]"}`}
               style={active ? { borderColor: "var(--bl-primary)" } : { borderColor: "transparent" }}
               data-testid={`admin-tab-${t.key}`}
@@ -68,6 +106,12 @@ export default function AdminPage() {
       <div className="mt-7">
         {tab === "branding" && isOwner && <BrandingTab />}
         {tab === "schedule" && <ScheduleTab />}
+        {tab === "commission" && canCommission && (
+          <FeatureRoute feature="commissions"><CommissionSettingsPanel /></FeatureRoute>
+        )}
+        {tab === "online-booking-payment" && canOnlinePayment && (
+          <FeatureRoute feature="online_booking_payment"><OnlineBookingPaymentTab /></FeatureRoute>
+        )}
         {tab === "security" && isOwner && <SecuritySettingsTab />}
       </div>
     </div>

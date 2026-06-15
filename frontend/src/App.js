@@ -57,7 +57,7 @@ import { FeatureRoute } from "@/components/FeatureGate";
 function LegacyCommissionRedirect() {
   const loc = useLocation();
   if (loc.pathname.startsWith("/commissions/settings")) {
-    return <Navigate to="/finance-settings?tab=commission" replace />;
+    return <Navigate to="/admin?tab=commission" replace />;
   }
   return <Navigate to="/staff/directory" replace />;
 }
@@ -151,7 +151,7 @@ export default function App() {
               <Route path="/staff" element={<Navigate to="/staff/directory" replace />} />
               <Route path="/staff/members/:staffId" element={<Protected anyPermission={["staff.view", "commission.view", "commission.view_own", "profile.view_own"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><StaffProfilePage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/staff/:section" element={<Protected anyPermission={["staff.view", "roles.view", "commission.view"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><StaffPage /></Shell></OnboardingRedirect></Protected>} />
-              <Route path="/admin" element={<Protected roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><LegacyAdminRedirect /><AdminPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/admin" element={<Protected anyPermission={["settings.view", "commission.manage", "billing.manage", "settings.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><LegacyAdminRedirect /><AdminPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/messaging" element={<Protected anyPermission={["messaging.view", "messaging.manage", "messaging.automation.view", "messaging.automation.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="whatsapp_automation"><MessagingPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/visit-settings" element={<Protected anyPermission={["settings.manage", "consent.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="consent"><FormsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/forms" element={<Navigate to="/visit-settings" replace />} />

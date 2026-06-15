@@ -6,7 +6,8 @@ describe("settingsNavigation", () => {
     expect(legacyAdminTabRedirect("messaging_automation")).toBe("/messaging?tab=automation-rules");
     expect(legacyAdminTabRedirect("doctor-form")).toBe("/visit-settings?tab=doctor-form");
     expect(legacyAdminTabRedirect("mapping")).toBe("/visit-settings?tab=mapping");
-    expect(legacyAdminTabRedirect("commission")).toBe("/finance-settings?tab=commission");
+    expect(legacyAdminTabRedirect("commission")).toBeNull();
+    expect(legacyAdminTabRedirect("online_booking_payment")).toBeNull();
     expect(legacyAdminTabRedirect("inventory")).toBe("/products?tab=inventory-settings");
   });
 

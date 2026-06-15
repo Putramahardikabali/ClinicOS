@@ -1,16 +1,27 @@
-/** Documents expected Admin Settings tab keys after navigation refactor. */
-const ADMIN_CORE_TABS = ["branding", "schedule", "security"];
+/** Documents expected General Settings tab keys after Finance merge. */
+const GENERAL_SETTINGS_TAB_ORDER = [
+  "branding",
+  "schedule",
+  "commission",
+  "online-booking-payment",
+  "security",
+];
 
 const MESSAGING_TABS = ["connection", "automation-rules", "message-logs", "legacy-templates"];
 const FORMS_TABS = ["doctor-form", "therapist-form", "consent", "mapping"];
 const CATALOG_TABS = ["treatment-categories", "unit-types"];
-const FINANCE_TABS = ["commission", "online-booking-payment", "coupons", "loyalty"];
+const MARKETING_TABS = ["coupons", "loyalty"];
 
-describe("admin settings module tabs", () => {
-  test("Admin Settings shows only core clinic-wide tabs", () => {
-    expect(ADMIN_CORE_TABS).toEqual(["branding", "schedule", "security"]);
-    expect(ADMIN_CORE_TABS).not.toContain("messaging");
-    expect(ADMIN_CORE_TABS).not.toContain("commission");
+describe("general settings module tabs", () => {
+  test("General Settings includes merged finance tabs in order", () => {
+    expect(GENERAL_SETTINGS_TAB_ORDER).toEqual([
+      "branding",
+      "schedule",
+      "commission",
+      "online-booking-payment",
+      "security",
+    ]);
+    expect(GENERAL_SETTINGS_TAB_ORDER).not.toContain("messaging");
   });
 
   test("Messaging module tab keys", () => {
@@ -28,8 +39,8 @@ describe("admin settings module tabs", () => {
     expect(CATALOG_TABS).toEqual(["treatment-categories", "unit-types"]);
   });
 
-  test("Finance settings tab keys", () => {
-    expect(FINANCE_TABS).toContain("commission");
-    expect(FINANCE_TABS).toContain("online-booking-payment");
+  test("Marketing settings tab keys", () => {
+    expect(MARKETING_TABS).toContain("coupons");
+    expect(MARKETING_TABS).toContain("loyalty");
   });
 });

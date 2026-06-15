@@ -60,7 +60,7 @@ function CommissionEmptyState({ staffName, filters, canManageRules }) {
       {canManageRules && (
         <div className="mt-6 flex justify-center">
           <Link
-            to="/finance-settings?tab=commission"
+            to="/admin?tab=commission"
             className="bl-btn-ghost text-sm inline-flex items-center gap-2"
             data-testid="commission-empty-settings-link"
           >

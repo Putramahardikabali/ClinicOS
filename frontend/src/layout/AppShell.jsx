@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABEL, canAccessNav, hasPermission, isAccountingUser } from "@/lib/auth";
 import { useSettings, logoUrl } from "@/lib/settings";
@@ -17,7 +17,7 @@ import { RealtimeEventsProvider } from "@/lib/realtimeEventsContext";
 import { HelpDrawer } from "@/pages/HelpPage";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
-  Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, CreditCard, Lock,
+  Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, ChevronDown, CreditCard, Lock,
   CalendarCheck, Pill, TrendingUp, BarChart3, Package, Boxes, Receipt, UserCog, LifeBuoy, ShoppingCart,
   Landmark,
   Gift,
@@ -35,14 +35,13 @@ const NAV = [
   { to: "/daily-closing", label: "Daily Closing", icon: Landmark, anyPermission: ["closing.view", "closing.create", "accounting.view"], roles: ["super_admin","fo","manager","accounting"], feature: "products", shortLabel: "Closing" },
   { to: "/gift-cards", label: "Gift cards", icon: Gift, anyPermission: ["gift_cards.view", "accounting.view"], roles: ["super_admin","fo","manager","accounting"], feature: "products", shortLabel: "Gifts" },
   { to: "/patients", label: "Patients", icon: Users, anyPermission: ["patients.view", "patients.view_assigned"], roles: ["super_admin","fo","manager"] },
-  { to: "/visits", label: "Treatment sessions", foLabel: "Session records", foShortLabel: "Sessions", shortLabel: "Sessions", icon: Stethoscope, anyPermission: ["visits.view", "visits.view_own"], roles: ["super_admin","fo","manager"], feature: "emr" },
+  { to: "/visits", label: "Treatment sessions", opsLabel: "Treatment Sessions", foLabel: "Session records", foShortLabel: "Sessions", shortLabel: "Sessions", icon: Stethoscope, anyPermission: ["visits.view", "visits.view_own"], roles: ["super_admin","fo","manager"], feature: "emr" },
   { to: "/account", label: "Account", icon: UserIcon, roles: ["super_admin","manager","doctor","therapist","nurse","fo","accounting"], shortLabel: "Account" },
   { to: "/treatments", label: "Treatments", icon: Pill, permission: "treatments.manage", roles: ["super_admin","fo","manager"], shortLabel: "Treatments", feature: "treatments" },
   { to: "/packages", label: "Packages", icon: Package, permission: "packages_catalog.manage", roles: ["super_admin","fo","manager"], shortLabel: "Packages", feature: "packages" },
   { to: "/products", label: "Products", icon: Boxes, permission: "products.manage", roles: ["super_admin","fo","manager"], shortLabel: "Products", feature: "products" },
   { to: "/visit-settings", label: "Session settings", icon: ClipboardList, anyPermission: ["settings.manage", "consent.manage"], roles: ["super_admin", "manager"], shortLabel: "Sessions", feature: "consent" },
   { to: "/messaging", label: "Messaging", icon: MessageSquare, anyPermission: ["messaging.view", "messaging.manage", "messaging.automation.view", "messaging.automation.manage"], roles: ["super_admin", "manager"], shortLabel: "Messaging", feature: "whatsapp_automation" },
-  { to: "/finance-settings", label: "Finance Settings", icon: Landmark, anyPermission: ["commission.manage", "billing.manage", "settings.manage"], roles: ["super_admin", "manager"], shortLabel: "Finance" },
   { to: "/campaigns", label: "Campaigns", icon: Tag, anyPermission: ["campaigns.manage", "campaigns.view", "coupons.manage"], roles: ["super_admin", "manager"], shortLabel: "Campaigns" },
   { to: "/loyalty", label: "Loyalty", icon: Award, anyPermission: ["loyalty.manage", "loyalty.view"], roles: ["super_admin", "manager"], shortLabel: "Loyalty" },
   { to: "/pos", label: "POS", icon: ShoppingCart, anyPermission: ["pos.view", "pos.create"], roles: ["super_admin","fo","manager","accounting"], shortLabel: "POS", feature: "products" },
@@ -50,22 +49,42 @@ const NAV = [
   { to: "/analytics", label: "Analytics", icon: BarChart3, permission: "analytics.view", roles: ["super_admin", "manager"], shortLabel: "Analytics", feature: "reports" },
   { to: "/audit", label: "Audit Log", icon: ScrollText, permission: "audit.view", roles: ["super_admin","manager"], shortLabel: "Audit", feature: "audit_log" },
   { to: "/staff", label: "Staff", icon: UserCog, permission: "staff.view", roles: ["super_admin", "manager"], shortLabel: "Staff", anyPermission: ["staff.view", "roles.view"] },
-  { to: "/admin", label: "Admin Settings", icon: SettingsIcon, permission: "settings.view", roles: ["super_admin", "manager"], shortLabel: "Admin" },
+  { to: "/admin", label: "General Settings", icon: SettingsIcon, permission: "settings.view", roles: ["super_admin", "manager"], shortLabel: "General", anyPermission: ["settings.view", "commission.manage", "billing.manage", "settings.manage"] },
   { to: "/billing/plans", label: "Billing & Plan", icon: CreditCard, roles: ["super_admin", "manager"], shortLabel: "Billing" },
 ];
 
 /** Grouped sidebar for Owner / Manager (no Schedule) */
+const OPS_SETTINGS_PATHS = [
+  "/admin",
+  "/loyalty",
+  "/messaging",
+  "/visit-settings",
+  "/billing/plans",
+  "/account",
+  "/audit",
+];
+
+const OPS_SETTINGS_LABELS = {
+  "/admin": "General",
+  "/loyalty": "Loyalty",
+  "/messaging": "Messaging",
+  "/visit-settings": "Session",
+  "/billing/plans": "Billing & Plan",
+  "/account": "Account",
+  "/audit": "Audit Log",
+};
+
+const SETTINGS_EXPANDED_STORAGE_KEY = "clinicos.sidebar.settingsExpanded";
+
 const OPS_SIDEBAR = [
   { type: "link", paths: ["/"] },
-  { type: "link", paths: ["/bookings"] },
-  { type: "group", label: "Clinic", paths: ["/patients", "/visits", "/treatments", "/packages", "/products"] },
-  { type: "group", label: "Retail", paths: ["/pos", "/gift-cards"] },
-  { type: "group", label: "Finance", paths: ["/invoices", "/daily-closing", "/reports", "/analytics", "/finance-settings"] },
-  { type: "group", label: "Marketing", paths: ["/campaigns", "/loyalty"] },
-  { type: "group", label: "Clinical", paths: ["/visit-settings"] },
-  { type: "group", label: "Communication", paths: ["/messaging"] },
-  { type: "group", label: "Team", paths: ["/staff"] },
-  { type: "group", label: "System", paths: ["/audit", "/admin", "/billing/plans", "/account"] },
+  { type: "group", label: "Clinic Operations", paths: ["/bookings", "/patients", "/visits"] },
+  { type: "group", label: "Catalog", paths: ["/treatments", "/packages", "/products", "/gift-cards"] },
+  { type: "link", paths: ["/pos"] },
+  { type: "group", label: "Finance & Reports", paths: ["/invoices", "/daily-closing", "/analytics", "/reports"] },
+  { type: "link", paths: ["/campaigns"] },
+  { type: "link", paths: ["/staff"] },
+  { type: "settings", paths: OPS_SETTINGS_PATHS },
 ];
 
 const FO_SIDEBAR = [
@@ -79,12 +98,17 @@ const FO_SIDEBAR = [
 
 const isOpsSidebarRole = (role) => role === "super_admin" || role === "manager";
 
-function navDisplayLabel(n, role, { short = false } = {}) {
+function navDisplayLabel(n, role, { short = false, ops = false } = {}) {
+  if (ops && n.opsLabel) return n.opsLabel;
   if (role === "fo") {
     if (short && n.foShortLabel) return n.foShortLabel;
     if (n.foLabel) return n.foLabel;
   }
   return short ? (n.shortLabel || n.label) : n.label;
+}
+
+function isOpsSettingsPath(pathname) {
+  return OPS_SETTINGS_PATHS.some((p) => pathname === p || (p !== "/" && pathname.startsWith(`${p}/`)));
 }
 
 const ACCOUNTING_SIDEBAR = [
@@ -121,6 +145,31 @@ export default function AppShell({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsExpanded, setSettingsExpanded] = useState(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_EXPANDED_STORAGE_KEY);
+      if (stored !== null) return stored === "true";
+    } catch { /* ignore */ }
+    return false;
+  });
+
+  const useOpsSidebar = isOpsSidebarRole(user?.role);
+
+  useEffect(() => {
+    if (useOpsSidebar && isOpsSettingsPath(loc.pathname)) {
+      setSettingsExpanded(true);
+    }
+  }, [loc.pathname, useOpsSidebar]);
+
+  const toggleSettingsExpanded = useCallback(() => {
+    setSettingsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SETTINGS_EXPANDED_STORAGE_KEY, String(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   const isVisitWorkflowPage = /^\/visits\/[^/]+$/.test(loc.pathname);
   const appEnv = String(process.env.REACT_APP_APP_ENV || "").toLowerCase();
@@ -142,22 +191,55 @@ export default function AppShell({ children }) {
   const bottomKeys = BOTTOM_NAV_BY_ROLE[user?.role] || ["/", "/patients", "/visits"];
   const bottomItems = bottomKeys.map((k) => visibleNav.find((n) => n.to === k)).filter(Boolean);
 
-  const renderNavLink = (n, onNavigate) => {
+  const renderNavLink = (n, onNavigate, { indent = false, labelOverride } = {}) => {
     const active = navItemActive(n, loc.pathname, user?.id);
     const Icon = n.icon;
+    const label = labelOverride || navDisplayLabel(n, user?.role, { ops: useOpsSidebar });
     return (
       <Link
         key={n.to}
         to={n.to}
         onClick={onNavigate}
-        className={`bl-sidebar-link ${active ? "active" : ""} ${n.locked ? "opacity-80" : ""}`}
-        data-testid={`nav-${n.label.toLowerCase().replace(/\s+/g, "-")}`}
+        className={`bl-sidebar-link ${active ? "active" : ""} ${n.locked ? "opacity-80" : ""} ${indent ? "ml-2 pl-8 !py-2 text-[13px]" : ""}`}
+        data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
         title={n.locked ? "Upgrade required — open to see upgrade options" : undefined}
       >
-        <Icon className="w-4 h-4" strokeWidth={1.6} />
-        <span className="flex-1">{navDisplayLabel(n, user?.role)}</span>
+        {!indent && <Icon className="w-4 h-4" strokeWidth={1.6} />}
+        <span className="flex-1">{label}</span>
         {n.locked && <Lock className="w-3 h-3 text-[#5C6C62]" />}
       </Link>
+    );
+  };
+
+  const renderSettingsSection = (section, onNavigate) => {
+    const items = section.paths.map((p) => navByPath[p]).filter(Boolean);
+    if (!items.length) return null;
+    const anyChildActive = items.some((n) => navItemActive(n, loc.pathname, user?.id));
+
+    return (
+      <div key="settings" className="pt-3">
+        <button
+          type="button"
+          onClick={toggleSettingsExpanded}
+          className={`bl-sidebar-link w-full ${anyChildActive ? "active" : ""}`}
+          data-testid="nav-settings-toggle"
+          aria-expanded={settingsExpanded}
+        >
+          <SettingsIcon className="w-4 h-4" strokeWidth={1.6} />
+          <span className="flex-1 text-left">Settings</span>
+          <ChevronDown
+            className={`w-4 h-4 text-[#5C6C62] transition-transform duration-200 ${settingsExpanded ? "rotate-180" : ""}`}
+          />
+        </button>
+        {settingsExpanded && (
+          <div className="mt-0.5 space-y-0.5 border-l border-[#EAE6D7]/80 ml-5">
+            {items.map((n) => renderNavLink(n, onNavigate, {
+              indent: true,
+              labelOverride: OPS_SETTINGS_LABELS[n.to] || navDisplayLabel(n, user?.role, { ops: true }),
+            }))}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -173,6 +255,9 @@ export default function AppShell({ children }) {
     return layout.map((section, idx) => {
       const items = section.paths.map((p) => navByPath[p]).filter(Boolean);
       if (!items.length) return null;
+      if (section.type === "settings") {
+        return renderSettingsSection(section, onNavigate);
+      }
       if (section.type === "link") {
         return items.map((n) => renderNavLink(n, onNavigate));
       }

@@ -12,8 +12,6 @@ export const LEGACY_ADMIN_TAB_REDIRECTS = {
   treatment: "/treatments",
   catalog: "/treatments",
   inventory: "/products?tab=inventory-settings",
-  commission: "/finance-settings?tab=commission",
-  online_booking_payment: "/finance-settings?tab=online-booking-payment",
   coupons: "/campaigns",
   campaigns: "/campaigns",
   loyalty: "/loyalty",
