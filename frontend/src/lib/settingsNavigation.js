@@ -2,8 +2,8 @@
 export const LEGACY_ADMIN_TAB_REDIRECTS = {
   messaging: "/messaging",
   messaging_templates: "/messaging?tab=legacy-templates",
-  messaging_automation: "/messaging?tab=automation-rules",
-  automation: "/messaging?tab=automation-rules",
+  messaging_automation: "/messaging?tab=automations",
+  automation: "/messaging?tab=automations",
   doctor: "/visit-settings?tab=doctor-form",
   "doctor-form": "/visit-settings?tab=doctor-form",
   therapist: "/visit-settings?tab=therapist-form",

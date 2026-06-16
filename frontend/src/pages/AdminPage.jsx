@@ -2530,14 +2530,16 @@ function MessagingTemplatesTab({ showLogs = true }) {
 
 const AUTOMATION_TRIGGERS = [
   { value: "booking_created", label: "Appointment created" },
+  { value: "booking_rescheduled", label: "Appointment rescheduled" },
   { value: "booking_confirmed", label: "Appointment confirmed" },
   { value: "booking_cancelled", label: "Appointment cancelled" },
-  { value: "before_appointment", label: "Before appointment" },
-  { value: "consent_required_missing", label: "Consent required (missing)" },
+  { value: "before_appointment", label: "Appointment reminder" },
+  { value: "consent_required_missing", label: "Consent form request" },
+  { value: "visit_completed", label: "Visit completed / aftercare follow-up" },
+  { value: "package_balance_low", label: "Package/session remaining reminder" },
+  { value: "package_expiry_reminder", label: "Package expiry reminder" },
   { value: "invoice_paid", label: "Invoice paid" },
   { value: "gift_card_issued", label: "Gift card issued" },
-  { value: "package_balance_low", label: "Package balance low" },
-  { value: "visit_completed", label: "Treatment session completed" },
 ];
 
 const AUTOMATION_DYNAMIC_TAGS = [
@@ -2595,7 +2597,7 @@ function MessagingAutomationTab() {
   const save = async () => {
     if (!canManage) return;
     if (!form.name.trim() || !form.whatsjet_template_name.trim()) {
-      toast.error("Rule name and WhatsJet template name required");
+      toast.error("Rule name and Whatsgo template name required");
       return;
     }
     setBusy(true);
@@ -2684,9 +2686,9 @@ function MessagingAutomationTab() {
       <div className="bl-card p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-display text-lg text-[#2D3A33]">Automation rules</div>
+            <div className="font-display text-lg text-[#2D3A33]">Automations</div>
             <p className="text-sm text-[#5C6C62] mt-1">
-              Connect WhatsJet in Messaging settings, then map approved WhatsApp templates to triggers here.
+              Map ClinicOS events to approved Whatsgo templates. Templates are managed in Whatsgo — sync them on the Templates tab.
             </p>
           </div>
           {canManage && (
@@ -2700,8 +2702,8 @@ function MessagingAutomationTab() {
           <>
             <div className="font-display text-base text-[#2D3A33] pt-2">{editingId ? "Edit rule" : "New rule"}</div>
             <p className="text-xs text-[#5C6C62] bg-[#F8F5EC] border border-[#EAE6D7] rounded-lg px-3 py-2">
-              Create and approve your WhatsApp templates in WhatsJet/Meta first. Then enter the approved template name here.
-              ClinicOS sends via WhatsJet <span className="font-mono">send-template-message</span> — it does not submit templates for approval.
+              Create and approve WhatsApp templates in Whatsgo first, then sync and select the template name here.
+              ClinicOS sends via Whatsgo — it does not submit templates for Meta approval.
             </p>
             {showReminderWarning && (
               <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="automation-reminder-warning">
@@ -2731,7 +2733,7 @@ function MessagingAutomationTab() {
               )}
               <input
                 className="bl-input sm:col-span-2 font-mono text-sm"
-                placeholder="WhatsJet approved template name"
+                placeholder="Whatsgo approved template name"
                 value={form.whatsjet_template_name}
                 onChange={e => setForm({ ...form, whatsjet_template_name: e.target.value })}
                 data-testid="automation-whatsjet-template"
@@ -2741,7 +2743,7 @@ function MessagingAutomationTab() {
 
             <div className="space-y-2 rounded-xl border border-[#EAE6D7] p-4">
               <p className="text-xs font-medium text-[#2D3A33]">Template variables (order matters)</p>
-              <p className="text-xs text-[#5C6C62]">Map each WhatsJet template variable to a dynamic tag from your appointment/patient context.</p>
+              <p className="text-xs text-[#5C6C62]">Map each Whatsgo template variable to a dynamic tag from your appointment/patient context.</p>
               {variableSlots.map((tag, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-[#5C6C62] w-20 shrink-0">Variable {i + 1}</span>

@@ -7,7 +7,7 @@ const GENERAL_SETTINGS_TAB_ORDER = [
   "security",
 ];
 
-const MESSAGING_TABS = ["connection", "automation-rules", "message-logs", "legacy-templates"];
+const MESSAGING_TABS = ["connection", "contact-sync", "automations", "templates", "message-logs", "advanced"];
 const FORMS_TABS = ["doctor-form", "therapist-form", "consent", "mapping"];
 const CATALOG_TABS = ["treatment-categories", "unit-types"];
 const MARKETING_TABS = ["coupons", "loyalty"];
@@ -26,9 +26,11 @@ describe("general settings module tabs", () => {
 
   test("Messaging module tab keys", () => {
     expect(MESSAGING_TABS).toContain("connection");
-    expect(MESSAGING_TABS).toContain("automation-rules");
+    expect(MESSAGING_TABS).toContain("contact-sync");
+    expect(MESSAGING_TABS).toContain("automations");
+    expect(MESSAGING_TABS).toContain("templates");
     expect(MESSAGING_TABS).toContain("message-logs");
-    expect(MESSAGING_TABS).toContain("legacy-templates");
+    expect(MESSAGING_TABS).toContain("advanced");
   });
 
   test("Forms module tab keys", () => {

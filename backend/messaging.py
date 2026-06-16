@@ -26,8 +26,8 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-MESSAGING_PROVIDERS = frozenset({"none", "whatsapp_cloud_api", "whatsjet", "twilio"})
-API_CAPABLE_PROVIDERS = frozenset({"whatsapp_cloud_api", "whatsjet", "twilio"})
+MESSAGING_PROVIDERS = frozenset({"none", "whatsapp_cloud_api", "whatsjet", "whatsgo", "twilio"})
+API_CAPABLE_PROVIDERS = frozenset({"whatsapp_cloud_api", "whatsjet", "whatsgo", "twilio"})
 MESSAGING_CHANNELS = frozenset({"whatsapp", "sms"})
 CONNECTION_STATUSES = frozenset({"disabled", "not_connected", "connected", "error"})
 TEMPLATE_TYPES = frozenset({
@@ -67,6 +67,23 @@ DEFAULT_CLINIC_MESSAGING: Dict[str, Any] = {
     "whatsjet_send_template_path": "/api/{vendor_uid}/contact/send-template-message",
     "whatsjet_test_path": "/api/{vendor_uid}/contact/contacts",
     "whatsjet_payload_style": "standard",
+    "whatsgo_workspace_id": "",
+    "whatsgo_workspace_name": "",
+    "whatsgo_base_url": "",
+    "connected_phone_number": "",
+    "last_connected_at": None,
+    "last_health_check_at": None,
+    "whatsgo_auto_sync_patients": True,
+    "whatsgo_auto_update_contacts": True,
+    "whatsgo_sync_tags": False,
+    "whatsgo_last_sync_at": None,
+    "whatsgo_last_sync_status": "",
+    "whatsgo_last_sync_error": "",
+    "whatsgo_webhook_secret": "",
+    "whatsgo_retry_max_attempts": 3,
+    "whatsgo_inbox_url": "",
+    "whatsgo_templates_cache": [],
+    "whatsgo_templates_synced_at": None,
 }
 
 DEFAULT_MESSAGING_TEMPLATES: List[Dict[str, Any]] = [
@@ -201,6 +218,11 @@ def credentials_complete(provider: str, creds: dict, settings: dict) -> Tuple[bo
 
         ok, reason = whatsjet_credentials_complete(whatsjet_settings_bundle(settings, creds))
         return ok, reason
+    if provider == "whatsgo":
+        from whatsgo_adapter import whatsgo_credentials_complete, whatsgo_settings_bundle
+
+        ok, reason = whatsgo_credentials_complete(whatsgo_settings_bundle(settings, creds))
+        return ok, reason
     if provider == "twilio":
         sid = creds.get("account_sid") or ""
         token = creds.get("auth_token") or ""
@@ -293,6 +315,27 @@ def sanitize_settings_admin(
             (settings.get("whatsjet_webhook_secret") or "")
             or (creds or {}).get("webhook_secret")
         ),
+        "whatsgo_workspace_id": settings.get("whatsgo_workspace_id") or "",
+        "whatsgo_workspace_name": settings.get("whatsgo_workspace_name") or "",
+        "whatsgo_base_url": settings.get("whatsgo_base_url") or "",
+        "connected_phone_number": settings.get("connected_phone_number") or settings.get("sender_phone_number") or "",
+        "last_connected_at": settings.get("last_connected_at"),
+        "last_health_check_at": settings.get("last_health_check_at") or settings.get("last_connection_test_at"),
+        "whatsgo_auto_sync_patients": bool(settings.get("whatsgo_auto_sync_patients", True)),
+        "whatsgo_auto_update_contacts": bool(settings.get("whatsgo_auto_update_contacts", True)),
+        "whatsgo_sync_tags": bool(settings.get("whatsgo_sync_tags")),
+        "whatsgo_last_sync_at": settings.get("whatsgo_last_sync_at"),
+        "whatsgo_last_sync_status": settings.get("whatsgo_last_sync_status") or "",
+        "whatsgo_last_sync_error": settings.get("whatsgo_last_sync_error") or "",
+        "has_whatsgo_integration_token": bool((creds or {}).get("integration_token")),
+        "has_whatsgo_webhook_secret": bool(
+            (settings.get("whatsgo_webhook_secret") or "")
+            or (creds or {}).get("webhook_secret")
+        ),
+        "whatsgo_retry_max_attempts": int(settings.get("whatsgo_retry_max_attempts") or 3),
+        "whatsgo_inbox_url": settings.get("whatsgo_inbox_url") or "",
+        "whatsgo_templates_synced_at": settings.get("whatsgo_templates_synced_at"),
+        "whatsgo_templates": settings.get("whatsgo_templates_cache") or [],
     }
 
 
@@ -581,6 +624,22 @@ def send_via_provider(
             reference_id=reference_id,
             contact_name=contact_name,
         )
+    if provider == "whatsgo" and channel == "whatsapp":
+        from whatsgo_adapter import send_whatsgo_template_message
+
+        wg_template = (tpl_name or "").strip()
+        if wg_template:
+            return send_whatsgo_template_message(
+                clinic_id=clinic_id or "",
+                to_phone=recipient,
+                template_name=wg_template,
+                language=language or "id",
+                variable_values=list(template_params or []),
+                settings=settings,
+                creds=creds,
+                external_reference_id=reference_id,
+            )
+        return False, None, "Whatsgo requires an approved template for outbound messages", {}
     return False, None, f"Provider {provider} not configured for channel {channel}", {}
 
 
@@ -1244,6 +1303,17 @@ class MessagingSettingsIn(BaseModel):
     whatsjet_use_query_token: Optional[bool] = None
     clear_credentials: bool = False
     clear_webhook_secret: bool = False
+    whatsgo_workspace_id: Optional[str] = None
+    whatsgo_workspace_name: Optional[str] = None
+    whatsgo_base_url: Optional[str] = None
+    integration_token: Optional[str] = None
+    whatsgo_auto_sync_patients: Optional[bool] = None
+    whatsgo_auto_update_contacts: Optional[bool] = None
+    whatsgo_sync_tags: Optional[bool] = None
+    whatsgo_webhook_secret: Optional[str] = None
+    whatsgo_retry_max_attempts: Optional[int] = None
+    whatsgo_inbox_url: Optional[str] = None
+    clear_whatsgo_webhook_secret: bool = False
 
 
 class MessagingTestSendIn(BaseModel):
@@ -1306,6 +1376,13 @@ def run_provider_connection_test(settings: dict, creds: dict) -> dict:
             return test_whatsjet_connection(settings, creds)
         except ValueError as ex:
             raise HTTPException(status_code=400, detail=str(ex)) from ex
+    if provider == "whatsgo":
+        from whatsgo_adapter import test_whatsgo_connection
+
+        try:
+            return test_whatsgo_connection(settings, creds)
+        except ValueError as ex:
+            raise HTTPException(status_code=400, detail=str(ex)) from ex
     raise HTTPException(status_code=400, detail="Select a provider to test")
 
 
@@ -1319,7 +1396,7 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
     async def _manage_dep(user: dict = Depends(get_current_user)):
         if user.get("platform_admin"):
             raise HTTPException(status_code=400, detail="Clinic account required")
-        if not user_has_permission(user, "messaging.manage") and user.get("role") != "super_admin":
+        if user.get("role") not in ("super_admin", "manager") and not user_has_permission(user, "messaging.manage"):
             raise HTTPException(status_code=403, detail="Messaging settings access required")
         await _require_automation(user)
         return user
@@ -1398,9 +1475,13 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
                 creds["auth_token"] = payload.auth_token.strip()
             if payload.from_number:
                 creds["from_number"] = payload.from_number.strip()
+            if payload.integration_token:
+                creds["integration_token"] = payload.integration_token.strip()
+            if payload.whatsgo_workspace_id:
+                creds["workspace_id"] = payload.whatsgo_workspace_id.strip()
             if creds:
                 enc = encrypt_credentials(jwt_secret, cid, creds)
-        saved = {
+        saved = {**existing, **{
             "enable_messaging": payload.enable_messaging,
             "provider": payload.provider,
             "sender_name": (payload.sender_name or "").strip(),
@@ -1425,14 +1506,44 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             "whatsjet_payload_style": (
                 (payload.whatsjet_payload_style or existing.get("whatsjet_payload_style") or "standard").strip()
             ),
-        }
+        }}
+        if payload.whatsgo_workspace_id is not None:
+            saved["whatsgo_workspace_id"] = (payload.whatsgo_workspace_id or "").strip()
+        if payload.whatsgo_workspace_name is not None:
+            saved["whatsgo_workspace_name"] = (payload.whatsgo_workspace_name or "").strip()
+        if payload.whatsgo_base_url is not None:
+            saved["whatsgo_base_url"] = (payload.whatsgo_base_url or "").strip()
+        if payload.whatsgo_auto_sync_patients is not None:
+            saved["whatsgo_auto_sync_patients"] = bool(payload.whatsgo_auto_sync_patients)
+        if payload.whatsgo_auto_update_contacts is not None:
+            saved["whatsgo_auto_update_contacts"] = bool(payload.whatsgo_auto_update_contacts)
+        if payload.whatsgo_sync_tags is not None:
+            saved["whatsgo_sync_tags"] = bool(payload.whatsgo_sync_tags)
+        if payload.whatsgo_webhook_secret:
+            saved["whatsgo_webhook_secret"] = payload.whatsgo_webhook_secret.strip()
+            if enc:
+                creds_ws = decrypt_credentials(jwt_secret, cid, enc)
+                creds_ws["webhook_secret"] = payload.whatsgo_webhook_secret.strip()
+                enc = encrypt_credentials(jwt_secret, cid, creds_ws)
+                saved["provider_credentials_encrypted"] = enc
+        if payload.clear_whatsgo_webhook_secret:
+            saved["whatsgo_webhook_secret"] = ""
+        if payload.whatsgo_retry_max_attempts is not None:
+            saved["whatsgo_retry_max_attempts"] = max(0, min(10, int(payload.whatsgo_retry_max_attempts)))
+        if payload.whatsgo_inbox_url is not None:
+            saved["whatsgo_inbox_url"] = (payload.whatsgo_inbox_url or "").strip()
         if payload.provider == "whatsjet" and payload.api_base_url:
             saved["whatsjet_api_base_url"] = payload.api_base_url.strip()
+        if payload.provider == "whatsgo":
+            saved["provider"] = "whatsgo"
+            if payload.enable_messaging and enc:
+                saved["connection_status"] = "not_connected"
+                saved["last_connection_error"] = "Run Test connection after saving Whatsgo credentials"
         if saved["enable_messaging"]:
             if not is_api_capable_provider(saved["provider"]):
                 raise HTTPException(
                     status_code=400,
-                    detail="Automated messaging requires a WhatsApp API provider (Meta Cloud API, WhatsJet, or BSP). "
+                    detail="Automated messaging requires Whatsgo or another API-capable provider. "
                     "Manual WhatsApp is available from booking and patient pages without enabling automation.",
                 )
             creds_check = get_provider_credentials(jwt_secret, cid, {**saved, "provider_credentials_encrypted": enc})
@@ -1463,6 +1574,10 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             cred_fields.append("send_message_path")
         if payload.send_template_path:
             cred_fields.append("send_template_path")
+        if payload.integration_token:
+            cred_fields.append("integration_token")
+        if payload.whatsgo_workspace_id:
+            cred_fields.append("whatsgo_workspace_id")
         if payload.clear_credentials:
             cred_fields.append("cleared")
         if cred_fields:
@@ -1490,6 +1605,13 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             settings["connection_status"] = "connected"
             settings["last_connection_error"] = ""
             settings["last_connection_test_at"] = now
+            settings["last_health_check_at"] = now
+            if settings.get("provider") == "whatsgo":
+                settings["last_connected_at"] = now
+                if result.get("workspace_name"):
+                    settings["whatsgo_workspace_name"] = result["workspace_name"]
+                if result.get("connected_phone_number"):
+                    settings["connected_phone_number"] = result["connected_phone_number"]
             await save_messaging_settings(db, cid, settings)
             return {**result, "connection_status": "connected", "automation_active": True}
         except HTTPException as ex:
@@ -1498,6 +1620,64 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             settings["last_connection_test_at"] = now
             await save_messaging_settings(db, cid, settings)
             raise
+
+    @api.post("/settings/messaging/whatsgo/disconnect")
+    async def disconnect_whatsgo(user: dict = Depends(_manage_dep)):
+        cid = user["clinic_id"]
+        settings = await load_messaging_settings(db, cid)
+        settings["enable_messaging"] = False
+        settings["provider"] = "none"
+        settings["provider_credentials_encrypted"] = None
+        settings["connection_status"] = "not_connected"
+        settings["last_connection_error"] = ""
+        settings["connected_phone_number"] = ""
+        await save_messaging_settings(db, cid, settings)
+        await audit(user, "update", "whatsgo_disconnect", cid, {})
+        return {"ok": True, "connection_status": "not_connected"}
+
+    @api.post("/settings/messaging/whatsgo/contacts/sync")
+    async def sync_whatsgo_contacts(user: dict = Depends(_manage_dep)):
+        from whatsgo_service import sync_all_patients_to_whatsgo
+
+        cid = user["clinic_id"]
+        settings = await load_messaging_settings(db, cid)
+        if settings.get("provider") != "whatsgo":
+            raise HTTPException(status_code=400, detail="Whatsgo is not the active provider")
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        result = await sync_all_patients_to_whatsgo(db, clinic_id=cid, settings=settings, creds=creds)
+        now = iso(now_utc())
+        settings["whatsgo_last_sync_at"] = now
+        settings["whatsgo_last_sync_status"] = result.get("status") or "failed"
+        settings["whatsgo_last_sync_error"] = "; ".join(result.get("errors") or [])[:500]
+        await save_messaging_settings(db, cid, settings)
+        await audit(user, "update", "whatsgo_contact_sync", cid, {"status": result.get("status"), "synced": result.get("synced")})
+        return result
+
+    @api.get("/messaging/whatsgo/templates")
+    async def list_whatsgo_templates_endpoint(user: dict = Depends(_view_dep)):
+        cid = user["clinic_id"]
+        settings = await load_messaging_settings(db, cid)
+        cached = settings.get("whatsgo_templates_cache") or []
+        return {
+            "items": cached,
+            "synced_at": settings.get("whatsgo_templates_synced_at"),
+            "provider": settings.get("provider"),
+        }
+
+    @api.post("/messaging/whatsgo/templates/sync")
+    async def sync_whatsgo_templates_endpoint(user: dict = Depends(_manage_dep)):
+        from whatsgo_service import fetch_and_cache_whatsgo_templates
+
+        cid = user["clinic_id"]
+        settings = await load_messaging_settings(db, cid)
+        if settings.get("provider") != "whatsgo":
+            raise HTTPException(status_code=400, detail="Whatsgo is not the active provider")
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        result = await fetch_and_cache_whatsgo_templates(db, cid, settings, creds)
+        if not result.get("ok"):
+            raise HTTPException(status_code=400, detail=result.get("error") or "Template sync failed")
+        await audit(user, "update", "whatsgo_templates_sync", cid, {"count": len(result.get("items") or [])})
+        return result
 
     @api.post("/settings/messaging/test-send")
     async def test_messaging_send(payload: MessagingTestSendIn, user: dict = Depends(_manage_dep)):

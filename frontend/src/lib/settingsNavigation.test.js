@@ -3,7 +3,7 @@ import { legacyAdminTabRedirect, LEGACY_ADMIN_TAB_REDIRECTS } from "./settingsNa
 describe("settingsNavigation", () => {
   test("maps legacy admin tabs to new module routes", () => {
     expect(legacyAdminTabRedirect("messaging")).toBe("/messaging");
-    expect(legacyAdminTabRedirect("messaging_automation")).toBe("/messaging?tab=automation-rules");
+    expect(legacyAdminTabRedirect("messaging_automation")).toBe("/messaging?tab=automations");
     expect(legacyAdminTabRedirect("doctor-form")).toBe("/visit-settings?tab=doctor-form");
     expect(legacyAdminTabRedirect("mapping")).toBe("/visit-settings?tab=mapping");
     expect(legacyAdminTabRedirect("commission")).toBeNull();
@@ -17,6 +17,6 @@ describe("settingsNavigation", () => {
   });
 
   test("redirect map includes automation alias", () => {
-    expect(LEGACY_ADMIN_TAB_REDIRECTS.automation).toContain("automation-rules");
+    expect(LEGACY_ADMIN_TAB_REDIRECTS.automation).toContain("automations");
   });
 });

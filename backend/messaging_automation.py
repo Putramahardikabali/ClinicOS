@@ -20,11 +20,13 @@ AUTOMATION_TRIGGER_TYPES = frozenset({
     "booking_created",
     "booking_confirmed",
     "booking_cancelled",
+    "booking_rescheduled",
     "before_appointment",
     "consent_required_missing",
     "invoice_paid",
     "gift_card_issued",
     "package_balance_low",
+    "package_expiry_reminder",
     "visit_completed",
 })
 
@@ -37,7 +39,7 @@ DUE_WINDOW = timedelta(minutes=2)
 BOOKING_EVENT_TRIGGERS: Dict[str, List[str]] = {
     "confirmed": ["booking_confirmed"],
     "cancelled": ["booking_cancelled"],
-    "rescheduled": [],
+    "rescheduled": ["booking_rescheduled"],
     "payment_pending": [],
     "consent_link": ["consent_required_missing"],
 }
@@ -296,7 +298,7 @@ def reference_for_context(
     visit: Optional[dict] = None,
 ) -> Tuple[str, str]:
     if booking and trigger_type in (
-        "booking_created", "booking_confirmed", "booking_cancelled",
+        "booking_created", "booking_confirmed", "booking_cancelled", "booking_rescheduled",
         "before_appointment", "consent_required_missing",
     ):
         return "booking", booking.get("id") or ""
@@ -489,7 +491,7 @@ async def process_automation_run(
         f"WhatsJet template: {whatsjet_template_name}" if whatsjet_template_name else "Automation message"
     )
 
-    if provider == "whatsjet" and not whatsjet_template_name:
+    if provider in ("whatsjet", "whatsgo") and not whatsjet_template_name:
         await db.automation_runs.update_one(
             {"id": run["id"]},
             {"$set": {"status": "skipped", "skip_reason": "template_not_configured", "processed_at": now}},
@@ -527,6 +529,35 @@ async def process_automation_run(
     if provider == "whatsjet":
         from whatsjet_adapter import send_whatsjet_template_message
 
+        send_fn = send_whatsjet_template_message
+        send_kwargs = dict(
+            clinic_id=clinic_id,
+            to_phone=recipient,
+            template_name=whatsjet_template_name,
+            language=language_code,
+            variable_values=variable_values,
+            settings=settings,
+            creds=creds,
+        )
+    elif provider == "whatsgo":
+        from whatsgo_adapter import send_whatsgo_template_message
+
+        send_fn = send_whatsgo_template_message
+        send_kwargs = dict(
+            clinic_id=clinic_id,
+            to_phone=recipient,
+            template_name=whatsjet_template_name,
+            language=language_code,
+            variable_values=variable_values,
+            settings=settings,
+            creds=creds,
+            external_reference_id=ref_id or None,
+        )
+    else:
+        send_fn = None
+        send_kwargs = {}
+
+    if provider in ("whatsjet", "whatsgo"):
         pseudo_tpl = {
             "id": rule.get("id"),
             "template_type": rule.get("trigger_type") or "automation",
@@ -556,16 +587,7 @@ async def process_automation_run(
             whatsjet_variable_values=variable_values,
         )
         try:
-            ok, msg_id, err, _raw = await asyncio.to_thread(
-                send_whatsjet_template_message,
-                clinic_id=clinic_id,
-                to_phone=recipient,
-                template_name=whatsjet_template_name,
-                language=language_code,
-                variable_values=variable_values,
-                settings=settings,
-                creds=creds,
-            )
+            ok, msg_id, err, _raw = await asyncio.to_thread(send_fn, **send_kwargs)
         except Exception as ex:
             ok, msg_id, err = False, None, str(ex)[:500]
 

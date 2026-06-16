@@ -4,6 +4,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import asyncio
 import uuid
 import logging
 import bcrypt
@@ -1479,6 +1480,11 @@ async def create_patient(payload: PatientIn, user: dict = Depends(require_permis
     await db.patients.insert_one(p)
     p.pop("_id", None)
     await audit(user, "create", "patient", p["id"])
+    try:
+        from whatsgo_service import maybe_sync_patient_whatsgo
+        asyncio.create_task(maybe_sync_patient_whatsgo(db, os.environ["JWT_SECRET"], user.get("clinic_id"), p, is_update=False))
+    except Exception:
+        pass
     if p.get("consent_status") in ("signed", "cancelled"):
         await log_consent(
             db, user, p["consent_status"],
@@ -1703,6 +1709,11 @@ async def update_patient(pid: str, payload: PatientIn, user: dict = Depends(requ
         else:
             consent_action = "updated"
         await log_consent(db, user, consent_action, pid, old_value=old_c, new_value=new_c)
+    try:
+        from whatsgo_service import maybe_sync_patient_whatsgo
+        asyncio.create_task(maybe_sync_patient_whatsgo(db, os.environ["JWT_SECRET"], user.get("clinic_id"), updated, is_update=True))
+    except Exception:
+        pass
     return updated
 
 @api.delete("/patients/{pid}")
