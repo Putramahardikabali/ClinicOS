@@ -188,6 +188,8 @@ def test_automation_skipped_when_whatsgo_sending_disabled():
     db = MagicMock()
     db.automation_runs = MagicMock()
     db.automation_runs.update_one = AsyncMock(return_value=None)
+    db.messaging_automation_rules = MagicMock()
+    db.messaging_automation_rules.update_one = AsyncMock(return_value=None)
 
     run = {"id": "run-1", "clinic_id": "c1", "reference_type": "booking", "reference_id": "b1"}
     rule = {

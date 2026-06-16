@@ -2933,6 +2933,8 @@ async def startup():
         unique=True,
     )
     await db.automation_runs.create_index([("status", 1), ("scheduled_for", 1)])
+    await db.automation_runs.create_index([("status", 1), ("next_retry_at", 1)])
+    await db.automation_runs.create_index([("clinic_id", 1), ("patient_id", 1), ("created_at", -1)])
     await db.message_logs.create_index([("clinic_id", 1), ("booking_id", 1), ("created_at", -1)])
     await db.consent_public_links.create_index([("token_hash", 1)], unique=True)
     await db.consent_public_links.create_index([("consent_id", 1), ("status", 1)])

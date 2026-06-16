@@ -3,7 +3,7 @@ import {
 } from "lucide-react";
 import { useAuth, hasPermission } from "@/lib/auth";
 import SettingsModuleLayout from "@/components/settings/SettingsModuleLayout";
-import { MessagingAutomationTab } from "@/pages/admin/settingsTabs";
+import WhatsgoAutomationsTab from "@/components/messaging/whatsgo/WhatsgoAutomationsTab";
 import WhatsgoConnectionTab from "@/components/messaging/whatsgo/WhatsgoConnectionTab";
 import WhatsgoContactSyncTab from "@/components/messaging/whatsgo/WhatsgoContactSyncTab";
 import WhatsgoTemplatesTab from "@/components/messaging/whatsgo/WhatsgoTemplatesTab";
@@ -49,7 +49,7 @@ export default function MessagingPage() {
           {tab === "contact-sync" && canManage && <WhatsgoContactSyncTab />}
           {tab === "templates" && canManage && <WhatsgoTemplatesTab />}
           {tab === "send-test" && (canManage || canSend) && <WhatsgoSendTestTab />}
-          {tab === "automations" && canAutomation && <MessagingAutomationTab />}
+          {tab === "automations" && canAutomation && <WhatsgoAutomationsTab />}
           {tab === "message-logs" && canViewLogs && <WhatsgoMessageLogsTab />}
           {tab === "advanced" && canManage && <WhatsgoAdvancedTab />}
         </>

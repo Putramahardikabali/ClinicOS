@@ -534,11 +534,15 @@ async def build_message_context(
             pass
 
     ctx["consent_form_link"] = ctx.get("consent_link") or ""
-    ctx["package_remaining_sessions"] = ctx.get("sessions_remaining") or ctx.get("package_balance") or ""
+    ctx["staff_name"] = ctx.get("performer_name") or ""
+    ctx["remaining_sessions"] = ctx.get("sessions_remaining") or ctx.get("package_balance") or ""
+    ctx["package_remaining_sessions"] = ctx.get("remaining_sessions") or ""
     if package:
         ctx["package_expiry_date"] = str(package.get("expires_at") or package.get("expiry_date") or "")
     else:
         ctx.setdefault("package_expiry_date", "")
+    if slug:
+        ctx["public_booking_link"] = ctx.get("booking_link") or f"{_public_base_url()}/book/{slug}"
 
     return ctx
 
@@ -1006,6 +1010,7 @@ async def trigger_booking_messaging(
         event_triggers = {
             "confirmed": "booking_confirmed",
             "cancelled": "booking_cancelled",
+            "rescheduled": "booking_rescheduled",
             "consent_link": "consent_required_missing",
         }
         auto_trigger = event_triggers.get(event)
@@ -1842,13 +1847,48 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
     async def fetch_whatsgo_message_logs(
         refresh: bool = False,
         patient_id: Optional[str] = None,
+        status: Optional[str] = None,
+        event_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
         user: dict = Depends(_view_dep),
     ):
         cid = user["clinic_id"]
         flt: Dict[str, Any] = {"clinic_id": cid, "provider": "whatsgo"}
         if patient_id:
             flt["patient_id"] = patient_id
+        if status:
+            flt["status"] = status
+        if event_type:
+            flt["source_event"] = event_type
+        if date_from or date_to:
+            created: Dict[str, Any] = {}
+            if date_from:
+                created["$gte"] = date_from
+            if date_to:
+                created["$lte"] = date_to
+            flt["created_at"] = created
         local_rows = await db.message_logs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(300)
+        log_ids = [r["id"] for r in local_rows if r.get("id")]
+        run_by_log: Dict[str, dict] = {}
+        if log_ids:
+            runs = await db.automation_runs.find(
+                {"clinic_id": cid, "message_log_id": {"$in": log_ids}},
+                {"_id": 0},
+            ).to_list(len(log_ids))
+            for run in runs:
+                lid = run.get("message_log_id")
+                if lid and lid not in run_by_log:
+                    run_by_log[lid] = run
+        for row in local_rows:
+            run = run_by_log.get(row.get("id") or "")
+            if run:
+                row["automation_job_id"] = run.get("id")
+                row["attempt_count"] = run.get("attempt_count")
+                row["max_attempts"] = run.get("max_attempts")
+                row["next_retry_at"] = run.get("next_retry_at")
+                if not row.get("error_reason") and run.get("error_reason"):
+                    row["error_reason"] = run.get("error_reason")
         remote_items: List[dict] = []
         if refresh:
             settings = await load_messaging_settings(db, cid)

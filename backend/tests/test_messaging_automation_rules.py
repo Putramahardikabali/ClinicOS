@@ -77,6 +77,8 @@ class TestAutomationRuleUnit:
             db = MagicMock()
             db.automation_runs = MagicMock()
             db.automation_runs.update_one = AsyncMock()
+            db.messaging_automation_rules = MagicMock()
+            db.messaging_automation_rules.update_one = AsyncMock()
             db.messaging_templates = MagicMock()
             db.messaging_templates.find_one = AsyncMock(return_value=None)
 
@@ -92,7 +94,8 @@ class TestAutomationRuleUnit:
             }
             rule = _rule(whatsjet_template_name="")
 
-            with patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
+            with patch("whatsgo_automation_jobs.claim_automation_job", new_callable=AsyncMock, return_value=run_doc), \
+                 patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
                 mock_settings.return_value = {"enable_messaging": True, "provider": "whatsjet", "connection_status": "connected"}
                 with patch("messaging.get_provider_credentials", return_value={"api_access_token": "tok"}):
                     with patch("messaging.build_message_context", new_callable=AsyncMock, return_value={"patient_phone": "628123456789", "patient_name": "Jane"}):
@@ -112,6 +115,8 @@ class TestAutomationRuleUnit:
             db = MagicMock()
             db.automation_runs = MagicMock()
             db.automation_runs.update_one = AsyncMock()
+            db.messaging_automation_rules = MagicMock()
+            db.messaging_automation_rules.update_one = AsyncMock()
             db.messaging_templates = MagicMock()
             db.messaging_templates.find_one = AsyncMock(return_value=None)
 
@@ -125,7 +130,8 @@ class TestAutomationRuleUnit:
                 "status": "pending",
             }
 
-            with patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
+            with patch("whatsgo_automation_jobs.claim_automation_job", new_callable=AsyncMock, return_value=run_doc), \
+                 patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
                 mock_settings.return_value = {"enable_messaging": True, "provider": "whatsjet", "connection_status": "not_connected"}
                 with patch("messaging.get_provider_credentials", return_value={}):
                     with patch("messaging.create_skipped_log", new_callable=AsyncMock) as mock_skipped:
@@ -158,6 +164,8 @@ class TestAutomationRuleUnit:
             db.message_logs = MagicMock()
             db.message_logs.insert_one = AsyncMock()
             db.message_logs.update_one = AsyncMock()
+            db.audit_logs = MagicMock()
+            db.audit_logs.insert_one = AsyncMock()
 
             run_doc = {
                 "id": "run-1",
@@ -169,7 +177,8 @@ class TestAutomationRuleUnit:
                 "status": "pending",
             }
 
-            with patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
+            with patch("whatsgo_automation_jobs.claim_automation_job", new_callable=AsyncMock, return_value=run_doc), \
+                 patch("messaging.load_messaging_settings", new_callable=AsyncMock) as mock_settings:
                 mock_settings.return_value = {
                     "enable_messaging": True,
                     "provider": "whatsjet",
