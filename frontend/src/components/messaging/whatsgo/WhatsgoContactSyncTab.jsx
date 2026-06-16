@@ -8,6 +8,8 @@ export default function WhatsgoContactSyncTab() {
     whatsgo_auto_sync_patients: true,
     whatsgo_auto_update_contacts: true,
     whatsgo_sync_tags: false,
+    whatsgo_sync_patient_source: true,
+    whatsgo_sync_country: true,
     whatsgo_last_sync_at: null,
     whatsgo_last_sync_status: "",
     whatsgo_last_sync_error: "",
@@ -24,6 +26,8 @@ export default function WhatsgoContactSyncTab() {
           whatsgo_auto_sync_patients: d.whatsgo_auto_sync_patients !== false,
           whatsgo_auto_update_contacts: d.whatsgo_auto_update_contacts !== false,
           whatsgo_sync_tags: !!d.whatsgo_sync_tags,
+          whatsgo_sync_patient_source: d.whatsgo_sync_patient_source !== false,
+          whatsgo_sync_country: d.whatsgo_sync_country !== false,
           whatsgo_last_sync_at: d.whatsgo_last_sync_at,
           whatsgo_last_sync_status: d.whatsgo_last_sync_status || "",
           whatsgo_last_sync_error: d.whatsgo_last_sync_error || "",
@@ -44,6 +48,8 @@ export default function WhatsgoContactSyncTab() {
         whatsgo_auto_sync_patients: settings.whatsgo_auto_sync_patients,
         whatsgo_auto_update_contacts: settings.whatsgo_auto_update_contacts,
         whatsgo_sync_tags: settings.whatsgo_sync_tags,
+        whatsgo_sync_patient_source: settings.whatsgo_sync_patient_source,
+        whatsgo_sync_country: settings.whatsgo_sync_country,
       });
       toast.success("Contact sync settings saved");
     } catch (e) {
@@ -100,6 +106,24 @@ export default function WhatsgoContactSyncTab() {
             data-testid="whatsgo-auto-update"
           />
           <span className="text-sm text-[#2D3A33]">Auto-update Whatsgo contact when patient profile changes</span>
+        </label>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.whatsgo_sync_patient_source}
+            onChange={(e) => setSettings({ ...settings, whatsgo_sync_patient_source: e.target.checked })}
+            data-testid="whatsgo-sync-source"
+          />
+          <span className="text-sm text-[#2D3A33]">Sync patient source</span>
+        </label>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.whatsgo_sync_country}
+            onChange={(e) => setSettings({ ...settings, whatsgo_sync_country: e.target.checked })}
+            data-testid="whatsgo-sync-country"
+          />
+          <span className="text-sm text-[#2D3A33]">Sync nationality / country</span>
         </label>
         <label className="flex items-center gap-3 cursor-pointer">
           <input

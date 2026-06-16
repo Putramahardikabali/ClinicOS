@@ -21,6 +21,7 @@ import Photos from "@/components/visit/Photos";
 import MappingCanvas from "@/components/visit/MappingCanvas";
 import VisitConsentPanel from "@/components/consent/VisitConsentPanel";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
+import WhatsgoPatientActions from "@/components/messaging/whatsgo/WhatsgoPatientActions";
 import FeatureGate from "@/components/FeatureGate";
 import { useClinic } from "@/lib/clinic";
 import { REALTIME_TOPICS, visitTopicKey } from "@/lib/realtimeEvents";
@@ -66,6 +67,11 @@ export default function VisitDetailPage() {
       || ["super_admin", "fo", "manager"].includes(user?.role)
     ),
   );
+  const canWhatsgoSend =
+    hasPermission(user, "messaging.send")
+    || hasPermission(user, "messaging.manage")
+    || user?.role === "super_admin"
+    || user?.role === "manager";
   const [invoiceSummary, setInvoiceSummary] = useState(null);
 
   const load = useCallback(() => {
@@ -273,6 +279,7 @@ export default function VisitDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <WhatsgoPatientActions patientId={visit.patient?.id} canSend={canWhatsgoSend} compact />
           {showCollectPayment && (
             <Link to={`/invoices/visit/${visit.id}`} className="bl-btn-primary inline-flex items-center justify-center gap-2" data-testid="visit-collect-payment">
               Collect payment

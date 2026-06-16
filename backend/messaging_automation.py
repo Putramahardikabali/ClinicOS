@@ -32,7 +32,7 @@ AUTOMATION_TRIGGER_TYPES = frozenset({
 
 TIMING_TYPES = frozenset({"immediately", "before_event", "after_event"})
 TIMING_UNITS = frozenset({"minutes", "hours", "days"})
-RUN_STATUSES = frozenset({"pending", "sent", "skipped", "failed"})
+RUN_STATUSES = frozenset({"pending", "queued", "sent", "skipped", "failed", "cancelled", "retrying"})
 
 DUE_WINDOW = timedelta(minutes=2)
 
@@ -181,6 +181,22 @@ def compute_rule_send_at(
 
 def scheduled_for_key(dt: datetime) -> str:
     return iso(dt.astimezone(timezone.utc))
+
+
+async def cancel_pending_booking_automation_runs(db, clinic_id: str, booking_id: str) -> int:
+    if not booking_id:
+        return 0
+    now = iso(now_utc())
+    r = await db.automation_runs.update_many(
+        {
+            "clinic_id": clinic_id,
+            "reference_type": "booking",
+            "reference_id": booking_id,
+            "status": "pending",
+        },
+        {"$set": {"status": "cancelled", "processed_at": now, "skip_reason": "booking_changed"}},
+    )
+    return r.modified_count
 
 
 async def clinic_has_automation_rules(db, clinic_id: str) -> bool:
@@ -446,6 +462,13 @@ async def process_automation_run(
         )
         return
 
+    if provider == "whatsgo" and not settings.get("whatsgo_automation_sending_enabled"):
+        await db.automation_runs.update_one(
+            {"id": run["id"]},
+            {"$set": {"status": "skipped", "skip_reason": "whatsgo_automation_disabled", "processed_at": now, "updated_at": now}},
+        )
+        return
+
     skip_cond = await evaluate_rule_conditions(
         db, rule, clinic_id=clinic_id, booking=booking, patient=patient,
         invoice=invoice, gift_card=gift_card, package=package, visit=visit,
@@ -693,6 +716,11 @@ async def trigger_automation_rules_for_event(
     if trigger_type not in AUTOMATION_TRIGGER_TYPES:
         return
     try:
+        from messaging import load_messaging_settings
+
+        settings = await load_messaging_settings(db, clinic_id)
+        if settings.get("provider") == "whatsgo" and not settings.get("whatsgo_automation_sending_enabled"):
+            return
         await ensure_default_automation_rules(db, clinic_id)
         rules = await db.messaging_automation_rules.find(
             {"clinic_id": clinic_id, "trigger_type": trigger_type, "enabled": True},
@@ -970,7 +998,7 @@ class AutomationRuleIn(BaseModel):
     language_code: str = "id"
     variable_mapping: Optional[List[str]] = None
     preview_text: Optional[str] = ""
-    enabled: bool = True
+    enabled: bool = False
     conditions: Optional[Dict[str, Any]] = None
     template_id: Optional[str] = None
     provider_template_name: Optional[str] = ""

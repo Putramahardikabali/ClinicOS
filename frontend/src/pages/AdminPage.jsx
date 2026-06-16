@@ -2561,12 +2561,13 @@ function MessagingAutomationTab() {
     language_code: "id",
     variable_mapping: ["patient_name", "clinic_name", "appointment_date"],
     preview_text: "",
-    enabled: true,
+    enabled: false,
     conditions: { send_once_per_booking: true, require_phone: true },
   };
   const [rules, setRules] = useState([]);
   const [runs, setRuns] = useState([]);
   const [provider, setProvider] = useState("");
+  const [automationSendingEnabled, setAutomationSendingEnabled] = useState(false);
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -2578,6 +2579,9 @@ function MessagingAutomationTab() {
       setProvider(r.data.provider || "");
     }).catch(() => toast.error("Could not load automation rules"));
     api.get("/messaging/automation/runs", { params: { limit: 30 } }).then(r => setRuns(r.data.items || [])).catch(() => {});
+    api.get("/settings/messaging").then(r => {
+      setAutomationSendingEnabled(!!r.data.whatsgo_automation_sending_enabled);
+    }).catch(() => {});
   };
 
   useEffect(() => { load(); }, []);
@@ -2697,6 +2701,38 @@ function MessagingAutomationTab() {
             </button>
           )}
         </div>
+
+        {canManage && provider === "whatsgo" && (
+          <div className="rounded-xl border border-[#EAE6D7] bg-[#F8F5EC] p-4 space-y-3" data-testid="whatsgo-automation-master">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={automationSendingEnabled}
+                onChange={async (e) => {
+                  const enabled = e.target.checked;
+                  try {
+                    await api.put("/settings/messaging", {
+                      enable_messaging: true,
+                      provider: "whatsgo",
+                      whatsgo_automation_sending_enabled: enabled,
+                    });
+                    setAutomationSendingEnabled(enabled);
+                    toast.success(enabled ? "Automatic Whatsgo sending enabled" : "Automatic Whatsgo sending disabled");
+                  } catch (err) {
+                    toast.error(err?.response?.data?.detail || "Could not update automation setting");
+                  }
+                }}
+                data-testid="whatsgo-automation-sending-enabled"
+              />
+              <span className="text-sm text-[#2D3A33]">
+                Enable automatic Whatsgo message sending
+                <span className="block text-xs text-[#5C6C62] mt-1">
+                  Rules stay disabled until you turn them on individually. Keep this off until connection, sync, and test send are verified.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
 
         {canManage && (
           <>

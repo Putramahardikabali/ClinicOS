@@ -71,8 +71,15 @@ DEFAULT_CLINIC_MESSAGING: Dict[str, Any] = {
     "whatsgo_workspace_name": "",
     "whatsgo_base_url": "",
     "connected_phone_number": "",
+    "whatsgo_connected_phone_number": "",
+    "whatsgo_connection_status": "not_connected",
+    "whatsgo_last_health_check_at": None,
+    "whatsgo_last_connected_at": None,
     "last_connected_at": None,
     "last_health_check_at": None,
+    "whatsgo_automation_sending_enabled": False,
+    "whatsgo_sync_patient_source": True,
+    "whatsgo_sync_country": True,
     "whatsgo_auto_sync_patients": True,
     "whatsgo_auto_update_contacts": True,
     "whatsgo_sync_tags": False,
@@ -197,6 +204,27 @@ def merge_messaging_settings(raw: Optional[dict]) -> dict:
         for k in DEFAULT_CLINIC_MESSAGING:
             if k in raw and raw[k] is not None:
                 out[k] = raw[k]
+    return _normalize_whatsgo_setting_aliases(out)
+
+
+def _normalize_whatsgo_setting_aliases(settings: dict) -> dict:
+    out = dict(settings)
+    if out.get("connected_phone_number") and not out.get("whatsgo_connected_phone_number"):
+        out["whatsgo_connected_phone_number"] = out["connected_phone_number"]
+    if out.get("whatsgo_connected_phone_number") and not out.get("connected_phone_number"):
+        out["connected_phone_number"] = out["whatsgo_connected_phone_number"]
+    if out.get("connection_status") and not out.get("whatsgo_connection_status"):
+        out["whatsgo_connection_status"] = out["connection_status"]
+    if out.get("whatsgo_connection_status") and not out.get("connection_status"):
+        out["connection_status"] = out["whatsgo_connection_status"]
+    if out.get("last_health_check_at") and not out.get("whatsgo_last_health_check_at"):
+        out["whatsgo_last_health_check_at"] = out["last_health_check_at"]
+    if out.get("whatsgo_last_health_check_at") and not out.get("last_health_check_at"):
+        out["last_health_check_at"] = out["whatsgo_last_health_check_at"]
+    if out.get("last_connected_at") and not out.get("whatsgo_last_connected_at"):
+        out["whatsgo_last_connected_at"] = out["last_connected_at"]
+    if out.get("whatsgo_last_connected_at") and not out.get("last_connected_at"):
+        out["last_connected_at"] = out["whatsgo_last_connected_at"]
     return out
 
 
@@ -318,9 +346,16 @@ def sanitize_settings_admin(
         "whatsgo_workspace_id": settings.get("whatsgo_workspace_id") or "",
         "whatsgo_workspace_name": settings.get("whatsgo_workspace_name") or "",
         "whatsgo_base_url": settings.get("whatsgo_base_url") or "",
-        "connected_phone_number": settings.get("connected_phone_number") or settings.get("sender_phone_number") or "",
-        "last_connected_at": settings.get("last_connected_at"),
-        "last_health_check_at": settings.get("last_health_check_at") or settings.get("last_connection_test_at"),
+        "connected_phone_number": settings.get("connected_phone_number") or settings.get("whatsgo_connected_phone_number") or settings.get("sender_phone_number") or "",
+        "whatsgo_connected_phone_number": settings.get("whatsgo_connected_phone_number") or settings.get("connected_phone_number") or "",
+        "whatsgo_connection_status": settings.get("whatsgo_connection_status") or settings.get("connection_status") or "not_connected",
+        "last_connected_at": settings.get("last_connected_at") or settings.get("whatsgo_last_connected_at"),
+        "whatsgo_last_connected_at": settings.get("whatsgo_last_connected_at") or settings.get("last_connected_at"),
+        "last_health_check_at": settings.get("last_health_check_at") or settings.get("whatsgo_last_health_check_at") or settings.get("last_connection_test_at"),
+        "whatsgo_last_health_check_at": settings.get("whatsgo_last_health_check_at") or settings.get("last_health_check_at") or settings.get("last_connection_test_at"),
+        "whatsgo_automation_sending_enabled": bool(settings.get("whatsgo_automation_sending_enabled")),
+        "whatsgo_sync_patient_source": settings.get("whatsgo_sync_patient_source", True) is not False,
+        "whatsgo_sync_country": settings.get("whatsgo_sync_country", True) is not False,
         "whatsgo_auto_sync_patients": bool(settings.get("whatsgo_auto_sync_patients", True)),
         "whatsgo_auto_update_contacts": bool(settings.get("whatsgo_auto_update_contacts", True)),
         "whatsgo_sync_tags": bool(settings.get("whatsgo_sync_tags")),
@@ -497,6 +532,13 @@ async def build_message_context(
                 ctx["wallet_balance"] = f"Rp {bal:,}".replace(",", ".")
         except Exception:
             pass
+
+    ctx["consent_form_link"] = ctx.get("consent_link") or ""
+    ctx["package_remaining_sessions"] = ctx.get("sessions_remaining") or ctx.get("package_balance") or ""
+    if package:
+        ctx["package_expiry_date"] = str(package.get("expires_at") or package.get("expiry_date") or "")
+    else:
+        ctx.setdefault("package_expiry_date", "")
 
     return ctx
 
@@ -699,6 +741,13 @@ async def create_message_log(
     reference_type: Optional[str] = None,
     reference_id: Optional[str] = None,
     whatsjet_variable_values: Optional[List[str]] = None,
+    source_event: Optional[str] = None,
+    template_name: Optional[str] = None,
+    whatsgo_message_id: Optional[str] = None,
+    open_conversation_url: Optional[str] = None,
+    error_reason: Optional[str] = None,
+    external_reference_type: Optional[str] = None,
+    external_reference_id: Optional[str] = None,
 ) -> dict:
     now = iso(now_utc())
     template_key = template.get("template_type") or template.get("template_key")
@@ -721,6 +770,13 @@ async def create_message_log(
         "reference_type": reference_type,
         "reference_id": reference_id,
         "whatsjet_variable_values": whatsjet_variable_values,
+        "source_event": source_event,
+        "template_name": template_name or template.get("template_name"),
+        "whatsgo_message_id": whatsgo_message_id,
+        "open_conversation_url": open_conversation_url,
+        "error_reason": error_reason,
+        "external_reference_type": external_reference_type,
+        "external_reference_id": external_reference_id,
         "status": status,
         "skip_reason": skip_reason,
         "provider_message_id": None,
@@ -970,6 +1026,8 @@ async def trigger_booking_messaging(
 
         if event in ("cancelled", "rescheduled"):
             await cancel_booking_reminders(db, clinic_id, booking.get("id") or "")
+            from messaging_automation import cancel_pending_booking_automation_runs
+            await cancel_pending_booking_automation_runs(db, clinic_id, booking.get("id") or "")
 
         type_map = {
             "confirmed": "booking_confirmation",
@@ -1313,7 +1371,18 @@ class MessagingSettingsIn(BaseModel):
     whatsgo_webhook_secret: Optional[str] = None
     whatsgo_retry_max_attempts: Optional[int] = None
     whatsgo_inbox_url: Optional[str] = None
+    whatsgo_automation_sending_enabled: Optional[bool] = None
+    whatsgo_sync_patient_source: Optional[bool] = None
+    whatsgo_sync_country: Optional[bool] = None
     clear_whatsgo_webhook_secret: bool = False
+
+
+class WhatsgoSendTestIn(BaseModel):
+    patient_id: str
+    template_name: str
+    language: str = "id"
+    variable_mapping: List[str] = Field(default_factory=list)
+    booking_id: Optional[str] = None
 
 
 class MessagingTestSendIn(BaseModel):
@@ -1532,6 +1601,12 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             saved["whatsgo_retry_max_attempts"] = max(0, min(10, int(payload.whatsgo_retry_max_attempts)))
         if payload.whatsgo_inbox_url is not None:
             saved["whatsgo_inbox_url"] = (payload.whatsgo_inbox_url or "").strip()
+        if payload.whatsgo_automation_sending_enabled is not None:
+            saved["whatsgo_automation_sending_enabled"] = bool(payload.whatsgo_automation_sending_enabled)
+        if payload.whatsgo_sync_patient_source is not None:
+            saved["whatsgo_sync_patient_source"] = bool(payload.whatsgo_sync_patient_source)
+        if payload.whatsgo_sync_country is not None:
+            saved["whatsgo_sync_country"] = bool(payload.whatsgo_sync_country)
         if payload.provider == "whatsjet" and payload.api_base_url:
             saved["whatsjet_api_base_url"] = payload.api_base_url.strip()
         if payload.provider == "whatsgo":
@@ -1559,6 +1634,7 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
         else:
             saved["connection_status"] = "disabled"
             saved["last_connection_error"] = ""
+        saved = _normalize_whatsgo_setting_aliases(saved)
         await save_messaging_settings(db, cid, saved)
         audit_meta: Dict[str, Any] = {"enabled": saved["enable_messaging"], "provider": saved["provider"]}
         cred_fields: List[str] = []
@@ -1603,19 +1679,27 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
         try:
             result = run_provider_connection_test(settings, creds)
             settings["connection_status"] = "connected"
+            settings["whatsgo_connection_status"] = "connected"
             settings["last_connection_error"] = ""
             settings["last_connection_test_at"] = now
             settings["last_health_check_at"] = now
+            settings["whatsgo_last_health_check_at"] = now
             if settings.get("provider") == "whatsgo":
                 settings["last_connected_at"] = now
+                settings["whatsgo_last_connected_at"] = now
+                if result.get("workspace_id"):
+                    settings["whatsgo_workspace_id"] = result["workspace_id"]
                 if result.get("workspace_name"):
                     settings["whatsgo_workspace_name"] = result["workspace_name"]
                 if result.get("connected_phone_number"):
                     settings["connected_phone_number"] = result["connected_phone_number"]
+                    settings["whatsgo_connected_phone_number"] = result["connected_phone_number"]
             await save_messaging_settings(db, cid, settings)
+            await audit(user, "update", "whatsgo_connection_test", cid, {"status": "connected"})
             return {**result, "connection_status": "connected", "automation_active": True}
         except HTTPException as ex:
             settings["connection_status"] = "error"
+            settings["whatsgo_connection_status"] = "error"
             settings["last_connection_error"] = str(ex.detail)[:500]
             settings["last_connection_test_at"] = now
             await save_messaging_settings(db, cid, settings)
@@ -1629,8 +1713,10 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
         settings["provider"] = "none"
         settings["provider_credentials_encrypted"] = None
         settings["connection_status"] = "not_connected"
+        settings["whatsgo_connection_status"] = "not_connected"
         settings["last_connection_error"] = ""
         settings["connected_phone_number"] = ""
+        settings["whatsgo_connected_phone_number"] = ""
         await save_messaging_settings(db, cid, settings)
         await audit(user, "update", "whatsgo_disconnect", cid, {})
         return {"ok": True, "connection_status": "not_connected"}
@@ -1678,6 +1764,153 @@ def register_messaging(api: APIRouter, db, get_current_user, audit, jwt_secret: 
             raise HTTPException(status_code=400, detail=result.get("error") or "Template sync failed")
         await audit(user, "update", "whatsgo_templates_sync", cid, {"count": len(result.get("items") or [])})
         return result
+
+    @api.post("/messaging/whatsgo/patients/{patient_id}/sync")
+    async def sync_whatsgo_patient(patient_id: str, user: dict = Depends(_send_dep)):
+        from whatsgo_service import sync_patient_to_whatsgo
+
+        cid = user["clinic_id"]
+        patient = await db.patients.find_one({"id": patient_id, "clinic_id": cid}, {"_id": 0})
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        settings = await load_messaging_settings(db, cid)
+        if settings.get("provider") != "whatsgo":
+            raise HTTPException(status_code=400, detail="Whatsgo is not the active provider")
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        ok, err = await sync_patient_to_whatsgo(
+            db,
+            jwt_secret=jwt_secret,
+            clinic_id=cid,
+            patient=patient,
+            settings=settings,
+            creds=creds,
+            sync_tags=bool(settings.get("whatsgo_sync_tags")),
+            force=True,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err or "Sync failed")
+        updated = await db.patients.find_one({"id": patient_id, "clinic_id": cid}, {"_id": 0})
+        await audit(user, "update", "whatsgo_patient_sync", patient_id, {})
+        return {"ok": True, "patient": updated}
+
+    @api.get("/messaging/whatsgo/patients/{patient_id}/open-chat")
+    async def open_whatsgo_patient_chat(patient_id: str, user: dict = Depends(_send_dep)):
+        from whatsgo_service import open_chat_for_patient
+
+        cid = user["clinic_id"]
+        patient = await db.patients.find_one({"id": patient_id, "clinic_id": cid}, {"_id": 0})
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        settings = await load_messaging_settings(db, cid)
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        ok, url, err = await open_chat_for_patient(
+            db,
+            clinic_id=cid,
+            patient=patient,
+            settings=settings,
+            creds=creds,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err or "Could not open Whatsgo chat")
+        return {"ok": True, "open_conversation_url": url}
+
+    @api.post("/messaging/whatsgo/messages/send-test")
+    async def send_whatsgo_test_message(payload: WhatsgoSendTestIn, user: dict = Depends(_send_dep)):
+        from whatsgo_service import send_test_template
+
+        cid = user["clinic_id"]
+        settings = await load_messaging_settings(db, cid)
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        log, err = await send_test_template(
+            db,
+            jwt_secret=jwt_secret,
+            clinic_id=cid,
+            patient_id=payload.patient_id,
+            template_name=payload.template_name.strip(),
+            language=(payload.language or "id").strip() or "id",
+            variable_mapping=[str(x).strip() for x in (payload.variable_mapping or []) if str(x).strip()],
+            settings=settings,
+            creds=creds,
+            booking_id=payload.booking_id,
+        )
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        await audit(user, "create", "whatsgo_test_message", log.get("id"), {"patient_id": payload.patient_id})
+        return log
+
+    @api.get("/messaging/whatsgo/messages/logs")
+    async def fetch_whatsgo_message_logs(
+        refresh: bool = False,
+        patient_id: Optional[str] = None,
+        user: dict = Depends(_view_dep),
+    ):
+        cid = user["clinic_id"]
+        flt: Dict[str, Any] = {"clinic_id": cid, "provider": "whatsgo"}
+        if patient_id:
+            flt["patient_id"] = patient_id
+        local_rows = await db.message_logs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(300)
+        remote_items: List[dict] = []
+        if refresh:
+            settings = await load_messaging_settings(db, cid)
+            if settings.get("provider") == "whatsgo":
+                from whatsgo_service import get_message_logs
+
+                creds = get_provider_credentials(jwt_secret, cid, settings)
+                ok, remote_items, _err = get_message_logs(
+                    settings, creds, limit=100, patient_id=patient_id,
+                )
+                if not ok:
+                    remote_items = []
+        return {"items": local_rows, "remote_items": remote_items, "count": len(local_rows)}
+
+    @api.post("/messaging/whatsgo/messages/{log_id}/retry")
+    async def retry_whatsgo_message(log_id: str, user: dict = Depends(_send_dep)):
+        from whatsgo_adapter import send_whatsgo_template_message
+
+        cid = user["clinic_id"]
+        log = await db.message_logs.find_one({"id": log_id, "clinic_id": cid}, {"_id": 0})
+        if not log:
+            raise HTTPException(status_code=404, detail="Message log not found")
+        if log.get("status") not in ("failed", "queued"):
+            raise HTTPException(status_code=400, detail="Only failed or queued messages can be retried")
+        settings = await load_messaging_settings(db, cid)
+        creds = get_provider_credentials(jwt_secret, cid, settings)
+        template_name = (log.get("template_name") or log.get("template_type") or "").strip()
+        if not template_name:
+            raise HTTPException(status_code=400, detail="Template name missing on log")
+        variable_values = list(log.get("whatsjet_variable_values") or [])
+        ok, msg_id, err, raw = send_whatsgo_template_message(
+            clinic_id=cid,
+            to_phone=log.get("recipient") or log.get("to_phone") or "",
+            template_name=template_name,
+            language="id",
+            variable_values=variable_values,
+            settings=settings,
+            creds=creds,
+            patient_id=log.get("patient_id"),
+            external_reference_type=log.get("external_reference_type") or log.get("reference_type"),
+            external_reference_id=log.get("external_reference_id") or log.get("reference_id"),
+        )
+        now = iso(now_utc())
+        upd: Dict[str, Any] = {"updated_at": now, "retry_count": int(log.get("retry_count") or 0) + 1}
+        if ok:
+            upd["status"] = "sent"
+            upd["sent_at"] = now
+            upd["provider_message_id"] = msg_id
+            upd["whatsgo_message_id"] = msg_id
+            upd["open_conversation_url"] = raw.get("open_conversation_url") or log.get("open_conversation_url")
+            upd["error_message"] = None
+            upd["error_reason"] = None
+        else:
+            upd["status"] = "failed"
+            upd["error_message"] = err or "Retry failed"
+            upd["error_reason"] = err or "Retry failed"
+        await db.message_logs.update_one({"id": log_id}, {"$set": upd})
+        await audit(user, "update", "whatsgo_message_retry", log_id, {"ok": ok})
+        updated = await db.message_logs.find_one({"id": log_id}, {"_id": 0})
+        if not ok:
+            raise HTTPException(status_code=400, detail=err or "Retry failed")
+        return updated
 
     @api.post("/settings/messaging/test-send")
     async def test_messaging_send(payload: MessagingTestSendIn, user: dict = Depends(_manage_dep)):

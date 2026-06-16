@@ -1,5 +1,5 @@
 import {
-  MessageSquare, Users, Zap, FileText, ScrollText, Settings2,
+  MessageSquare, Users, FileText, Send, Zap, ScrollText, Settings2,
 } from "lucide-react";
 import { useAuth, hasPermission } from "@/lib/auth";
 import SettingsModuleLayout from "@/components/settings/SettingsModuleLayout";
@@ -7,6 +7,7 @@ import { MessagingAutomationTab } from "@/pages/admin/settingsTabs";
 import WhatsgoConnectionTab from "@/components/messaging/whatsgo/WhatsgoConnectionTab";
 import WhatsgoContactSyncTab from "@/components/messaging/whatsgo/WhatsgoContactSyncTab";
 import WhatsgoTemplatesTab from "@/components/messaging/whatsgo/WhatsgoTemplatesTab";
+import WhatsgoSendTestTab from "@/components/messaging/whatsgo/WhatsgoSendTestTab";
 import WhatsgoMessageLogsTab from "@/components/messaging/whatsgo/WhatsgoMessageLogsTab";
 import WhatsgoAdvancedTab from "@/components/messaging/whatsgo/WhatsgoAdvancedTab";
 
@@ -26,8 +27,9 @@ export default function MessagingPage() {
   const tabs = [
     canManage && { key: "connection", label: "Connection", icon: MessageSquare },
     canManage && { key: "contact-sync", label: "Contact Sync", icon: Users },
+    canManage && { key: "templates", label: "Templates", icon: FileText },
+    (canManage || canSend) && { key: "send-test", label: "Send Test", icon: Send },
     canAutomation && { key: "automations", label: "Automations", icon: Zap },
-    (canManage || canAutomation) && { key: "templates", label: "Templates", icon: FileText },
     canViewLogs && { key: "message-logs", label: "Message Logs", icon: ScrollText },
     canManage && { key: "advanced", label: "Advanced", icon: Settings2 },
   ].filter(Boolean);
@@ -45,8 +47,9 @@ export default function MessagingPage() {
         <>
           {tab === "connection" && canManage && <WhatsgoConnectionTab />}
           {tab === "contact-sync" && canManage && <WhatsgoContactSyncTab />}
+          {tab === "templates" && canManage && <WhatsgoTemplatesTab />}
+          {tab === "send-test" && (canManage || canSend) && <WhatsgoSendTestTab />}
           {tab === "automations" && canAutomation && <MessagingAutomationTab />}
-          {tab === "templates" && (canManage || canAutomation) && <WhatsgoTemplatesTab />}
           {tab === "message-logs" && canViewLogs && <WhatsgoMessageLogsTab />}
           {tab === "advanced" && canManage && <WhatsgoAdvancedTab />}
         </>

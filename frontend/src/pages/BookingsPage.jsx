@@ -16,6 +16,7 @@ import {
 import AdditionalPerformersEditor, { validateAdditionalPerformers } from "@/components/bookings/AdditionalPerformersEditor";
 import { useClinic } from "@/lib/clinic";
 import { useSettings } from "@/lib/settings";
+import { openWhatsgoChatSafe } from "@/lib/whatsgo";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -364,9 +365,10 @@ function renderTemplate(body, ctx) {
     .replaceAll("{clinic_name}", ctx.clinic_name || "");
 }
 
-function WaPanel({ booking, templates, clinicName, onSent, onClose, automationActive = false, canSendViaProvider = false }) {
+function WaPanel({ booking, templates, clinicName, onSent, onClose, automationActive = false, canSendViaProvider = false, canWhatsgoSend = false }) {
   const [tplKey, setTplKey] = useState(templates[0]?.key || "");
   const [sending, setSending] = useState(false);
+  const [openingWhatsgo, setOpeningWhatsgo] = useState(false);
   const tpl = templates.find(t => t.key === tplKey) || templates[0];
   const dt = booking ? new Date(booking.scheduled_at) : null;
   const ctx = {
@@ -407,6 +409,19 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
     }
   };
   const waLink = `https://wa.me/${(booking.patient_phone || "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(body)}`;
+
+  const openWhatsgo = async () => {
+    if (!booking.patient_id) {
+      toast.error("Patient ID required for Whatsgo chat");
+      return;
+    }
+    setOpeningWhatsgo(true);
+    try {
+      await openWhatsgoChatSafe(booking.patient_id);
+    } finally {
+      setOpeningWhatsgo(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="wa-panel">
@@ -449,6 +464,18 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
             <MessageCircle className="w-4 h-4" /> Open WhatsApp
           </a>
         </div>
+        {canWhatsgoSend && booking.patient_id && (
+          <button
+            type="button"
+            onClick={openWhatsgo}
+            disabled={openingWhatsgo}
+            className="mt-3 w-full bl-btn-secondary text-sm inline-flex items-center justify-center gap-2"
+            data-testid="wa-open-whatsgo"
+          >
+            <MessageCircle className="w-4 h-4" />
+            {openingWhatsgo ? "Opening…" : "Open Whatsgo chat"}
+          </button>
+        )}
         {automationActive && canSendViaProvider && (
           <button
             type="button"
@@ -2105,7 +2132,7 @@ export default function BookingsPage() {
         />
         )}
       </BookingModalPortal>
-      {waBooking && <WaPanel booking={waBooking} templates={templates} clinicName={clinicName} automationActive={automationActive} canSendViaProvider={canSendViaProvider} onClose={() => setWaBooking(null)} onSent={() => { setWaBooking(null); refresh(); }} />}
+      {waBooking && <WaPanel booking={waBooking} templates={templates} clinicName={clinicName} automationActive={automationActive} canSendViaProvider={canSendViaProvider} canWhatsgoSend={canSendViaProvider} onClose={() => setWaBooking(null)} onSent={() => { setWaBooking(null); refresh(); }} />}
       <BookingModalPortal active={!!overtimeSlot} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
         {overtimeSlot && (
         <OutsideWorkingHoursModal

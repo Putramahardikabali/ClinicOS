@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { fileUrl } from "@/lib/api";
-import { useAuth, can } from "@/lib/auth";
+import { useAuth, can, hasPermission } from "@/lib/auth";
 import {
   canEditBasicPatient,
   canEditConsent,
@@ -38,6 +38,7 @@ import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
 import NationalityCombobox from "@/components/patient/NationalityCombobox";
+import WhatsgoPatientActions from "@/components/messaging/whatsgo/WhatsgoPatientActions";
 
 function TabButton({ active, onClick, children }) {
   return (
@@ -220,6 +221,11 @@ export default function PatientDetailPage() {
   const canEditBasic = canEditBasicPatient(user);
   const canEditFull = canEditFullPatientFields(user);
   const canViewClinical = canViewClinicalPatientInfo(user);
+  const canWhatsgoSend =
+    hasPermission(user, "messaging.send")
+    || hasPermission(user, "messaging.manage")
+    || user?.role === "super_admin"
+    || user?.role === "manager";
 
   const openEditModal = () => {
     setEditForm(emptyBasicPatientForm(patient));
@@ -614,6 +620,7 @@ export default function PatientDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <WhatsgoPatientActions patientId={pid} canSend={canWhatsgoSend} />
           {canEditBasic && (
             <button type="button" onClick={openEditModal} className="bl-btn-secondary inline-flex items-center gap-2" data-testid="edit-patient-button">
               <Pencil className="w-4 h-4" /> Edit patient
