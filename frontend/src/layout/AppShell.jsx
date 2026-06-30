@@ -431,7 +431,7 @@ export default function AppShell({ children }) {
                 </div>
               </div>
 
-              <div className="mb-4">
+              <div className="mb-3">
                 <InstallAppPrompt compact />
               </div>
 
