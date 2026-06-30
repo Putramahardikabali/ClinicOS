@@ -74,15 +74,25 @@ function isTimeBlock(b) {
 
 function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
   const performer = staff?.find(s => s.id === initial?.performer_id);
-  const timeLabel = initial?.scheduled_time || "";
+  const startTime = initial?.selected_start_time || initial?.scheduled_time || "";
+  const endTime = initial?.selected_end_time || initial?.scheduled_end_time || "";
+  const rangeLabel = initial?.selected_range_label
+    || (startTime && endTime ? `${startTime} – ${endTime}` : startTime);
+  const fromRange = !!(initial?.fromDragRange && startTime && endTime);
+
   return (
     <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose} data-testid="slot-action-modal">
       <div className="bl-card max-w-sm w-full p-6 space-y-4" onClick={e => e.stopPropagation()}>
-        <h3 className="font-display text-xl text-[#2D3A33]">This time slot</h3>
+        <h3 className="font-display text-xl text-[#2D3A33]">{fromRange ? "Selected time range" : "This time slot"}</h3>
         <p className="text-sm text-[#5C6C62]">
           {performer?.name || "Staff"}
-          {timeLabel ? ` · ${timeLabel}` : ""}
+          {rangeLabel ? ` · ${rangeLabel}` : ""}
         </p>
+        {fromRange && (
+          <p className="text-xs text-[#52796F] bg-[#EDF3EF] rounded-lg px-3 py-2" data-testid="slot-action-range-hint">
+            Appointments use the start time; duration follows the treatment. Blocked time uses the full range.
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-2">
           <button type="button" onClick={onBook} className="bl-btn-primary w-full inline-flex items-center justify-center gap-2" data-testid="slot-action-book">
             <Plus className="w-4 h-4" /> New appointment
@@ -2014,11 +2024,7 @@ export default function BookingsPage() {
             onSelectBooking={setDetailBooking}
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
-            onRangeSelect={(payload) => {
-              setBlockInitial(payload);
-              setBlockEdit(null);
-              setBlockOpen(true);
-            }}
+            onRangeSelect={(payload) => setSlotAction(payload)}
           />
         </div>
       ) : (
@@ -2192,7 +2198,10 @@ export default function BookingsPage() {
           staff={scheduleStaff}
           onClose={() => setSlotAction(null)}
           onBook={() => {
-            setNewInitial(slotAction);
+            setNewInitial({
+              ...slotAction,
+              ignoreDraggedEnd: !!(slotAction.fromDragRange || slotAction.scheduled_end_time),
+            });
             setSlotAction(null);
             setNewOpen(true);
           }}

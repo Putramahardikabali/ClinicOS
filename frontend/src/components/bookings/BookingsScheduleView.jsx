@@ -647,10 +647,15 @@ export default function BookingsScheduleView({
 
     const { startMin, endMinExclusive } = preview;
     if (isDragRangeSelection(d.moved, startMin, endMinExclusive, interval)) {
+      const startTime = minToHhmm(startMin);
+      const endTime = minToHhmm(endMinExclusive);
       onRangeSelect?.({
         scheduled_date: date,
-        scheduled_time: minToHhmm(startMin),
-        scheduled_end_time: minToHhmm(endMinExclusive),
+        scheduled_time: startTime,
+        scheduled_end_time: endTime,
+        selected_start_time: startTime,
+        selected_end_time: endTime,
+        selected_range_label: `${startTime}–${endTime}`,
         performer_id: d.staffId,
         duration_min: endMinExclusive - startMin,
         fromDragRange: true,
