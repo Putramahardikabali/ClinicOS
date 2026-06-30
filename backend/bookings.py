@@ -1520,8 +1520,23 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 raise
             except Exception:
                 raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+            from public_booking_time import clinic_local_now, clinic_today_str
+
+            clinic_doc = await db.clinics.find_one({"id": cid}, {"_id": 0, "timezone": 1})
+            today_str = clinic_today_str(clinic_doc or {})
+            if day_str < today_str:
+                raise HTTPException(status_code=400, detail="Cannot block time in the past")
+            if day_str == today_str:
+                now_local = clinic_local_now(clinic_doc or {})
+                start_min = sched_dt.hour * 60 + sched_dt.minute
+                now_min = now_local.hour * 60 + now_local.minute
+                if start_min < now_min:
+                    raise HTTPException(status_code=400, detail="Cannot block time in the past")
+            block_duration = int(duration_min or 30)
+            if block_duration <= 0:
+                raise HTTPException(status_code=400, detail="Block duration must be greater than zero")
             if await _has_slot_conflict(
-                cid, "Blocked", payload.scheduled_at, duration_min, payload.performer_id,
+                cid, "Blocked", payload.scheduled_at, block_duration, payload.performer_id,
                 booking_type="block",
             ):
                 raise HTTPException(status_code=409, detail="This performer is already busy at this time")
@@ -1533,7 +1548,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 "patient_phone": (payload.patient_phone or "").strip() or "—",
                 "patient_email": "",
                 "treatment": "Blocked",
-                "duration_min": int(duration_min or 30),
+                "duration_min": block_duration,
                 "scheduled_at": payload.scheduled_at,
                 "performer_id": payload.performer_id,
                 "notes": (payload.notes or "").strip(),
@@ -1729,6 +1744,25 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             schedule_changed = any(k in upd for k in ("scheduled_at", "duration_min", "performer_id"))
             if schedule_changed:
                 sched_at = merged.get("scheduled_at")
+                try:
+                    sched_dt = _parse_iso(sched_at)
+                    day_str = sched_dt.strftime("%Y-%m-%d")
+                    from public_booking_time import clinic_local_now, clinic_today_str
+
+                    clinic_doc = await db.clinics.find_one({"id": cid}, {"_id": 0, "timezone": 1})
+                    today_str = clinic_today_str(clinic_doc or {})
+                    if day_str < today_str:
+                        raise HTTPException(status_code=400, detail="Cannot block time in the past")
+                    if day_str == today_str:
+                        now_local = clinic_local_now(clinic_doc or {})
+                        start_min = sched_dt.hour * 60 + sched_dt.minute
+                        now_min = now_local.hour * 60 + now_local.minute
+                        if start_min < now_min:
+                            raise HTTPException(status_code=400, detail="Cannot block time in the past")
+                except HTTPException:
+                    raise
+                except Exception:
+                    raise HTTPException(status_code=400, detail="Invalid scheduled_at")
                 if await _has_slot_conflict(
                     cid,
                     "Blocked",

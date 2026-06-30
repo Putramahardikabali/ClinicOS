@@ -13,6 +13,14 @@ import {
   resolveEmptySlotState,
   saveScheduleOrientation,
 } from "@/components/bookings/scheduleUtils";
+import {
+  clipDragRangeToValid,
+  isDragRangeSelection,
+  isSlotSelectableForDrag,
+  normalizeDragRange,
+  SCHEDULE_DRAG_THRESHOLD_PX,
+  slotInDragPreview,
+} from "@/components/bookings/scheduleDragSelect";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
 const SLOT_PX = 32;
@@ -115,23 +123,29 @@ function ScheduleSlotCell({
   state,
   timeStr,
   staffId,
-  onEmptyClick,
+  slotMin,
+  slotEnd,
+  onSlotPointerDown,
+  onSlotPointerEnter,
   onOvertimeClick,
   orientation,
+  highlighted,
 }) {
   const edge =
     orientation === "vertical"
       ? "border-b border-[#F0EDE4] w-full"
       : "border-r border-[#F0EDE4] h-full";
   const testSuffix = `${staffId}-${timeStr}`;
+  const highlightCls = highlighted ? "bg-[#D4E8E0]/60 ring-1 ring-inset ring-[#52796F]/35" : "";
 
   if (state.kind === "available") {
     return (
       <button
         type="button"
-        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
+        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-cell touch-none select-none ${highlightCls} ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
         style={orientation === "vertical" ? { height: ROW_H } : undefined}
-        onClick={onEmptyClick}
+        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
+        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
         aria-label={state.title}
         title={state.title}
         data-testid={`schedule-slot-available-${testSuffix}`}
@@ -185,11 +199,13 @@ function StaffRow({
   interval,
   gridWidth,
   onSelectBooking,
-  onEmptyClick,
   onOvertimeSlot,
   effective,
   canManage,
   canCreateOvertime,
+  dragPreview,
+  onSlotPointerDown,
+  onSlotPointerEnter,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -236,8 +252,12 @@ function StaffRow({
                 state={state}
                 timeStr={timeStr}
                 staffId={staff.id}
+                slotMin={slotMin}
+                slotEnd={slotEnd}
                 orientation="horizontal"
-                onEmptyClick={() => onEmptyClick({ scheduled_time: timeStr, performer_id: staff.id })}
+                highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
+                onSlotPointerDown={onSlotPointerDown}
+                onSlotPointerEnter={onSlotPointerEnter}
                 onOvertimeClick={() =>
                   onOvertimeSlot({
                     scheduled_time: timeStr,
@@ -260,6 +280,20 @@ function StaffRow({
             orientation="horizontal"
           />
         ))}
+        {dragPreview?.staffId === staff.id && (
+          <div
+            className="absolute top-0 bottom-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
+            style={{
+              left: ((dragPreview.startMin - openMin) / interval) * SLOT_PX,
+              width: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * SLOT_PX,
+            }}
+            data-testid="schedule-drag-preview-horizontal"
+          >
+            <span className="absolute -top-4 left-0 text-[10px] font-medium text-[#2C7755] whitespace-nowrap bg-white/90 px-1 rounded">
+              {minToHhmm(dragPreview.startMin)} – {minToHhmm(dragPreview.endMinExclusive)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -274,11 +308,13 @@ function StaffColumn({
   closeMin,
   interval,
   onSelectBooking,
-  onEmptyClick,
   onOvertimeSlot,
   effective,
   canManage,
   canCreateOvertime,
+  dragPreview,
+  onSlotPointerDown,
+  onSlotPointerEnter,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -318,8 +354,12 @@ function StaffColumn({
               state={state}
               timeStr={timeStr}
               staffId={staff.id}
+              slotMin={slotMin}
+              slotEnd={slotEnd}
               orientation="vertical"
-              onEmptyClick={() => onEmptyClick({ scheduled_time: timeStr, performer_id: staff.id })}
+              highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
+              onSlotPointerDown={onSlotPointerDown}
+              onSlotPointerEnter={onSlotPointerEnter}
               onOvertimeClick={() =>
                 onOvertimeSlot({
                   scheduled_time: timeStr,
@@ -342,6 +382,20 @@ function StaffColumn({
           orientation="vertical"
         />
       ))}
+      {dragPreview?.staffId === staff.id && (
+        <div
+          className="absolute left-0 right-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
+          style={{
+            top: ((dragPreview.startMin - openMin) / interval) * ROW_H,
+            height: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * ROW_H,
+          }}
+          data-testid="schedule-drag-preview-vertical"
+        >
+          <span className="absolute top-1 left-1 text-[10px] font-medium text-[#2C7755] whitespace-nowrap bg-white/90 px-1 rounded">
+            {minToHhmm(dragPreview.startMin)} – {minToHhmm(dragPreview.endMinExclusive)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -396,6 +450,7 @@ export default function BookingsScheduleView({
   onSelectBooking,
   onEmptySlot,
   onOvertimeSlot,
+  onRangeSelect,
   canManage,
   canCreateOvertime = false,
   reloadAt = 0,
@@ -409,6 +464,22 @@ export default function BookingsScheduleView({
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const shellRef = useRef(null);
+  const dragRef = useRef(null);
+  const dragPreviewRef = useRef(null);
+  const [dragPreview, setDragPreview] = useState(null);
+
+  const updateDragPreview = useCallback((preview) => {
+    dragPreviewRef.current = preview;
+    setDragPreview(preview);
+  }, []);
+
+  const clearDrag = useCallback(() => {
+    dragRef.current = null;
+    dragPreviewRef.current = null;
+    setDragPreview(null);
+  }, []);
+
+  useEffect(() => () => clearDrag(), [clearDrag]);
 
   const timezone = resolveClinicTimezone(clinic);
   const clinicNow = useMemo(() => getClinicNowParts(timezone), [timezone]);
@@ -529,10 +600,10 @@ export default function BookingsScheduleView({
     onDateChange(toDateStr(d));
   };
 
-  const handleEmptyClick = (partial) => {
+  const handleEmptyClick = useCallback((partial) => {
     if (!canManage) return;
     onEmptySlot({ scheduled_date: date, scheduled_time: partial.scheduled_time, performer_id: partial.performer_id });
-  };
+  }, [canManage, date, onEmptySlot]);
 
   const handleOvertimeClick = (partial) => {
     const slotMin = hhmmToMin(partial.scheduled_time);
@@ -546,6 +617,100 @@ export default function BookingsScheduleView({
       effective: partial.effective,
     });
   };
+
+  const isSlotValidForDrag = useCallback(
+    (staffId, slotMin, slotEnd) => {
+      const occupied = slotOverlapsBooking(bookings, staffId, slotMin, slotEnd);
+      return isSlotSelectableForDrag({
+        scheduleDate: date,
+        slotMin,
+        slotEnd,
+        timezone,
+        effective: effectiveByStaff[staffId],
+        occupied,
+        canManage,
+      });
+    },
+    [bookings, date, timezone, effectiveByStaff, canManage],
+  );
+
+  const finishDrag = useCallback(() => {
+    const d = dragRef.current;
+    const preview = dragPreviewRef.current;
+    dragRef.current = null;
+    dragPreviewRef.current = null;
+    setDragPreview(null);
+    if (!d || !preview || preview.staffId !== d.staffId) return;
+
+    const { startMin, endMinExclusive } = preview;
+    if (isDragRangeSelection(d.moved, startMin, endMinExclusive, interval)) {
+      onRangeSelect?.({
+        scheduled_date: date,
+        scheduled_time: minToHhmm(startMin),
+        scheduled_end_time: minToHhmm(endMinExclusive),
+        performer_id: d.staffId,
+        duration_min: endMinExclusive - startMin,
+        fromDragRange: true,
+      });
+      return;
+    }
+    if (!d.moved) {
+      handleEmptyClick({ scheduled_time: minToHhmm(d.anchorMin), performer_id: d.staffId });
+    }
+  }, [date, interval, onRangeSelect, handleEmptyClick]);
+
+  useEffect(() => {
+    const onGlobalPointerUp = () => {
+      if (dragRef.current) finishDrag();
+    };
+    window.addEventListener("pointerup", onGlobalPointerUp);
+    window.addEventListener("pointercancel", onGlobalPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", onGlobalPointerUp);
+      window.removeEventListener("pointercancel", onGlobalPointerUp);
+    };
+  }, [finishDrag]);
+
+  const onSlotPointerDown = useCallback(
+    (e, { staffId, slotMin, slotEnd }) => {
+      if (!canManage) return;
+      if (!isSlotValidForDrag(staffId, slotMin, slotEnd)) return;
+      if (e.button !== 0) return;
+      dragRef.current = {
+        staffId,
+        anchorMin: slotMin,
+        moved: false,
+        startX: e.clientX,
+        startY: e.clientY,
+      };
+      updateDragPreview({ staffId, startMin: slotMin, endMinExclusive: slotEnd });
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [canManage, isSlotValidForDrag, updateDragPreview],
+  );
+
+  const onSlotPointerEnter = useCallback(
+    (e, { staffId, slotMin, slotEnd }) => {
+      const d = dragRef.current;
+      if (!d || (e.buttons & 1) === 0) return;
+      if (staffId !== d.staffId) return;
+      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+      if (dist >= SCHEDULE_DRAG_THRESHOLD_PX) d.moved = true;
+      const { startMin, endMinExclusive } = normalizeDragRange(d.anchorMin, slotMin, interval);
+      const clipped = clipDragRangeToValid({
+        startMin,
+        endMinExclusive,
+        interval,
+        isSlotValid: (sm, se) => isSlotValidForDrag(staffId, sm, se),
+      });
+      if (clipped) updateDragPreview({ staffId, ...clipped });
+    },
+    [interval, isSlotValidForDrag, updateDragPreview],
+  );
 
   const setLayout = (next) => {
     setOrientation(next);
@@ -623,11 +788,13 @@ export default function BookingsScheduleView({
                   interval={interval}
                   gridWidth={gridWidth}
                   onSelectBooking={onSelectBooking}
-                  onEmptyClick={handleEmptyClick}
                   onOvertimeSlot={handleOvertimeClick}
                   effective={effectiveByStaff[s.id]}
                   canManage={canManage}
                   canCreateOvertime={canCreateOvertime}
+                  dragPreview={dragPreview}
+                  onSlotPointerDown={onSlotPointerDown}
+                  onSlotPointerEnter={onSlotPointerEnter}
                 />
               ))}
             </div>
@@ -705,11 +872,13 @@ export default function BookingsScheduleView({
               closeMin={closeMin}
               interval={interval}
               onSelectBooking={onSelectBooking}
-              onEmptyClick={handleEmptyClick}
               onOvertimeSlot={handleOvertimeClick}
               effective={effectiveByStaff[s.id]}
               canManage={canManage}
               canCreateOvertime={canCreateOvertime}
+              dragPreview={dragPreview}
+              onSlotPointerDown={onSlotPointerDown}
+              onSlotPointerEnter={onSlotPointerEnter}
             />
           ))}
         </div>

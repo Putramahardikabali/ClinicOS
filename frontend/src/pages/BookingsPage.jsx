@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
 import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
+import { hhmmToMin } from "@/components/bookings/scheduleUtils";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
@@ -59,6 +60,13 @@ const STATUS_COLORS = {
 
 const BLOCK_REASON_PRESETS = ["Lunch Break", "Meeting", "Training", "Break", "Other"];
 const BLOCK_DURATIONS = [15, 30, 45, 60, 90, 120];
+
+function blockDurationFromTimes(start, end, fallback = 30) {
+  const sm = hhmmToMin(start);
+  const em = hhmmToMin(end);
+  if (sm == null || em == null || em <= sm) return fallback;
+  return em - sm;
+}
 
 function isTimeBlock(b) {
   return b?.status === "blocked" || b?.booking_type === "block";
@@ -89,7 +97,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
   );
 }
 
-function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
+function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBookTreatment }) {
   const isEdit = !!booking;
   const dt = booking ? new Date(booking.scheduled_at) : null;
   const pad = (n) => String(n).padStart(2, "0");
@@ -102,12 +110,26 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
     const r = booking?.block_reason || booking?.patient_name || "";
     return BLOCK_REASON_PRESETS.includes(r) ? "" : r;
   });
-  const [form, setForm] = useState({
-    scheduled_date: initial?.scheduled_date || booking?.scheduled_at?.slice(0, 10) || "",
-    scheduled_time: initial?.scheduled_time || (dt ? `${pad(dt.getHours())}:${pad(dt.getMinutes())}` : ""),
-    performer_id: initial?.performer_id || booking?.performer_id || "",
-    duration_min: booking?.duration_min || 30,
-    notes: booking?.notes || "",
+  const [form, setForm] = useState(() => {
+    const start = initial?.scheduled_time || (dt ? `${pad(dt.getHours())}:${pad(dt.getMinutes())}` : "");
+    const end = initial?.scheduled_end_time
+      || (booking?.scheduled_at && booking?.duration_min
+        ? (() => {
+            const bdt = new Date(booking.scheduled_at);
+            const endMin = bdt.getHours() * 60 + bdt.getMinutes() + Number(booking.duration_min || 30);
+            return `${pad(Math.floor(endMin / 60))}:${pad(endMin % 60)}`;
+          })()
+        : "");
+    const duration = booking?.duration_min
+      || (start && end ? blockDurationFromTimes(start, end, initial?.duration_min || 30) : (initial?.duration_min || 30));
+    return {
+      scheduled_date: initial?.scheduled_date || booking?.scheduled_at?.slice(0, 10) || "",
+      scheduled_time: start,
+      scheduled_end_time: end,
+      performer_id: initial?.performer_id || booking?.performer_id || "",
+      duration_min: duration,
+      notes: booking?.notes || "",
+    };
   });
   const [busy, setBusy] = useState(false);
 
@@ -165,6 +187,11 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F1EB]"><X className="w-5 h-5" /></button>
         </div>
         <p className="mt-2 text-sm text-[#5C6C62]">Reserve this staff member&apos;s calendar for breaks, meetings, or other non-appointment time.</p>
+        {initial?.fromDragRange && form.scheduled_time && form.scheduled_end_time && (
+          <p className="mt-2 text-xs text-[#52796F] bg-[#EDF3EF] rounded-lg px-3 py-2" data-testid="block-drag-range-hint">
+            Selected range: {form.scheduled_time} – {form.scheduled_end_time}
+          </p>
+        )}
 
         <div className="mt-5 space-y-4">
           <div>
@@ -203,8 +230,44 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
             </div>
             <div>
               <label className="label-eyebrow block mb-1.5">Start time</label>
-              <input type="time" className="bl-input" required value={form.scheduled_time} onChange={e => setForm({ ...form, scheduled_time: e.target.value })} data-testid="block-time" />
+              <input
+                type="time"
+                className="bl-input"
+                required
+                value={form.scheduled_time}
+                onChange={(e) => {
+                  const scheduled_time = e.target.value;
+                  setForm((f) => ({
+                    ...f,
+                    scheduled_time,
+                    duration_min: f.scheduled_end_time
+                      ? blockDurationFromTimes(scheduled_time, f.scheduled_end_time, f.duration_min)
+                      : f.duration_min,
+                  }));
+                }}
+                data-testid="block-time"
+              />
             </div>
+          </div>
+
+          <div>
+            <label className="label-eyebrow block mb-1.5">End time</label>
+            <input
+              type="time"
+              className="bl-input"
+              value={form.scheduled_end_time}
+              onChange={(e) => {
+                const scheduled_end_time = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  scheduled_end_time,
+                  duration_min: scheduled_end_time
+                    ? blockDurationFromTimes(f.scheduled_time, scheduled_end_time, f.duration_min)
+                    : f.duration_min,
+                }));
+              }}
+              data-testid="block-end-time"
+            />
           </div>
 
           <div>
@@ -230,6 +293,22 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null }) {
             <textarea className="bl-input min-h-[72px]" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} data-testid="block-notes" />
           </div>
         </div>
+
+        {onBookTreatment && !isEdit && (
+          <button
+            type="button"
+            onClick={() => onBookTreatment({
+              scheduled_date: form.scheduled_date,
+              scheduled_time: form.scheduled_time,
+              performer_id: form.performer_id,
+              ignoreDraggedEnd: true,
+            })}
+            className="mt-4 text-sm text-[#52796F] hover:underline"
+            data-testid="block-book-treatment-instead"
+          >
+            Book treatment instead
+          </button>
+        )}
 
         <div className="mt-6 flex gap-3">
           <button type="submit" disabled={busy} className="bl-btn-primary flex-1 disabled:opacity-50" data-testid="block-save">
@@ -1040,9 +1119,11 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                 )}
                 {customTime && (
                   <p className="text-xs text-[#A89F8B] mt-1">
-                    {overtimeMeta
-                      ? "Overtime appointment — availability rechecks when you change time or assigned staff."
-                      : "Staff availability is still enforced on save."}
+                    {initial?.ignoreDraggedEnd
+                      ? "Treatment duration is based on the selected treatment."
+                      : overtimeMeta
+                        ? "Overtime appointment — availability rechecks when you change time or assigned staff."
+                        : "Staff availability is still enforced on save."}
                   </p>
                 )}
               </div>
@@ -1933,6 +2014,11 @@ export default function BookingsPage() {
             onSelectBooking={setDetailBooking}
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
+            onRangeSelect={(payload) => {
+              setBlockInitial(payload);
+              setBlockEdit(null);
+              setBlockOpen(true);
+            }}
           />
         </div>
       ) : (
@@ -2125,6 +2211,13 @@ export default function BookingsPage() {
           initial={blockInitial}
           booking={blockEdit}
           onClose={() => { setBlockOpen(false); setBlockInitial(null); setBlockEdit(null); }}
+          onBookTreatment={(payload) => {
+            setBlockOpen(false);
+            setBlockInitial(null);
+            setBlockEdit(null);
+            setNewInitial(payload);
+            setNewOpen(true);
+          }}
           onSaved={(updated) => {
             if (updated) setDetailBooking(updated);
             refresh();
