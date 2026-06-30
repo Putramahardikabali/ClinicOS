@@ -27,7 +27,6 @@ const SLOT_PX = 32;
 const ROW_H = 52;
 const STAFF_COL_W = 132;
 const TIME_COL_W = 76;
-const VERTICAL_HEADER_H = 80; // role row (24px) + staff names row (56px)
 
 const STATUS_BLOCK = {
   booked: { bg: "#E8E0F4", border: "#9B7EC8", text: "#5C3D8A" },
@@ -142,8 +141,12 @@ function ScheduleSlotCell({
     return (
       <button
         type="button"
-        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-cell touch-none select-none ${highlightCls} ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
+        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[1] ${highlightCls} ${orientation === "vertical" ? "min-h-[52px] w-full" : ""}`}
         style={orientation === "vertical" ? { height: ROW_H } : undefined}
+        data-schedule-slot=""
+        data-staff-id={staffId}
+        data-slot-min={slotMin}
+        data-slot-end={slotEnd}
         onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
         onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
         aria-label={state.title}
@@ -349,7 +352,7 @@ function StaffColumn({
           timeStr,
         });
         return (
-          <div key={i} className="absolute left-0 right-0" style={{ top: i * ROW_H, height: ROW_H }}>
+          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: i * ROW_H, height: ROW_H }}>
             <ScheduleSlotCell
               state={state}
               timeStr={timeStr}
@@ -659,17 +662,49 @@ export default function BookingsScheduleView({
     }
   }, [date, interval, onRangeSelect, handleEmptyClick]);
 
+  const expandDragToSlot = useCallback(
+    (staffId, slotMin, slotEnd, clientX, clientY) => {
+      const d = dragRef.current;
+      if (!d) return;
+      if (staffId !== d.staffId) return;
+      const dist = Math.hypot(clientX - d.startX, clientY - d.startY);
+      if (dist >= SCHEDULE_DRAG_THRESHOLD_PX) d.moved = true;
+      const { startMin, endMinExclusive } = normalizeDragRange(d.anchorMin, slotMin, interval);
+      const clipped = clipDragRangeToValid({
+        startMin,
+        endMinExclusive,
+        interval,
+        isSlotValid: (sm, se) => isSlotValidForDrag(staffId, sm, se),
+      });
+      if (clipped) updateDragPreview({ staffId, ...clipped });
+    },
+    [interval, isSlotValidForDrag, updateDragPreview],
+  );
+
   useEffect(() => {
     const onGlobalPointerUp = () => {
       if (dragRef.current) finishDrag();
     };
+    const onGlobalPointerMove = (e) => {
+      if (!dragRef.current || (e.buttons & 1) === 0) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const slotEl = el?.closest?.("[data-schedule-slot]");
+      if (!slotEl) return;
+      const staffId = slotEl.getAttribute("data-staff-id");
+      const slotMin = Number(slotEl.getAttribute("data-slot-min"));
+      const slotEnd = Number(slotEl.getAttribute("data-slot-end"));
+      if (!staffId || Number.isNaN(slotMin) || Number.isNaN(slotEnd)) return;
+      expandDragToSlot(staffId, slotMin, slotEnd, e.clientX, e.clientY);
+    };
     window.addEventListener("pointerup", onGlobalPointerUp);
     window.addEventListener("pointercancel", onGlobalPointerUp);
+    window.addEventListener("pointermove", onGlobalPointerMove);
     return () => {
       window.removeEventListener("pointerup", onGlobalPointerUp);
       window.removeEventListener("pointercancel", onGlobalPointerUp);
+      window.removeEventListener("pointermove", onGlobalPointerMove);
     };
-  }, [finishDrag]);
+  }, [finishDrag, expandDragToSlot]);
 
   const onSlotPointerDown = useCallback(
     (e, { staffId, slotMin, slotEnd }) => {
@@ -695,21 +730,10 @@ export default function BookingsScheduleView({
 
   const onSlotPointerEnter = useCallback(
     (e, { staffId, slotMin, slotEnd }) => {
-      const d = dragRef.current;
-      if (!d || (e.buttons & 1) === 0) return;
-      if (staffId !== d.staffId) return;
-      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-      if (dist >= SCHEDULE_DRAG_THRESHOLD_PX) d.moved = true;
-      const { startMin, endMinExclusive } = normalizeDragRange(d.anchorMin, slotMin, interval);
-      const clipped = clipDragRangeToValid({
-        startMin,
-        endMinExclusive,
-        interval,
-        isSlotValid: (sm, se) => isSlotValidForDrag(staffId, sm, se),
-      });
-      if (clipped) updateDragPreview({ staffId, ...clipped });
+      if ((e.buttons & 1) === 0) return;
+      expandDragToSlot(staffId, slotMin, slotEnd, e.clientX, e.clientY);
     },
-    [interval, isSlotValidForDrag, updateDragPreview],
+    [expandDragToSlot],
   );
 
   const setLayout = (next) => {
@@ -767,7 +791,7 @@ export default function BookingsScheduleView({
 
         <div className="relative">
           {showNow && (
-            <div className="absolute top-8 bottom-0 z-[5]" style={{ left: STAFF_COL_W }}>
+            <div className="absolute top-8 bottom-0 z-[5] pointer-events-none" style={{ left: STAFF_COL_W }}>
               <NowIndicator orientation="horizontal" openMin={openMin} interval={interval} nowMin={clinicNow.minutes} />
             </div>
           )}
@@ -805,82 +829,96 @@ export default function BookingsScheduleView({
   );
 
   const renderVertical = () => (
-    <div className={`flex overflow-auto ${gridScrollClass}`} data-testid="schedule-vertical">
-      <div className="sticky left-0 z-20 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]" style={{ width: TIME_COL_W }}>
-        <div className="sticky top-0 z-30 bg-[#F8F5EC]">
-          <div className="h-6 border-b border-[#EAE6D7]/80" />
-          <div className="h-[56px] border-b border-[#EAE6D7] px-2 flex items-end pb-2 text-[10px] uppercase tracking-widest text-[#5C6C62]">
-            Time
-          </div>
-        </div>
-        {Array.from({ length: slotCount }, (_, i) => {
-          const slotMin = openMin + i * interval;
-          return (
-            <div
-              key={slotMin}
-              className="px-2 text-[10px] text-[#5C6C62] border-b border-[#F0EDE4] flex items-center"
-              style={{ height: ROW_H }}
-            >
-              {minutesToTimeLabel(slotMin)}
+    <div className={`overflow-auto ${gridScrollClass}`} data-testid="schedule-vertical">
+      <div style={{ minWidth: TIME_COL_W + flatStaff.length * STAFF_COL_W }}>
+        {/* Sticky header: time corner + staff names */}
+        <div className="flex sticky top-0 z-30 border-b border-[#EAE6D7] bg-[#F8F5EC]">
+          <div
+            className="sticky left-0 z-40 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
+            style={{ width: TIME_COL_W }}
+          >
+            <div className="h-6 border-b border-[#EAE6D7]/80" />
+            <div className="h-[56px] px-2 flex items-end pb-2 text-[10px] uppercase tracking-widest text-[#5C6C62]">
+              Time
             </div>
-          );
-        })}
-      </div>
-
-      <div className="relative min-w-0">
-        {showNow && (
-          <div className="absolute left-0 right-0 z-[5]" style={{ top: VERTICAL_HEADER_H, height: trackHeight }}>
-            <NowIndicator orientation="vertical" openMin={openMin} interval={interval} nowMin={clinicNow.minutes} />
           </div>
-        )}
-
-        <div className="sticky top-0 z-20 bg-[#F8F5EC] border-b border-[#EAE6D7]">
-          <div className="flex h-6 border-b border-[#EAE6D7]/80">
-            {staffGroups.map((group) => (
-              <div
-                key={group.label}
-                className="shrink-0 px-1 text-[9px] uppercase tracking-widest text-[#5C6C62] flex items-center justify-center border-r border-[#EAE6D7]"
-                style={{ width: STAFF_COL_W * group.members.length }}
-              >
-                {group.label}
-              </div>
-            ))}
-          </div>
-          <div className="flex h-[56px]">
-            {flatStaff.map((s) => (
-              <div
-                key={s.id}
-                className="shrink-0 px-2 py-2 border-r border-[#EAE6D7] bg-[#FAFAF7] flex flex-col justify-center"
-                style={{ width: STAFF_COL_W }}
-              >
-                <div className="text-xs font-semibold text-[#2D3A33] truncate">{s.name}</div>
-                <div className="text-[9px] uppercase tracking-wide text-[#A89F8B]">{formatStaffRole(s.role)}</div>
-              </div>
-            ))}
+          <div className="flex flex-col min-w-0">
+            <div className="flex h-6 border-b border-[#EAE6D7]/80">
+              {staffGroups.map((group) => (
+                <div
+                  key={group.label}
+                  className="shrink-0 px-1 text-[9px] uppercase tracking-widest text-[#5C6C62] flex items-center justify-center border-r border-[#EAE6D7] bg-[#F8F5EC]"
+                  style={{ width: STAFF_COL_W * group.members.length }}
+                >
+                  {group.label}
+                </div>
+              ))}
+            </div>
+            <div className="flex h-[56px]">
+              {flatStaff.map((s) => (
+                <div
+                  key={s.id}
+                  className="shrink-0 px-2 py-2 border-r border-[#EAE6D7] bg-[#FAFAF7] flex flex-col justify-center"
+                  style={{ width: STAFF_COL_W }}
+                >
+                  <div className="text-xs font-semibold text-[#2D3A33] truncate">{s.name}</div>
+                  <div className="text-[9px] uppercase tracking-wide text-[#A89F8B]">{formatStaffRole(s.role)}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
+        {/* Body: sticky time column + staff grid */}
         <div className="flex relative">
-          {flatStaff.map((s) => (
-            <StaffColumn
-              key={s.id}
-              staff={s}
-              bookings={bookings}
-              scheduleDate={date}
-              timezone={timezone}
-              openMin={openMin}
-              closeMin={closeMin}
-              interval={interval}
-              onSelectBooking={onSelectBooking}
-              onOvertimeSlot={handleOvertimeClick}
-              effective={effectiveByStaff[s.id]}
-              canManage={canManage}
-              canCreateOvertime={canCreateOvertime}
-              dragPreview={dragPreview}
-              onSlotPointerDown={onSlotPointerDown}
-              onSlotPointerEnter={onSlotPointerEnter}
-            />
-          ))}
+          <div
+            className="sticky left-0 z-20 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
+            style={{ width: TIME_COL_W }}
+          >
+            {Array.from({ length: slotCount }, (_, i) => {
+              const slotMin = openMin + i * interval;
+              return (
+                <div
+                  key={slotMin}
+                  className="px-2 text-[10px] text-[#5C6C62] border-b border-[#F0EDE4] flex items-center"
+                  style={{ height: ROW_H }}
+                >
+                  {minutesToTimeLabel(slotMin)}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="relative flex min-w-0" style={{ height: trackHeight }}>
+            {showNow && (
+              <div
+                className="absolute inset-0 z-[5] pointer-events-none"
+                data-testid="schedule-now-line-wrap"
+              >
+                <NowIndicator orientation="vertical" openMin={openMin} interval={interval} nowMin={clinicNow.minutes} />
+              </div>
+            )}
+            {flatStaff.map((s) => (
+              <StaffColumn
+                key={s.id}
+                staff={s}
+                bookings={bookings}
+                scheduleDate={date}
+                timezone={timezone}
+                openMin={openMin}
+                closeMin={closeMin}
+                interval={interval}
+                onSelectBooking={onSelectBooking}
+                onOvertimeSlot={handleOvertimeClick}
+                effective={effectiveByStaff[s.id]}
+                canManage={canManage}
+                canCreateOvertime={canCreateOvertime}
+                dragPreview={dragPreview}
+                onSlotPointerDown={onSlotPointerDown}
+                onSlotPointerEnter={onSlotPointerEnter}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -949,7 +987,7 @@ export default function BookingsScheduleView({
       </div>
 
       <p className={`text-xs text-[#A89F8B] mb-3 ${isFullscreen ? "shrink-0" : ""}`}>
-        Click an open slot to book · click a block for details · past empty slots cannot be booked
+        Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
 
       <div className={`${isFullscreen ? "flex-1 min-h-0 overflow-hidden" : ""}`}>
