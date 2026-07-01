@@ -3,6 +3,16 @@ import api from "@/lib/api";
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import {
+  buildSchedulePreviewLines,
+  INDICATOR_DEFS,
+  isTimeBlockBooking,
+  resolveScheduleCardColors,
+  SCHEDULE_STATUS_COLORS,
+  selectCardIcons,
+  supportsHoverPreview,
+} from "@/components/bookings/scheduleBookingIndicators";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
   getClinicNowParts,
   hhmmToMin,
   isPastEmptySlot,
@@ -28,16 +38,8 @@ const ROW_H = 52;
 const STAFF_COL_W = 132;
 const TIME_COL_W = 76;
 
-const STATUS_BLOCK = {
-  booked: { bg: "#E8E0F4", border: "#9B7EC8", text: "#5C3D8A" },
-  confirmed: { bg: "#E3F1E8", border: "#52796F", text: "#2C7755" },
-  checked_in: { bg: "#D4EDE0", border: "#2C7755", text: "#1F4D3A" },
-  completed: { bg: "#F3F1EB", border: "#A89F8B", text: "#5C6C62" },
-  blocked: { bg: "#F5E6D3", border: "#C4A574", text: "#6B5344" },
-};
-
 function isTimeBlock(booking) {
-  return booking?.status === "blocked" || booking?.booking_type === "block";
+  return isTimeBlockBooking(booking);
 }
 
 function toDateStr(d) {
@@ -80,13 +82,16 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
   const start = bookingStartMin(booking.scheduled_at);
   const dur = booking.duration_min || 30;
   const block = isTimeBlock(booking);
-  const st = block ? STATUS_BLOCK.blocked : (STATUS_BLOCK[booking.status] || STATUS_BLOCK.booked);
+  const st = resolveScheduleCardColors(booking);
   const timeLabel = new Date(booking.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const label = block ? (booking.block_reason || booking.patient_name) : booking.patient_name;
   const sub = block ? "Blocked" : booking.treatment;
   const overtime = !block && booking.is_overtime;
+  const { visible: visibleIcons, overflow: iconOverflow } = selectCardIcons(booking);
+  const hoverPreview = supportsHoverPreview();
+  const previewLines = useMemo(() => buildSchedulePreviewLines(booking), [booking]);
 
-  const style =
+  const positionStyle =
     orientation === "vertical"
       ? {
           top: ((start - openMin) / interval) * ROW_H,
@@ -99,23 +104,83 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
           width: Math.max((dur / interval) * SLOT_PX - 2, SLOT_PX - 2),
         };
 
-  return (
+  const cardStyle = {
+    background: st.bg,
+    borderColor: st.border,
+    color: st.text,
+    borderLeftWidth: block ? undefined : 3,
+  };
+
+  const cardButton = (
     <button
       type="button"
       onClick={() => onSelect(booking)}
-      className={`absolute z-10 rounded-md border text-left px-2 py-1 overflow-hidden transition cursor-pointer hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] active:scale-[0.99] ${block ? "border-dashed" : ""}`}
-      style={{ ...style, background: st.bg, borderColor: st.border, color: st.text }}
+      className={`w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition cursor-pointer hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] active:scale-[0.99] ${block ? "border-dashed" : "border-solid"}`}
+      style={cardStyle}
       data-testid={`schedule-block-${booking.id}`}
-      title={block ? `Blocked · ${label}` : `${label} · ${booking.treatment}${overtime ? " · Overtime" : ""}`}
     >
       <div className="flex items-center gap-1 min-w-0">
         <div className="text-xs font-semibold truncate leading-tight flex-1">{label}</div>
+        {!block && visibleIcons.length > 0 && (
+          <div className="flex items-center gap-0.5 shrink-0" data-testid={`schedule-block-icons-${booking.id}`}>
+            {visibleIcons.map((key) => {
+              const def = INDICATOR_DEFS[key];
+              if (!def) return null;
+              const Icon = def.Icon;
+              return (
+                <span
+                  key={key}
+                  className="inline-flex items-center justify-center rounded-sm bg-white/50 p-0.5"
+                  title={def.title}
+                  data-testid={`schedule-icon-${key}-${booking.id}`}
+                >
+                  <Icon className="w-3 h-3" strokeWidth={2.25} aria-hidden />
+                </span>
+              );
+            })}
+            {iconOverflow > 0 && (
+              <span className="text-[9px] font-semibold opacity-80 leading-none" data-testid={`schedule-icon-overflow-${booking.id}`}>
+                +{iconOverflow}
+              </span>
+            )}
+          </div>
+        )}
         {overtime && <OvertimeBadge className="shrink-0 scale-90" />}
       </div>
       <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
       <div className="text-[10px] opacity-70 mt-0.5">{timeLabel} · {dur}m</div>
     </button>
   );
+
+  const positionedCard = (
+    <div className="absolute z-10" style={positionStyle}>
+      {hoverPreview && !block ? (
+        <Tooltip delayDuration={280}>
+          <TooltipTrigger asChild>{cardButton}</TooltipTrigger>
+          <TooltipContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="max-w-[260px] p-0 border border-[#EAE6D7] bg-white text-[#2D3A33] shadow-lg rounded-lg"
+            data-testid={`schedule-preview-${booking.id}`}
+          >
+            <div className="px-3 py-2.5 space-y-1.5">
+              {previewLines.map((line) => (
+                <div key={line.label} className="text-xs leading-snug">
+                  <span className="text-[#A89F8B]">{line.label}: </span>
+                  <span className={line.strong ? "font-semibold text-[#2D3A33]" : "text-[#5C6C62]"}>{line.value}</span>
+                </div>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        cardButton
+      )}
+    </div>
+  );
+
+  return positionedCard;
 }
 
 function ScheduleSlotCell({
@@ -426,17 +491,31 @@ function NowIndicator({ orientation, openMin, interval, nowMin }) {
 }
 
 function ScheduleLegend() {
+  const legendKeys = [
+    "booked",
+    "confirmed",
+    "checked_in",
+    "treatment_started",
+    "closed",
+    "completed",
+    "block_out",
+    "unavailable",
+  ];
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-[#A89F8B]" data-testid="schedule-legend">
-      {Object.entries(STATUS_BLOCK).map(([k, v]) => (
-        <span key={k} className="inline-flex items-center gap-1">
-          <span
-            className={`w-2.5 h-2.5 rounded-sm border ${k === "blocked" ? "border-dashed" : ""}`}
-            style={{ background: v.bg, borderColor: v.border }}
-          />
-          {k === "blocked" ? "Blocked time" : k.replace("_", " ")}
-        </span>
-      ))}
+      {legendKeys.map((k) => {
+        const v = SCHEDULE_STATUS_COLORS[k];
+        if (!v) return null;
+        return (
+          <span key={k} className="inline-flex items-center gap-1">
+            <span
+              className={`w-2.5 h-2.5 rounded-sm border ${k === "block_out" ? "border-dashed" : ""}`}
+              style={{ background: v.bg, borderColor: v.border }}
+            />
+            {v.label}
+          </span>
+        );
+      })}
       <span className="inline-flex items-center gap-1">
         <span className="w-2.5 h-2.5 rounded-sm bg-[#EDE8DC]/70 border border-[#D8D0C0]" />
         Past time
@@ -490,7 +569,7 @@ export default function BookingsScheduleView({
 
   const load = useCallback(() => {
     setLoading(true);
-    const params = { date };
+    const params = { date, schedule_meta: true };
     if (statusFilter) params.status = statusFilter;
     Promise.all([
       api.get("/bookings", { params }),
@@ -934,6 +1013,7 @@ export default function BookingsScheduleView({
     : "";
 
   return (
+    <TooltipProvider delayDuration={280} skipDelayDuration={80}>
     <div
       ref={shellRef}
       className={shellClass}
@@ -1053,6 +1133,7 @@ export default function BookingsScheduleView({
         aria-hidden={!isFullscreen}
       />
     </div>
+    </TooltipProvider>
   );
 }
 

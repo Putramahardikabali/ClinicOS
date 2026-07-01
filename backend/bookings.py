@@ -171,6 +171,8 @@ class BookingIn(BaseModel):
     is_overtime: Optional[bool] = False
     overtime_reason: Optional[str] = None
     overtime_note: Optional[str] = None
+    specific_staff_requested: Optional[bool] = False
+    requested_performer_id: Optional[str] = None
 
 
 OVERTIME_REASONS = (
@@ -196,6 +198,8 @@ class BookingUpdateIn(BaseModel):
     notes: Optional[str] = None
     block_reason: Optional[str] = None
     coupon_code: Optional[str] = None
+    specific_staff_requested: Optional[bool] = None
+    requested_performer_id: Optional[str] = None
 
 
 class CouponIn(BaseModel):
@@ -877,6 +881,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         scope_filter: Optional[str] = Query(None, alias="scope"),  # 'today' | 'upcoming' | 'past'
         appointments_only: bool = Query(False),
         patient_id: Optional[str] = None,
+        schedule_meta: bool = Query(False, description="Enrich with FO schedule card indicators"),
         user: dict = Depends(get_current_user),
     ):
         from permissions import user_has_permission
@@ -921,6 +926,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             elif scope_filter == "past":
                 flt["scheduled_at"] = {"$lt": iso(now_utc())}
         items = await db.bookings.find(flt, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
+        if schedule_meta and items:
+            from schedule_indicators import enrich_bookings_schedule_meta
+            items = await enrich_bookings_schedule_meta(db, user.get("clinic_id"), items)
         return items
 
     async def _get_treatment_doc(

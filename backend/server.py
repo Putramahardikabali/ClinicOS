@@ -659,6 +659,8 @@ class PatientIn(BaseModel):
     consent_status: Optional[str] = None  # unsigned | signed | cancelled
     consent_notes: Optional[str] = None
     consent_signed_at: Optional[str] = None
+    profile_alert: Optional[bool] = None
+    profile_alert_label: Optional[str] = None
 
 class VisitIn(BaseModel):
     patient_id: str
