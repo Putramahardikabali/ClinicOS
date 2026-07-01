@@ -147,6 +147,11 @@ def resolve_patient_profile_tabs(user: dict) -> Dict[str, bool]:
             user, "billing.view",
             legacy_roles=("fo", "manager", "super_admin"),
         ),
+        "spending_history": _tab_access(
+            user, "patient_spending.view",
+            any_permissions=["patient_spending.view", "billing.view"],
+            legacy_roles=("fo", "manager", "super_admin", "accounting"),
+        ),
         "prepaid": _tab_access(
             user, "prepaid.view",
             any_permissions=["prepaid.view", "billing.view", "accounting.view"],

@@ -10,6 +10,7 @@ export const PATIENT_TABS = [
   { id: "packages", label: "Packages", key: "packages" },
   { id: "prepaid", label: "Prepaid", key: "prepaid" },
   { id: "invoices", label: "Invoices", key: "invoices" },
+  { id: "spending_history", label: "Spending History", key: "spending_history" },
   { id: "wallet", label: "Wallet", key: "wallet" },
   { id: "consents", label: "Consents", key: "consents" },
 ];

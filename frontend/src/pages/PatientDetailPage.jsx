@@ -36,6 +36,7 @@ import {
 import PatientPackagesPanel from "@/components/patient/PatientPackagesPanel";
 import PatientPrepaidPanel from "@/components/patient/PatientPrepaidPanel";
 import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
+import PatientSpendingHistoryPanel from "@/components/patient/PatientSpendingHistoryPanel";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 import ManagePatientLabelsModal from "@/components/patient/ManagePatientLabelsModal";
@@ -606,6 +607,9 @@ export default function PatientDetailPage() {
     prepaid: access?.prepaid ? <PatientPrepaidPanel patientId={pid} /> : <Empty message="No access to prepaid." />,
     wallet: access?.wallet ? <PatientWalletPanel patientId={pid} /> : <Empty message="No access to wallet." />,
     invoices: renderInvoices(),
+    spending_history: access?.spending_history ? (
+      <PatientSpendingHistoryPanel patientId={pid} patientName={patient?.full_name} />
+    ) : <Empty message="No access to spending history." />,
     consents: renderConsents(),
   };
 

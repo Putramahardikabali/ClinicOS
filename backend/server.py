@@ -130,6 +130,7 @@ from refunds import register_refunds
 from patient_wallets import register_patient_wallets
 from prepaid import register_prepaid
 from patient_labels import register_patient_labels
+from patient_spending_history import register_patient_spending_history
 import totp_2fa as t2fa
 from platform_ops import create_platform_notification, seed_clinic_settings, invalidate_user_sessions
 from subscription_gates import assert_operational_access, maybe_notify_trial_expired_platform
@@ -2633,6 +2634,15 @@ register_patient_profile(
     assert_patient_access=assert_patient_access,
     apply_staff_visit_filter=apply_staff_visit_filter,
     assert_feature=assert_feature,
+)
+
+register_patient_spending_history(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    scope=scope,
+    assert_patient_access=assert_patient_access,
+    audit=audit,
 )
 
 register_consent_forms(

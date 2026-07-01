@@ -97,3 +97,13 @@ def test_resolve_patient_profile_tabs_includes_prepaid_without_crash():
     tabs = resolve_patient_profile_tabs({"role": "fo", "permissions": ["prepaid.view"]})
     assert tabs["prepaid"] is True
     assert tabs["overview"] is True
+
+
+def test_resolve_patient_profile_tabs_spending_history_for_fo():
+    tabs = resolve_patient_profile_tabs({"role": "fo", "permissions": ["patient_spending.view"]})
+    assert tabs["spending_history"] is True
+
+
+def test_resolve_patient_profile_tabs_spending_history_denied_for_doctor():
+    tabs = resolve_patient_profile_tabs({"role": "doctor", "permissions": []})
+    assert tabs["spending_history"] is False
