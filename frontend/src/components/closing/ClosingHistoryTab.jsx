@@ -60,10 +60,10 @@ export default function ClosingHistoryTab() {
     <div className="space-y-4" data-testid="closing-history-tab">
       {loading && <p className="text-sm text-[#5C6C62]">Loading…</p>}
 
-      <div className="bl-card overflow-x-auto">
-        <table className="w-full text-sm min-w-[800px]">
-          <thead>
-            <tr className="text-left text-xs text-[#5C6C62] border-b uppercase tracking-wide">
+      <div className="bl-card table-card overflow-x-auto">
+        <table className="bl-data-table w-full text-sm min-w-[800px]">
+          <thead className="bl-data-table-head">
+            <tr>
               <th className="p-3">Date</th>
               <th className="p-3 text-right">Total collected</th>
               <th className="p-3 text-right">Cash diff</th>
@@ -75,7 +75,7 @@ export default function ClosingHistoryTab() {
           </thead>
           <tbody>
             {items.map((row) => (
-              <tr key={row.id} className="border-b border-[#EAE6D7] hover:bg-[#F8F5EC]">
+              <tr key={row.id}>
                 <td className="p-3 font-medium">{row.business_date}</td>
                 <td className="p-3 text-right font-mono">{fmtIDR(row.total_collected_idr)}</td>
                 <td className="p-3 text-right font-mono">{diffLabel(row.cash_difference_idr)}</td>
@@ -88,7 +88,7 @@ export default function ClosingHistoryTab() {
                   <div className="flex gap-1 justify-end">
                     <button
                       type="button"
-                      className="p-1.5 rounded hover:bg-[#EDF3EF]"
+                      className="p-1.5 rounded hover:bg-[var(--bl-table-row-hover)]"
                       title="View detail"
                       onClick={() => setDetailId(row.id)}
                     >
@@ -96,7 +96,7 @@ export default function ClosingHistoryTab() {
                     </button>
                     <button
                       type="button"
-                      className="p-1.5 rounded hover:bg-[#EDF3EF]"
+                      className="p-1.5 rounded hover:bg-[var(--bl-table-row-hover)]"
                       title="Export CSV"
                       onClick={() => exportCsv(row.id, row.business_date)}
                     >

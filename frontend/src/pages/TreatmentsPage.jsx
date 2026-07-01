@@ -638,10 +638,10 @@ export default function TreatmentsPage() {
         ))}
       </div>
 
-      <div className="mt-5 bl-card overflow-hidden" data-testid="treatments-table">
+      <div className="mt-5 bl-card table-card overflow-hidden" data-testid="treatments-table">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
-            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[720px]">
+            <thead className="bl-data-table-head">
               <tr>
                 <th className="px-5 py-3">Code</th>
                 <th className="px-5 py-3">Treatment</th>
@@ -663,7 +663,7 @@ export default function TreatmentsPage() {
                 const perf = PERFORMER_LABEL[t.performer_type] || PERFORMER_LABEL.therapist;
                 const PerfIcon = perf.icon;
                 return (
-                  <tr key={t.id} className="border-t border-[#EAE6D7]" style={{ opacity: t.active ? 1 : 0.55 }} data-testid={`treatment-row-${t.id}`}>
+                  <tr key={t.id} style={{ opacity: t.active ? 1 : 0.55 }} data-testid={`treatment-row-${t.id}`}>
                     <td className="px-5 py-3 text-xs font-mono text-[#5C6C62] whitespace-nowrap">{t.service_code || t.key}</td>
                     <td className="px-5 py-3">
                       <div className="font-medium text-[#2D3A33]">{t.name}</div>

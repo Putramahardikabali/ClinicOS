@@ -170,11 +170,11 @@ function StaffDirectoryTab() {
           </button>
         )}
       </div>
-      <div className="bl-card overflow-hidden" data-testid="staff-directory-table">
+      <div className="bl-card table-card overflow-hidden" data-testid="staff-directory-table">
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full">
+            <thead className="bl-data-table-head">
+              <tr>
                 <th className="px-5 py-3">Name</th>
                 <th className="px-5 py-3">Email</th>
                 <th className="px-5 py-3">Role</th>
@@ -192,17 +192,17 @@ function StaffDirectoryTab() {
                   </td>
                 </tr>
               ) : users.map((u) => (
-                <tr key={u.id} className="border-t border-[#EAE6D7]">
+                <tr key={u.id}>
                   <td className="px-5 py-3 font-medium">
                     {canOpenProfile ? (
                       <Link to={`/staff/members/${u.id}`} className="hover:underline text-[#2D3A33]">{u.name}</Link>
                     ) : u.name}
                   </td>
                   <td className="px-5 py-3 text-[#5C6C62]">{u.email}</td>
-                  <td className="px-5 py-3"><span className="bl-chip">{roleLabel(u)}</span></td>
+                  <td className="px-5 py-3"><span className="bl-chip muted">{roleLabel(u)}</span></td>
                   <td className="px-5 py-3 text-sm text-[#5C6C62] capitalize">{(u.performer_type || "—").replace("_", " ")}</td>
                   <td className="px-5 py-3">
-                    <span className={`bl-chip ${u.active === false ? "opacity-60" : ""}`}>{u.active === false ? "Inactive" : "Active"}</span>
+                    <span className={`bl-chip ${u.active === false ? "muted opacity-60" : "success"}`}>{u.active === false ? "Inactive" : "Active"}</span>
                   </td>
                   <td className="px-5 py-3 text-sm space-x-3">
                     {canViewStaffCommission && ["doctor", "therapist", "nurse"].includes(u.role) && (
@@ -393,10 +393,10 @@ function RolesPermissionsTab() {
         )}
       </div>
 
-      <div className="bl-card overflow-hidden" data-testid="roles-table">
-        <table className="w-full">
-          <thead className="bg-[#F8F5EC]">
-            <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+      <div className="bl-card table-card overflow-hidden" data-testid="roles-table">
+        <table className="bl-data-table w-full">
+          <thead className="bl-data-table-head">
+            <tr>
               <th className="px-5 py-3">Role</th>
               <th className="px-5 py-3">Key</th>
               <th className="px-5 py-3">Staff</th>

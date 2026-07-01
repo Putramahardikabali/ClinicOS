@@ -2043,10 +2043,10 @@ export default function BookingsPage() {
         ))}
       </div>
 
-      <div className="mt-5 bl-card overflow-hidden hidden lg:block" data-testid="bookings-table">
+      <div className="mt-5 bl-card table-card overflow-hidden hidden lg:block" data-testid="bookings-table">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
-            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[720px]">
+            <thead className="bl-data-table-head">
               <tr>
                 <th className="px-5 py-3">When</th>
                 <th className="px-5 py-3">Patient</th>
@@ -2066,7 +2066,7 @@ export default function BookingsPage() {
                 const sc = STATUS_COLORS[b.status] || { label: b.status, cls: "" };
                 const next = NEXT_STATUS[b.status];
                 return (
-                  <tr key={b.id} className="border-t border-[#EAE6D7] cursor-pointer hover:bg-[#FAFAF7]" data-testid={`booking-row-${b.id}`} onClick={() => setDetailBooking(b)}>
+                  <tr key={b.id} className="cursor-pointer" data-testid={`booking-row-${b.id}`} onClick={() => setDetailBooking(b)}>
                     <td className="px-5 py-4 text-sm text-[#2D3A33] whitespace-nowrap">
                       <div className="font-medium">{formatBookingListDate(dt)}</div>
                       <div className="text-[#5C6C62] mt-0.5">{formatBookingListTime(dt, b.duration_min || 30)}</div>

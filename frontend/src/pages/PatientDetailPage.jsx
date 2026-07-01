@@ -315,13 +315,13 @@ export default function PatientDetailPage() {
         </div>
 
         {transactions.length > 0 && (
-          <div className="bl-card overflow-hidden">
-            <div className="px-5 py-3 border-b border-[#EAE6D7] label-eyebrow flex items-center gap-1.5">
+          <div className="bl-card table-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-[var(--bl-border)] label-eyebrow flex items-center gap-1.5">
               <Receipt className="w-3.5 h-3.5" /> Recent treatment history
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-sm">
-                <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+              <table className="bl-data-table w-full min-w-[560px] text-sm">
+                <thead className="bl-data-table-head">
                   <tr>
                     <th className="px-5 py-3">Date</th>
                     <th className="px-5 py-3">Session record</th>
@@ -331,7 +331,7 @@ export default function PatientDetailPage() {
                 </thead>
                 <tbody>
                   {transactions.slice(0, 8).map((t) => (
-                    <tr key={t.visit_id} className="border-t border-[#EAE6D7]">
+                    <tr key={t.visit_id}>
                       <td className="px-5 py-3">{fmtDay(t.visit_date)}</td>
                       <td className="px-5 py-3 capitalize">{t.visit_type} · {t.status?.replace("_", " ")}</td>
                       <td className="px-5 py-3 text-right">{fmtIDR(t.subtotal_idr)}</td>
@@ -495,13 +495,13 @@ export default function PatientDetailPage() {
   );
 
   const renderInvoices = () => (
-    <div className="bl-card overflow-hidden" data-testid="patient-invoices">
+    <div className="bl-card table-card overflow-hidden" data-testid="patient-invoices">
       {tabLoading && <Empty message="Loading invoices…" />}
       {!tabLoading && invoices.length === 0 && <Empty message="No invoices for this patient." />}
       {!tabLoading && invoices.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[640px] text-sm">
+            <thead className="bl-data-table-head">
               <tr>
                 <th className="px-5 py-3">Date</th>
                 <th className="px-5 py-3">Invoice</th>
@@ -513,10 +513,10 @@ export default function PatientDetailPage() {
             </thead>
             <tbody>
               {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-[#EAE6D7]">
+                <tr key={inv.id}>
                   <td className="px-5 py-3">{fmtDay(inv.created_at)}</td>
                   <td className="px-5 py-3 font-medium">{inv.invoice_number || inv.id.slice(0, 8)}</td>
-                  <td className="px-5 py-3"><span className="bl-chip">{inv.payment_status}</span></td>
+                  <td className="px-5 py-3"><span className={`bl-chip ${inv.payment_status === "paid" ? "success" : inv.payment_status === "partial" ? "info" : "warning"}`}>{inv.payment_status}</span></td>
                   <td className="px-5 py-3 text-right">{fmtIDR(inv.total_amount)}</td>
                   <td className="px-5 py-3 text-right">{fmtIDR(inv.amount_paid)}</td>
                   <td className="px-5 py-3 text-right">

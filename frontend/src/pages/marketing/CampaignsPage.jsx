@@ -232,9 +232,9 @@ export default function CampaignsPage() {
         </div>
       )}
 
-      <div className="bl-card overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+      <div className="bl-card table-card overflow-hidden">
+        <table className="bl-data-table w-full">
+          <thead className="bl-data-table-head">
             <tr>
               <th className="px-4 py-3">Campaign</th>
               <th className="px-4 py-3">Discount</th>
@@ -249,7 +249,7 @@ export default function CampaignsPage() {
               <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[#5C6C62]">No campaigns yet.</td></tr>
             )}
             {rows.map((c) => (
-              <tr key={c.id} className="border-t border-[#EAE6D7]">
+              <tr key={c.id}>
                 <td className="px-4 py-3">
                   <div className="font-medium">{c.name}</div>
                   {c.code && <div className="text-xs font-mono text-[#5C6C62]">{c.code}</div>}

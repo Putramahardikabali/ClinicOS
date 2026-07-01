@@ -287,13 +287,13 @@ function FrontOfficeDashboard({ user, clinic }) {
 
           </div>
 
-          <div className="bl-card overflow-hidden">
+          <div className="bl-card table-card overflow-hidden">
 
             <div className="overflow-x-auto">
 
-              <table className="w-full min-w-[480px]" data-testid="today-bookings-table">
+              <table className="bl-data-table w-full min-w-[480px]" data-testid="today-bookings-table">
 
-                <thead className="bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62] text-left">
+                <thead className="bl-data-table-head">
 
                   <tr><th className="px-5 py-3">Time</th><th className="px-5 py-3">Patient</th><th className="px-5 py-3">Treatment</th><th className="px-5 py-3">Status</th></tr>
 
@@ -309,7 +309,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
                     return (
 
-                      <tr key={b.id} className="border-t border-[#EAE6D7]">
+                      <tr key={b.id}>
 
                         <td className="px-5 py-3 text-sm text-[#5C6C62] whitespace-nowrap">{dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
 
@@ -391,13 +391,13 @@ function FrontOfficeDashboard({ user, clinic }) {
 
         </div>
 
-        <div className="bl-card overflow-hidden">
+        <div className="bl-card table-card overflow-hidden">
 
           <div className="overflow-x-auto">
 
-            <table className="w-full min-w-[640px]">
+            <table className="bl-data-table w-full min-w-[640px]">
 
-              <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+              <thead className="bl-data-table-head">
 
                 <tr>
 
@@ -413,7 +413,7 @@ function FrontOfficeDashboard({ user, clinic }) {
 
                 {recent.map(v => (
 
-                  <tr key={v.id} className="border-t border-[#EAE6D7]">
+                  <tr key={v.id}>
 
                     <td className="px-5 py-3 font-medium text-[#2D3A33]">{v.patient_name}</td>
 

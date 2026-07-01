@@ -454,11 +454,11 @@ function UsersTab() {
           <Plus className="w-4 h-4" /> Add user
         </button>
       </div>
-      <div className="bl-card overflow-hidden" data-testid="users-table">
+      <div className="bl-card table-card overflow-hidden" data-testid="users-table">
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full">
+            <thead className="bl-data-table-head">
+              <tr>
                 <th className="px-5 py-3">Name</th>
                 <th className="px-5 py-3">Email</th>
                 <th className="px-5 py-3">Role</th>
@@ -467,10 +467,10 @@ function UsersTab() {
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} className="border-t border-[#EAE6D7]">
+                <tr key={u.id}>
                   <td className="px-5 py-3 font-medium">{u.name}</td>
                   <td className="px-5 py-3 text-[#5C6C62]">{u.email}</td>
-                  <td className="px-5 py-3"><span className="bl-chip capitalize">{u.role.replace("_"," ")}</span></td>
+                  <td className="px-5 py-3"><span className="bl-chip muted capitalize">{u.role.replace("_"," ")}</span></td>
                   <td className="px-5 py-3 text-right space-x-3">
                     <button onClick={()=>startEdit(u)} className="text-sm text-[#5C6C62] hover:text-[#2D3A33]" data-testid={`user-edit-${u.id}`}>Edit</button>
                     <button onClick={()=>del(u)} className="text-sm text-[#B14A2C]" data-testid={`user-delete-${u.id}`}>Delete</button>
@@ -1623,9 +1623,9 @@ function CampaignsTab() {
         </form>
       </div>
 
-      <div className="bl-card overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+      <div className="bl-card table-card overflow-hidden">
+        <table className="bl-data-table w-full">
+          <thead className="bl-data-table-head">
             <tr>
               <th className="px-4 py-3">Campaign</th>
               <th className="px-4 py-3">Discount</th>
@@ -1640,7 +1640,7 @@ function CampaignsTab() {
               <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[#5C6C62]">No campaigns yet.</td></tr>
             )}
             {rows.map(c => (
-              <tr key={c.id} className="border-t border-[#EAE6D7]">
+              <tr key={c.id}>
                 <td className="px-4 py-3">
                   <div className="font-medium">{c.name}</div>
                   {c.code && <div className="text-xs font-mono text-[#5C6C62]">{c.code}</div>}
@@ -2570,8 +2570,8 @@ function MessagingTemplatesTab({ showLogs = true }) {
       </div>
 
       <div className="bl-card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+        <table className="bl-data-table w-full text-sm">
+          <thead className="bl-data-table-head">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Type</th>
@@ -2914,8 +2914,8 @@ function MessagingAutomationTab() {
       </div>
 
       <div className="bl-card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+        <table className="bl-data-table w-full text-sm">
+          <thead className="bl-data-table-head">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Trigger</th>

@@ -117,6 +117,9 @@ def resolve_branding_theme(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     action_secondary_border = border
     action_secondary_hover_bg = mix_hex(primary_soft, surface, 0.55)
 
+    table_header_bg = mix_hex(background, surface, 0.38)
+    table_row_hover = mix_hex(background, surface, 0.1)
+
     stored_sidebar_bg = base.get("sidebar_background") or ""
     stored_sidebar_active = base.get("sidebar_active") or ""
 
@@ -150,6 +153,8 @@ def resolve_branding_theme(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         "action_secondary_border": action_secondary_border,
         "action_secondary_hover_bg": action_secondary_hover_bg,
         "action_secondary_hover_text": text,
+        "table_header_bg": table_header_bg,
+        "table_row_hover": table_row_hover,
     }
 
 

@@ -183,11 +183,11 @@ export default function VisitsPage() {
         ))}
       </div>
 
-      <div className="mt-6 bl-card overflow-hidden hidden lg:block">
+      <div className="mt-6 bl-card table-card overflow-hidden hidden lg:block">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[720px]">
+            <thead className="bl-data-table-head">
+              <tr>
                 <th className="px-5 py-3">Patient</th>
                 <th className="px-5 py-3">Type</th>
                 <th className="px-5 py-3">Status</th>
@@ -210,7 +210,7 @@ export default function VisitsPage() {
                       openVisit(v.id);
                     }
                   }}
-                  className="border-t border-[#EAE6D7] hover:bg-[#FBF8EF] cursor-pointer transition-colors group"
+                  className="cursor-pointer transition-colors group"
                   data-testid={`visit-row-${v.id}`}
                 >
                   <td className="px-5 py-4 font-medium text-[#2D3A33]">{v.patient_name}</td>

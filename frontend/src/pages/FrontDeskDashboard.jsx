@@ -203,14 +203,14 @@ export default function FrontDeskDashboard({ embedded = false }) {
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <section className="xl:col-span-2 bl-card overflow-hidden" data-testid="fd-appointment-timeline">
+        <section className="xl:col-span-2 bl-card table-card overflow-hidden" data-testid="fd-appointment-timeline">
           <div className="px-5 py-4 border-b flex justify-between items-center">
             <h2 className="font-display text-lg">Appointment timeline</h2>
             <Link to="/bookings" className="text-sm" style={{ color: "var(--bl-primary)" }}>All appointments →</Link>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62] text-left">
+            <table className="bl-data-table w-full min-w-[720px] text-sm">
+              <thead className="bl-data-table-head">
                 <tr>
                   <th className="px-4 py-2">Time</th>
                   <th className="px-4 py-2">Patient</th>
@@ -227,7 +227,7 @@ export default function FrontDeskDashboard({ embedded = false }) {
                   <tr><td colSpan={8} className="text-center py-10 text-[#5C6C62]">No appointments today</td></tr>
                 )}
                 {(data?.appointments || []).map((a) => (
-                  <tr key={a.id} className="border-t border-[#EAE6D7]" data-testid="fd-appt-row">
+                  <tr key={a.id} data-testid="fd-appt-row">
                     <td className="px-4 py-3 font-mono whitespace-nowrap">{a.time}</td>
                     <td className="px-4 py-3">
                       {a.patient_id ? (

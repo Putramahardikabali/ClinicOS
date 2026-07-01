@@ -392,7 +392,7 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      <div className="mt-6 bl-card overflow-hidden">
+      <div className="mt-6 bl-card table-card overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-[#5C6C62]">Loading invoices…</div>
         ) : displayRows.length === 0 ? (
@@ -412,8 +412,8 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm" data-testid="invoices-table">
-              <thead className="bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62] text-left">
+            <table className="bl-data-table w-full min-w-[880px] text-sm" data-testid="invoices-table">
+              <thead className="bl-data-table-head">
                 <tr>
                   <th className="px-5 py-3">Invoice</th>
                   <th className="px-5 py-3">Patient</th>
@@ -428,7 +428,7 @@ export default function InvoicesPage() {
               </thead>
               <tbody>
                 {displayRows.map((inv) => (
-                  <tr key={inv.id} className="border-t border-[#EAE6D7] hover:bg-[#FDFBF7] transition-colors">
+                  <tr key={inv.id}>
                     <td className="px-5 py-3.5 font-mono text-xs text-[#2D3A33]">{inv.invoice_number}</td>
                     <td className="px-5 py-3.5">
                       <div className="font-medium text-[#2D3A33]">{inv.patient?.full_name || "—"}</div>

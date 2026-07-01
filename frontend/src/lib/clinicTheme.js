@@ -161,6 +161,9 @@ export function resolveBrandingTheme(raw = {}) {
   const actionSecondaryHoverBg = mixHex(primarySoft, surface, 0.55);
   const actionSecondaryHoverText = text;
 
+  const tableHeaderBg = mixHex(background, surface, 0.38);
+  const tableRowHover = mixHex(background, surface, 0.1);
+
   return {
     clinic_name: base.clinic_name || DEFAULT_BRANDING_BASE.clinic_name,
     tagline: base.tagline || DEFAULT_BRANDING_BASE.tagline,
@@ -191,6 +194,8 @@ export function resolveBrandingTheme(raw = {}) {
     action_secondary_border: actionSecondaryBorder,
     action_secondary_hover_bg: actionSecondaryHoverBg,
     action_secondary_hover_text: actionSecondaryHoverText,
+    table_header_bg: tableHeaderBg,
+    table_row_hover: tableRowHover,
   };
 }
 
@@ -222,6 +227,8 @@ export function brandingThemeCssVars(theme) {
     "--clinic-action-secondary-border": t.action_secondary_border,
     "--clinic-action-secondary-hover-bg": t.action_secondary_hover_bg,
     "--clinic-action-secondary-hover-text": t.action_secondary_hover_text,
+    "--bl-table-header-bg": t.table_header_bg,
+    "--bl-table-row-hover": t.table_row_hover,
   };
 }
 

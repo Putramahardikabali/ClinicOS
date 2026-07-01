@@ -37,6 +37,8 @@ describe("clinicTheme", () => {
     expect(theme.sidebar_muted_text).not.toBe(theme.sidebar_text);
     expect(theme.action_secondary_bg).toBe(theme.surface);
     expect(theme.action_secondary_border).toBe(theme.border_color);
+    expect(theme.table_header_bg).not.toBe(theme.primary_soft);
+    expect(theme.table_row_hover).not.toBe(theme.primary_soft);
   });
 
   it("falls back sidebar colors when unset", () => {

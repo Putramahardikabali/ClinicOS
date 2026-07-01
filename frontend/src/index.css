@@ -29,6 +29,8 @@
   --clinic-action-secondary-border: #EAE6D7;
   --clinic-action-secondary-hover-bg: #F5F8F5;
   --clinic-action-secondary-hover-text: #2D3A33;
+  --bl-table-header-bg: #F7F6F3;
+  --bl-table-row-hover: #FAFAF8;
 
   --background: 42 50% 98%;
   --foreground: 145 12% 19%;
@@ -82,6 +84,40 @@ h1, h2, h3, h4, h5, .font-display {
   transition: all 0.2s ease;
 }
 .bl-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(45, 58, 51, 0.06); }
+.bl-card.table-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Neutral data tables — surface/background tokens only, never brand tint */
+.bl-data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.bl-data-table thead,
+.bl-data-table-head {
+  background: var(--bl-table-header-bg);
+}
+.bl-data-table thead th,
+.bl-data-table-head th {
+  color: var(--bl-muted-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.bl-data-table tbody tr {
+  border-top: 1px solid var(--bl-border);
+  background: var(--bl-surface);
+  transition: background-color 0.12s ease;
+}
+.bl-data-table tbody tr:hover {
+  background: var(--bl-table-row-hover);
+}
+.bl-data-table tbody td {
+  color: var(--bl-text);
+}
 
 .bl-input {
   background: var(--bl-surface);
@@ -220,9 +256,14 @@ input.bl-input--with-search-icon {
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   font-weight: 600;
-  background: var(--bl-primary-soft);
+  background: var(--bl-table-header-bg);
   color: var(--bl-muted-text);
   border: 1px solid var(--bl-border);
+}
+.bl-chip.muted {
+  background: var(--bl-table-header-bg);
+  color: var(--bl-muted-text);
+  border-color: var(--bl-border);
 }
 .bl-chip.success { background: #EDF3EF; color: #52796F; border-color: #CFE0D5; }
 .bl-chip.warning { background: #FBF3DB; color: #8A6D1F; border-color: #EFE2B0; }

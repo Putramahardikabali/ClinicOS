@@ -667,10 +667,10 @@ export default function PackagesPage() {
         ))}
       </div>
 
-      <div className="mt-5 bl-card overflow-hidden" data-testid="packages-table">
+      <div className="mt-5 bl-card table-card overflow-hidden" data-testid="packages-table">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px]">
-            <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[800px]">
+            <thead className="bl-data-table-head">
               <tr>
                 <th className="px-5 py-3">Code</th>
                 <th className="px-5 py-3">Package</th>

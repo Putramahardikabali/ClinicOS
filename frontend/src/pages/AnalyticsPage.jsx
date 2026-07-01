@@ -13,6 +13,7 @@ import {
   exportAnalytics,
   fetchAnalytics,
 } from "@/lib/analytics";
+import DataTable from "@/components/DataTable";
 
 function SummaryCard({ label, value, sub }) {
   return (
@@ -20,34 +21,6 @@ function SummaryCard({ label, value, sub }) {
       <div className="label-eyebrow">{label}</div>
       <div className="font-display text-xl sm:text-2xl text-[#2D3A33] mt-1 tabular-nums">{value}</div>
       {sub && <div className="text-xs text-[#5C6C62] mt-0.5">{sub}</div>}
-    </div>
-  );
-}
-
-function DataTable({ columns, rows, empty = "No data for this range." }) {
-  if (!rows?.length) return <p className="text-sm text-[#5C6C62] py-6 text-center">{empty}</p>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[480px] text-sm">
-        <thead className="bg-[#F8F5EC] text-left text-xs uppercase tracking-widest text-[#5C6C62]">
-          <tr>
-            {columns.map((c) => (
-              <th key={c.key} className={`px-4 py-2.5 ${c.right ? "text-right" : ""}`}>{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.key ?? row.name ?? row.label ?? i} className="border-t border-[#EAE6D7]">
-              {columns.map((c) => (
-                <td key={c.key} className={`px-4 py-2.5 text-[#2D3A33] ${c.right ? "text-right tabular-nums" : ""}`}>
-                  {c.render ? c.render(row) : row[c.key]}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

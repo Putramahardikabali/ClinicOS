@@ -380,11 +380,11 @@ export default function PatientsPage() {
       </div>
 
       {/* Desktop: table */}
-      <div className="mt-6 bl-card overflow-hidden hidden lg:block" data-testid="patients-table">
+      <div className="mt-6 bl-card table-card overflow-hidden hidden lg:block" data-testid="patients-table">
         <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px]">
-          <thead className="bg-[#F8F5EC]">
-            <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+        <table className="bl-data-table w-full min-w-[920px]">
+          <thead className="bl-data-table-head">
+            <tr>
               <th className="px-5 py-3">Code</th>
               <th className="px-5 py-3">Name</th>
               <th className="px-5 py-3 w-[8.5rem]">Loyalty</th>
@@ -414,7 +414,7 @@ export default function PatientsPage() {
                     openPatient(p.id);
                   }
                 }}
-                className="border-t border-[#EAE6D7] hover:bg-[#FBF8EF] cursor-pointer transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--bl-primary)]"
+                className="cursor-pointer transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--bl-primary)]"
                 data-testid={`patient-row-${p.id}`}
                 aria-label={`View profile for ${patientDisplayName(p)}`}
               >

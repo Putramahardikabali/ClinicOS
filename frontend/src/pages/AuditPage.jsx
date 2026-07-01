@@ -80,11 +80,11 @@ export default function AuditPage() {
 
       {error && <div className="mt-6 bl-card p-5 text-[#B14A2C] text-sm">{error}</div>}
 
-      <div className="mt-6 bl-card overflow-hidden">
+      <div className="mt-6 bl-card table-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px]">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full min-w-[1100px]">
+            <thead className="bl-data-table-head">
+              <tr>
                 <th className="px-4 py-3">Time</th>
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Role</th>
@@ -113,7 +113,7 @@ export default function AuditPage() {
               )}
               {!loading &&
                 logs.map((l) => (
-                  <tr key={l.id} className="border-t border-[#EAE6D7] align-top">
+                  <tr key={l.id} className="align-top">
                     <td className="px-4 py-3 text-sm text-[#5C6C62] whitespace-nowrap">
                       {new Date(l.created_at).toLocaleString()}
                     </td>
@@ -127,7 +127,7 @@ export default function AuditPage() {
                       {(l.user_role || "").replace(/_/g, " ")}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="bl-chip">{l.action}</span>
+                      <span className="bl-chip muted">{l.action}</span>
                     </td>
                     <td className="px-4 py-3 text-sm text-[#5C6C62] capitalize">
                       {l.module || l.entity || "—"}
