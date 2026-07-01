@@ -153,6 +153,14 @@ export function buildSchedulePreviewLines(booking) {
   if (meta.profile_alert?.active) {
     lines.push({ label: "Alert", value: meta.profile_alert.label || "Profile alert" });
   }
+  if (meta.blacklist?.active) {
+    lines.push({
+      label: "Patient label",
+      value: meta.blacklist.reason
+        ? `Blacklist — ${meta.blacklist.reason}`
+        : "Blacklist",
+    });
+  }
   if (meta.loyalty?.active) {
     lines.push({ label: "Loyalty", value: meta.loyalty.tier_name || "Member" });
   }

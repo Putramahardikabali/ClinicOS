@@ -22,6 +22,8 @@ import MappingCanvas from "@/components/visit/MappingCanvas";
 import VisitConsentPanel from "@/components/consent/VisitConsentPanel";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import WhatsgoPatientActions from "@/components/messaging/whatsgo/WhatsgoPatientActions";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import FeatureGate from "@/components/FeatureGate";
 import { useClinic } from "@/lib/clinic";
 import { REALTIME_TOPICS, visitTopicKey } from "@/lib/realtimeEvents";
@@ -236,11 +238,14 @@ export default function VisitDetailPage() {
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
+      <PatientBlacklistBanner patient={visit.patient} className="mt-4" />
+
       <div className="mt-5 flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="label-eyebrow">{visit.visit_type} treatment session</div>
-          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">
+          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light mt-2 text-[#2D3A33] flex flex-wrap items-center gap-2">
             <Link to={`/patients/${visit.patient.id}`} className="hover:opacity-70">{visit.patient.full_name}</Link>
+            <PatientLabelsRow labels={visit.patient?.patient_labels} size="md" />
           </h1>
           <div className="mt-1.5 space-y-1.5 text-sm text-[#5C6C62]">
             <div className="flex flex-wrap items-center gap-2">

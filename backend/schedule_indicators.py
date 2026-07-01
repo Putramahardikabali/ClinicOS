@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from visit_workflow import clinic_loyalty_tiers, resolve_patient_loyalty
+from patient_labels_core import blacklist_info_from_labels, enrich_patients_with_labels
 
 
 def resolve_schedule_display_status(booking: dict, visit: Optional[dict] = None) -> str:
@@ -47,6 +48,27 @@ def _profile_alert_from_patient(patient: Optional[dict]) -> Dict[str, Any]:
     if guest_icon:
         return {"active": True, "label": guest_icon[:120]}
     return {"active": False, "label": ""}
+
+
+def _labels_profile_alert(patient: Optional[dict]) -> Dict[str, Any]:
+    labels = (patient or {}).get("patient_labels") or []
+    bl = blacklist_info_from_labels(labels)
+    if bl.get("active"):
+        reason = (bl.get("reason") or "").strip()
+        label = bl.get("label") or "Blacklist"
+        return {"active": True, "label": f"{label}: {reason}" if reason else label}
+    return {"active": False, "label": ""}
+
+
+def _merge_profile_alerts(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
+    if not secondary.get("active"):
+        return primary
+    if not primary.get("active"):
+        return secondary
+    return {
+        "active": True,
+        "label": f"{primary.get('label') or 'Alert'}; {secondary.get('label') or 'Alert'}",
+    }
 
 
 def _profile_alert_from_history(
@@ -120,7 +142,12 @@ def build_schedule_indicators(
     staff_names: Dict[str, str],
 ) -> Dict[str, Any]:
     """Build schedule_meta.indicators for one appointment card."""
-    profile_alert = _profile_alert_from_history(patient, booking_history)
+    profile_alert = _merge_profile_alerts(
+        _profile_alert_from_history(patient, booking_history),
+        _labels_profile_alert(patient),
+    )
+    patient_labels = (patient or {}).get("patient_labels") or []
+    blacklist = blacklist_info_from_labels(patient_labels)
     specific_staff = _has_specific_staff_request(booking)
     package_use = _uses_package(booking)
     has_loyalty = bool(loyalty_tier and loyalty_tier.get("name"))
@@ -146,6 +173,8 @@ def build_schedule_indicators(
     return {
         "display_status": display_status,
         "profile_alert": profile_alert,
+        "patient_labels": patient_labels,
+        "blacklist": blacklist,
         "specific_staff_request": {
             "active": specific_staff,
             "label": _requested_staff_label(booking, staff_names) if specific_staff else "",
@@ -189,6 +218,7 @@ async def enrich_bookings_schedule_meta(db, clinic_id: str, bookings: List[dict]
             },
         ):
             patients_by_id[p["id"]] = p
+        await enrich_patients_with_labels(db, clinic_id, list(patients_by_id.values()))
 
     visits_by_id: Dict[str, dict] = {}
     if visit_ids:

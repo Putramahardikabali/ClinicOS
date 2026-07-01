@@ -3,7 +3,9 @@ import api from "@/lib/api";
 import { can } from "@/lib/auth";
 import { toast } from "sonner";
 import { UserPlus, X } from "lucide-react";
-import PosSearchCombobox from "@/components/pos/PosSearchCombobox";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
+import { isBlacklisted } from "@/lib/patientLabelDisplay";
 
 export default function PosCustomerBar({
   user,
@@ -98,9 +100,13 @@ export default function PosCustomerBar({
       {!walkIn && (
         <div className="mb-3">
           {selectedPatient ? (
-            <div className="bl-input flex items-start justify-between gap-3 py-3" data-testid="pos-selected-patient">
+            <div className="bl-input flex flex-col gap-2 py-3" data-testid="pos-selected-patient">
+              <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-medium text-[#2D3A33]">{selectedPatient.full_name}</div>
+                <div className="font-medium text-[#2D3A33] flex flex-wrap items-center gap-2">
+                  {selectedPatient.full_name}
+                  <PatientLabelsRow labels={selectedPatient.patient_labels} />
+                </div>
                 {patientSecondary(selectedPatient) && (
                   <div className="text-xs text-[#5C6C62] mt-0.5">{patientSecondary(selectedPatient)}</div>
                 )}
@@ -116,6 +122,8 @@ export default function PosCustomerBar({
               >
                 Change
               </button>
+              </div>
+              <PatientBlacklistBanner patient={selectedPatient} />
             </div>
           ) : (
             <PosSearchCombobox
@@ -137,9 +145,15 @@ export default function PosCustomerBar({
               testId="pos-patient-search"
               renderOption={(p) => (
                 <>
-                  <div className="font-medium text-sm text-[#2D3A33]">{p.full_name}</div>
+                  <div className="font-medium text-sm text-[#2D3A33] flex flex-wrap items-center gap-1.5">
+                    {p.full_name}
+                    <PatientLabelsRow labels={p.patient_labels} />
+                  </div>
                   {patientSecondary(p) && (
-                    <div className="text-xs text-[#5C6C62] mt-0.5">{patientSecondary(p)}</div>
+                    <div className="text-xs text-[#5C6C62] mt-0.5">
+                      {patientSecondary(p)}
+                      {isBlacklisted(p) ? " · Blacklisted patient" : ""}
+                    </div>
                   )}
                 </>
               )}

@@ -17,7 +17,9 @@ import AdditionalPerformersEditor, { validateAdditionalPerformers } from "@/comp
 import { useClinic } from "@/lib/clinic";
 import { useSettings } from "@/lib/settings";
 import { openWhatsgoChatSafe } from "@/lib/whatsgo";
-import { toast } from "sonner";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
+import { isBlacklisted, blacklistReason } from "@/lib/patientLabelDisplay";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -733,6 +735,12 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   const [suggestedPerformerId, setSuggestedPerformerId] = useState(null);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [appliedGiftCard, setAppliedGiftCard] = useState(null);
+  const [labelSettings, setLabelSettings] = useState({ blacklist_booking_policy: "require_confirmation" });
+  const [selectedPatientRecord, setSelectedPatientRecord] = useState(null);
+
+  useEffect(() => {
+    api.get("/patient-labels/settings").then((r) => setLabelSettings(r.data || {})).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.get("/treatments-catalog", { params: { active_only: true } }).then(r => setTreatments(r.data || []));
@@ -962,12 +970,26 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   };
 
   const selectPatient = (p) => {
+    if (isBlacklisted(p)) {
+      const policy = labelSettings.blacklist_booking_policy || "require_confirmation";
+      const reason = blacklistReason(p);
+      if (policy === "block") {
+        toast.error("This patient is blacklisted. Appointment creation is blocked by clinic policy.");
+        return;
+      }
+      if (policy === "require_confirmation") {
+        const msg = `This patient is marked as Blacklist.${reason ? `\n\nReason: ${reason}` : ""}\n\nContinue booking anyway?`;
+        if (!window.confirm(msg)) return;
+      }
+    }
+    setSelectedPatientRecord(p);
     setForm(f => ({ ...f, patient_id: p.id, patient_name: patientDisplayName(p), patient_phone: p.phone || "", patient_email: p.email || "" }));
     setNewPatient(false);
     setStep("details");
   };
 
   const startNewPatient = () => {
+    setSelectedPatientRecord(null);
     setForm(f => ({ ...f, patient_id: "", patient_name: "", patient_phone: "", patient_email: "" }));
     setNewPatient(true);
     setStep("details");
@@ -1104,8 +1126,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
               )}
               {!loadingPatients && visiblePatients.map(p => (
                 <button key={p.id} onClick={() => selectPatient(p)} className="w-full text-left px-4 py-2.5 border-b border-[#EAE6D7] last:border-b-0 hover:bg-[#F8F5EC]" data-testid={`nb-patient-${p.id}`}>
-                  <div className="font-medium text-[#2D3A33]">{patientDisplayName(p)}</div>
-                  <div className="text-xs text-[#5C6C62]">{p.phone || "—"} {p.email && `· ${p.email}`}{p.user_code && ` · ${p.user_code}`}</div>
+                  <div className="font-medium text-[#2D3A33] flex flex-wrap items-center gap-2">
+                    {patientDisplayName(p)}
+                    <PatientLabelsRow labels={p.patient_labels} />
+                  </div>
+                  <div className="text-xs text-[#5C6C62]">
+                    {p.phone || "—"} {p.email && `· ${p.email}`}{p.user_code && ` · ${p.user_code}`}
+                    {isBlacklisted(p) && <span className="text-red-700 font-medium"> · Blacklisted patient</span>}
+                  </div>
                 </button>
               ))}
             </div>
@@ -1119,7 +1147,8 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
               <p className="text-xs text-[#5C6C62]">Step 2 of 3 · Appointment details</p>
               <BookingStepProgress current="service" />
             </div>
-            <button onClick={() => setStep("patient")} className="text-xs text-[#5C6C62] hover:text-[#2D3A33]">← Change patient</button>
+            <button onClick={() => { setSelectedPatientRecord(null); setStep("patient"); }} className="text-xs text-[#5C6C62] hover:text-[#2D3A33]">← Change patient</button>
+            <PatientBlacklistBanner patient={selectedPatientRecord} className="mt-2" />
             <div className="bl-card p-3 text-sm flex items-center justify-between">
               <div>
                 <div className="font-medium text-[#2D3A33]">{form.patient_name || "Walk-in"}</div>

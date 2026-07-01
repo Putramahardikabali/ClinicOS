@@ -25,6 +25,7 @@ import FormsPage from "@/pages/FormsPage";
 import FinanceSettingsPage from "@/pages/FinanceSettingsPage";
 import CampaignsPage from "@/pages/marketing/CampaignsPage";
 import LoyaltyPage from "@/pages/marketing/LoyaltyPage";
+import PatientLabelsPage from "@/pages/settings/PatientLabelsPage";
 import { legacyAdminTabRedirect } from "@/lib/settingsNavigation";
 import StaffPage from "@/pages/StaffPage";
 import StaffProfilePage from "@/pages/StaffProfilePage";
@@ -159,6 +160,7 @@ export default function App() {
               <Route path="/finance-settings" element={<Protected anyPermission={["commission.manage", "billing.manage", "settings.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FinanceSettingsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/campaigns" element={<Protected anyPermission={["campaigns.manage", "campaigns.view", "coupons.manage"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><CampaignsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/loyalty" element={<Protected anyPermission={["loyalty.manage", "loyalty.view"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><LoyaltyPage /></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/patient-labels" element={<Protected anyPermission={["patient_labels.manage", "patient_labels.view"]} roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><PatientLabelsPage /></Shell></OnboardingRedirect></Protected>} />
               <Route path="/finance-settings/campaigns" element={<Navigate to="/campaigns" replace />} />
               <Route path="/finance-settings/loyalty" element={<Navigate to="/loyalty" replace />} />
               <Route path="/reports" element={<Protected anyPermission={["reports.view", "billing.view", "accounting.view"]} roles={["super_admin", "manager", "accounting"]}><OnboardingRedirect><Shell><FeatureRoute feature="reports"><ReportsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />

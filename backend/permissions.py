@@ -22,6 +22,10 @@ PERMISSION_CATALOG: Dict[str, List[Dict[str, str]]] = {
         {"key": "patients.edit", "label": "Edit patients"},
         {"key": "patients.export", "label": "Export patients (Excel/CSV)"},
         {"key": "patients.delete", "label": "Delete patients"},
+        {"key": "patient_labels.view", "label": "View patient labels"},
+        {"key": "patient_labels.manage", "label": "Manage patient label catalog"},
+        {"key": "patient_labels.assign", "label": "Assign patient labels"},
+        {"key": "patient_labels.remove", "label": "Remove patient labels"},
     ],
     "Appointments": [
         {"key": "appointments.view", "label": "View bookings"},
@@ -162,6 +166,7 @@ _ACCOUNTING_BASE_PERMS = {
     "gift_cards.view",
     "prepaid.view",
     "prepaid.refund",
+    "patient_labels.view",
     "refunds.view",
     "wallet.view",
     "wallet.export",
@@ -182,6 +187,7 @@ _CLINICAL_BASE_PERMS = {
     "clinical_records.edit",
     "packages.view",
     "consent.view",
+    "patient_labels.view",
     "inventory.view",
     "inventory.usage_record",
 }
@@ -201,6 +207,7 @@ SYSTEM_ROLE_DEFINITIONS = [
         "is_system_role": True,
         "permissions": sorted({
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
+            "patient_labels.view", "patient_labels.manage", "patient_labels.assign", "patient_labels.remove",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
             "appointments.override_conflict", "bookings.create_overtime", "coupons.manage", "campaigns.view", "campaigns.manage",
             "loyalty.view", "loyalty.manage",
@@ -231,6 +238,7 @@ SYSTEM_ROLE_DEFINITIONS = [
         "is_system_role": True,
         "permissions": sorted({
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
+            "patient_labels.view", "patient_labels.assign", "patient_labels.remove",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
             "visits.view", "billing.view", "billing.create", "billing.edit",
             "payments.void", "refunds.create",

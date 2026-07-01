@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Plus, X, Download, Upload, FileSpreadsheet, ChevronLeft, ChevronRight, HelpCircle, MoreHorizontal } from "lucide-react";
 import { SearchFieldBar } from "@/components/ui/SearchInput";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 import { API_BASE } from "@/lib/api";
 import {
   DropdownMenu,
@@ -359,8 +360,9 @@ export default function PatientsPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-[#2D3A33] truncate">{patientDisplayName(p)}</div>
-                <div className="mt-1">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <LoyaltyBadge tier={p.loyalty_tier} emptyLabel="No tier" />
+                  <PatientLabelsRow labels={p.patient_labels} />
                 </div>
                 <div className="text-xs text-[#5C6C62] truncate mt-1">
                   {p.user_code && <span className="font-mono mr-1">{p.user_code}</span>}
@@ -419,7 +421,10 @@ export default function PatientsPage() {
                 aria-label={`View profile for ${patientDisplayName(p)}`}
               >
                 <td className="px-5 py-4 align-middle text-xs font-mono text-[#5C6C62]">{p.user_code || "—"}</td>
-                <td className="px-5 py-4 align-middle font-medium text-[#2D3A33]">{patientDisplayName(p)}</td>
+                <td className="px-5 py-4 align-middle font-medium text-[#2D3A33]">
+                  <div>{patientDisplayName(p)}</div>
+                  <PatientLabelsRow labels={p.patient_labels} className="mt-1" />
+                </td>
                 <td className="px-5 py-4 align-middle">
                   <LoyaltyBadge tier={p.loyalty_tier} emptyLabel="No tier" />
                 </td>

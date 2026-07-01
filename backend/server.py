@@ -129,6 +129,7 @@ from gift_cards import register_gift_cards
 from refunds import register_refunds
 from patient_wallets import register_patient_wallets
 from prepaid import register_prepaid
+from patient_labels import register_patient_labels
 import totp_2fa as t2fa
 from platform_ops import create_platform_notification, seed_clinic_settings, invalidate_user_sessions
 from subscription_gates import assert_operational_access, maybe_notify_trial_expired_platform
@@ -896,6 +897,10 @@ DEFAULT_SETTINGS = {
     "security": {
         "require_2fa_for_owner_manager": False,
     },
+    "patient_labels": {
+        "blacklist_booking_policy": "require_confirmation",
+        "fo_can_assign_labels": True,
+    },
 }
 
 # ---------------- Auth Endpoints ----------------
@@ -1555,7 +1560,9 @@ async def list_patients(
         skip = (page - 1) * page_size
         items = await db.patients.find(flt, {"_id": 0}).sort(sort_field, sort_dir).skip(skip).limit(page_size).to_list(page_size)
         from visit_workflow import enrich_patients_loyalty
+        from patient_labels_core import enrich_patients_with_labels
         await enrich_patients_loyalty(db, user.get("clinic_id"), items)
+        await enrich_patients_with_labels(db, user.get("clinic_id"), items)
         total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
         return {
             "items": items,
@@ -1565,6 +1572,8 @@ async def list_patients(
             "pages": total_pages,
         }
     items = await db.patients.find(flt, {"_id": 0}).sort(sort_field, sort_dir).to_list(2000)
+    from patient_labels_core import enrich_patients_with_labels
+    await enrich_patients_with_labels(db, user.get("clinic_id"), items)
     return items
 
 @api.get("/patients/export")
@@ -1693,6 +1702,8 @@ async def get_patient(pid: str, user: dict = Depends(get_operational_user)):
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
     await assert_patient_access(db, user, pid)
+    from patient_labels_core import enrich_patients_with_labels
+    await enrich_patients_with_labels(db, user.get("clinic_id"), [p])
     return p
 
 @api.put("/patients/{pid}")
@@ -1838,6 +1849,9 @@ async def get_visit(vid: str, user: dict = Depends(get_operational_user)):
         raise HTTPException(status_code=404, detail="Visit not found")
     await assert_staff_visit_access(db, user, v)
     p = await db.patients.find_one({"id": v["patient_id"]}, {"_id": 0})
+    if p:
+        from patient_labels_core import enrich_patients_with_labels
+        await enrich_patients_with_labels(db, v["clinic_id"], [p])
     v["patient"] = p
     v["clinical_record"] = enrich_record_status(
         await db.clinical_records.find_one({"visit_id": vid}, {"_id": 0}), v,
@@ -2715,6 +2729,16 @@ register_prepaid(
     assert_feature=assert_feature,
     audit=audit,
     scope=scope,
+)
+
+register_patient_labels(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    assert_writeable=assert_writeable,
+    audit=audit,
+    scope=scope,
+    assert_patient_access=assert_patient_access,
 )
 
 register_clinic_account(

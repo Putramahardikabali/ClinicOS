@@ -25,6 +25,7 @@ import {
   ClipboardList,
   Tag,
   Award,
+  Shield,
 } from "lucide-react";
 
 const NAV = [
@@ -44,6 +45,7 @@ const NAV = [
   { to: "/messaging", label: "Messaging", icon: MessageSquare, anyPermission: ["messaging.view", "messaging.manage", "messaging.automation.view", "messaging.automation.manage"], roles: ["super_admin", "manager"], shortLabel: "Messaging", feature: "whatsapp_automation" },
   { to: "/campaigns", label: "Campaigns", icon: Tag, anyPermission: ["campaigns.manage", "campaigns.view", "coupons.manage"], roles: ["super_admin", "manager"], shortLabel: "Campaigns" },
   { to: "/loyalty", label: "Loyalty", icon: Award, anyPermission: ["loyalty.manage", "loyalty.view"], roles: ["super_admin", "manager"], shortLabel: "Loyalty" },
+  { to: "/patient-labels", label: "Patient Labels", icon: Shield, anyPermission: ["patient_labels.manage", "patient_labels.view"], roles: ["super_admin", "manager"], shortLabel: "Labels" },
   { to: "/pos", label: "POS", icon: ShoppingCart, anyPermission: ["pos.view", "pos.create"], roles: ["super_admin","fo","manager","accounting"], shortLabel: "POS", feature: "products" },
   { to: "/reports", label: "Reports", icon: TrendingUp, anyPermission: ["reports.view", "billing.view", "accounting.view"], roles: ["super_admin","manager","accounting"], shortLabel: "Reports", feature: "reports" },
   { to: "/analytics", label: "Analytics", icon: BarChart3, permission: "analytics.view", roles: ["super_admin", "manager"], shortLabel: "Analytics", feature: "reports" },
@@ -57,6 +59,7 @@ const NAV = [
 const OPS_SETTINGS_PATHS = [
   "/admin",
   "/loyalty",
+  "/patient-labels",
   "/messaging",
   "/visit-settings",
   "/billing/plans",
@@ -67,6 +70,7 @@ const OPS_SETTINGS_PATHS = [
 const OPS_SETTINGS_LABELS = {
   "/admin": "General",
   "/loyalty": "Loyalty",
+  "/patient-labels": "Patient Labels",
   "/messaging": "Messaging",
   "/visit-settings": "Session",
   "/billing/plans": "Billing & Plan",

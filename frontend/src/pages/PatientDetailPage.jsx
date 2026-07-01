@@ -37,6 +37,9 @@ import PatientPackagesPanel from "@/components/patient/PatientPackagesPanel";
 import PatientPrepaidPanel from "@/components/patient/PatientPrepaidPanel";
 import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import ManagePatientLabelsModal from "@/components/patient/ManagePatientLabelsModal";
+import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
 import NationalityCombobox from "@/components/patient/NationalityCombobox";
 import WhatsgoPatientActions from "@/components/messaging/whatsgo/WhatsgoPatientActions";
@@ -90,9 +93,11 @@ export default function PatientDetailPage() {
   const [vForm, setVForm] = useState({ visit_type: "doctor", assigned_to: "", chief_complaint: "" });
   const [consentForm, setConsentForm] = useState({ consent_status: "unsigned", consent_notes: "" });
   const [consentBusy, setConsentBusy] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
 
   const tabs = useMemo(() => visibleTabs(access), [access]);
   const tab = searchParams.get("tab") || "overview";
+  const canManageLabels = hasPermission(user, "patient_labels.assign") || hasPermission(user, "patient_labels.manage");
   const activeTab = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   const setTab = (id) => setSearchParams({ tab: id }, { replace: true });
@@ -611,17 +616,26 @@ export default function PatientDetailPage() {
       </Link>
 
       <div className="mt-6 flex items-end justify-between flex-wrap gap-4">
-        <div>
+        <div className="space-y-3">
+          <PatientBlacklistBanner patient={patient} />
+          <div>
           <div className="label-eyebrow">Patient profile</div>
           <div className="flex flex-wrap items-center gap-3 mt-2">
             <h1 className="font-display text-4xl tracking-tight font-light text-[#2D3A33]" data-testid="patient-name">{patient.full_name}</h1>
             {stats && <LoyaltyBadge tier={stats.loyalty_tier} size="md" />}
+            <PatientLabelsRow labels={patient.patient_labels} size="md" />
           </div>
           <p className="mt-1 text-[#5C6C62]">
             {patient.gender ? `${patient.gender} · ` : ""}{patient.phone || "—"}{patient.email ? ` · ${patient.email}` : ""}
           </p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canManageLabels && (
+            <button type="button" className="bl-btn-secondary text-sm" onClick={() => setLabelsOpen(true)} data-testid="manage-patient-labels">
+              Manage labels
+            </button>
+          )}
           <WhatsgoPatientActions patientId={pid} canSend={canWhatsgoSend} />
           {canEditBasic && (
             <button type="button" onClick={openEditModal} className="bl-btn-secondary inline-flex items-center gap-2" data-testid="edit-patient-button">
@@ -650,6 +664,14 @@ export default function PatientDetailPage() {
       </div>
 
       <div className="mt-6">{tabContent[activeTab]}</div>
+
+      <ManagePatientLabelsModal
+        patientId={pid}
+        patientName={patient?.full_name}
+        open={labelsOpen}
+        onClose={() => setLabelsOpen(false)}
+        onUpdated={loadCore}
+      />
 
       {openEdit && (
         <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenEdit(false)}>

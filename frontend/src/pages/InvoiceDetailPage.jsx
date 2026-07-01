@@ -6,7 +6,8 @@ import {
 } from "@/lib/performerUtils";
 import InvoiceLineItemRow from "@/components/invoices/InvoiceLineItemRow";
 import InvoiceAddItemBar from "@/components/invoices/InvoiceAddItemBar";
-import InvoiceCheckoutPanel from "@/components/invoices/InvoiceCheckoutPanel";
+import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { resolveLineQuantity, lineGrossIdr } from "@/lib/invoiceLineQuantity";
@@ -58,6 +59,7 @@ export default function InvoiceDetailPage() {
   const [walletBalance, setWalletBalance] = useState(0);
   const [selectedPrepaidId, setSelectedPrepaidId] = useState("");
   const [prepaidAmount, setPrepaidAmount] = useState("");
+  const [invoicePatient, setInvoicePatient] = useState(null);
   const [giftLookup, setGiftLookup] = useState(null);
   const [busy, setBusy] = useState(false);
   const canRedeemGiftCard = hasPermission(user, "gift_cards.redeem");
@@ -171,6 +173,17 @@ export default function InvoiceDetailPage() {
       setCampaignBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!invoice?.patient_id) {
+      setInvoicePatient(null);
+      return undefined;
+    }
+    api.get(`/patients/${invoice.patient_id}`)
+      .then((r) => setInvoicePatient(r.data))
+      .catch(() => setInvoicePatient(null));
+    return undefined;
+  }, [invoice?.patient_id, invoice?.updated_at]);
 
   useEffect(() => {
     if (!invoice?.patient_id || !canUseWallet) {
@@ -583,12 +596,16 @@ export default function InvoiceDetailPage() {
         <div>
           <div className="label-eyebrow">Invoice</div>
           <h1 className="font-display text-3xl text-[#2D3A33]">{invoice.invoice_number}</h1>
-          <p className="text-sm text-[#5C6C62] mt-1">
-            {invoice.patient?.full_name || "Patient"}
-            {invoice.visit_id && (
-              <> · <Link to={`/visits/${invoice.visit_id}`} className="underline">Session record</Link></>
-            )}
+          <p className="text-sm text-[#5C6C62] mt-1 flex flex-wrap items-center gap-2">
+            <span>{invoice.patient?.full_name || "Patient"}</span>
+            <PatientLabelsRow labels={invoicePatient?.patient_labels} />
           </p>
+          <PatientBlacklistBanner patient={invoicePatient} className="mt-3" />
+          {invoice.visit_id && (
+            <p className="text-sm text-[#5C6C62] mt-1">
+              <Link to={`/visits/${invoice.visit_id}`} className="underline">Session record</Link>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <span className={`bl-chip ${preview.status === "paid" ? "success" : preview.status === "partial" ? "info" : "warning"}`}>
