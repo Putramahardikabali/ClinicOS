@@ -55,6 +55,16 @@ import {
   isHighlightableBooking,
   patientHighlightBannerText,
 } from "@/components/bookings/schedulePatientHighlight";
+import {
+  filterBookingsByScheduleStatus,
+  resolveApiStatusFilter,
+  SCHEDULE_STATUS_FILTER_OPTIONS,
+} from "@/components/bookings/scheduleStatusFilter";
+import {
+  bookingMatchesScheduleSearch,
+  countSearchMatches,
+} from "@/components/bookings/scheduleSearch";
+import SearchInput from "@/components/ui/SearchInput";
 import { toast } from "sonner";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
@@ -103,6 +113,20 @@ function slotOverlapsBooking(bookings, staffId, slotStart, slotEnd) {
   });
 }
 
+function resolveBookingCardHighlight(booking, { patientHighlight, scheduleDate, searchQuery }) {
+  const patientMatch = patientHighlight && bookingMatchesPatientHighlight(booking, patientHighlight, scheduleDate);
+  const searchActive = Boolean((searchQuery || "").trim());
+  const searchMatch = searchActive && bookingMatchesScheduleSearch(booking, searchQuery);
+  const dimmed =
+    (patientHighlight && !patientMatch && !isTimeBlock(booking))
+    || (searchActive && !searchMatch && !isTimeBlock(booking));
+  return {
+    patientHighlightMatch: patientMatch || searchMatch,
+    patientHighlightDimmed: dimmed,
+    searchHighlightMatch: searchMatch && !patientMatch,
+  };
+}
+
 function BookingBlock({
   booking,
   openMin,
@@ -115,7 +139,9 @@ function BookingBlock({
   onManipulateStart,
   patientHighlightMatch = false,
   patientHighlightDimmed = false,
+  searchHighlightMatch = false,
   onHighlightPatient,
+  tooltipContainer = null,
 }) {
   const start = displayOverride?.startMin ?? bookingStartMin(booking.scheduled_at);
   const dur = displayOverride?.durationMin ?? (booking.duration_min || 30);
@@ -170,7 +196,7 @@ function BookingBlock({
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${searchHighlightMatch ? "ring-1 ring-[#52796F]/70 z-[12]" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
 
   const cardBody = (
     <>
@@ -266,10 +292,12 @@ function BookingBlock({
         <Tooltip delayDuration={280}>
           <TooltipTrigger asChild>{interactiveCard}</TooltipTrigger>
           <TooltipContent
+            container={tooltipContainer}
             side="right"
             align="start"
             sideOffset={8}
-            className="max-w-[260px] p-0 border border-[#EAE6D7] bg-white text-[#2D3A33] shadow-lg rounded-lg"
+            collisionPadding={tooltipContainer ? { top: 8, bottom: 8, left: 8, right: 88 } : 8}
+            className={`max-w-[260px] p-0 border border-[#EAE6D7] bg-white text-[#2D3A33] shadow-lg rounded-lg ${tooltipContainer ? "z-[95]" : "z-50"}`}
             data-testid={`schedule-preview-${booking.id}`}
           >
             <div className="px-3 py-2.5 space-y-1.5">
@@ -401,6 +429,8 @@ function StaffRow({
   onSlotPointerEnter,
   patientHighlight,
   onHighlightPatient,
+  searchQuery = "",
+  tooltipContainer = null,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -413,12 +443,11 @@ function StaffRow({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
-    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, scheduleDate);
-    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate, searchQuery });
     const blockProps = {
-      patientHighlightMatch: match,
-      patientHighlightDimmed: dimmed,
+      ...highlight,
       onHighlightPatient,
+      tooltipContainer,
     };
     if (apptManip?.bookingId === b.id) {
       if (apptManip.preview.staffId !== staff.id) return null;
@@ -572,6 +601,8 @@ function StaffColumn({
   onSlotPointerEnter,
   patientHighlight,
   onHighlightPatient,
+  searchQuery = "",
+  tooltipContainer = null,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -585,12 +616,11 @@ function StaffColumn({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
-    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, scheduleDate);
-    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate, searchQuery });
     const blockProps = {
-      patientHighlightMatch: match,
-      patientHighlightDimmed: dimmed,
+      ...highlight,
       onHighlightPatient,
+      tooltipContainer,
     };
     if (apptManip?.bookingId === b.id) {
       if (apptManip.preview.staffId !== staff.id) return null;
@@ -773,6 +803,7 @@ export default function BookingsScheduleView({
   date,
   onDateChange,
   statusFilter,
+  onStatusFilterChange,
   onSelectBooking,
   onEmptySlot,
   onOvertimeSlot,
@@ -793,6 +824,7 @@ export default function BookingsScheduleView({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeUtility, setActiveUtility] = useState(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const shellRef = useRef(null);
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
@@ -834,14 +866,17 @@ export default function BookingsScheduleView({
   const load = useCallback(() => {
     setLoading(true);
     const params = { date, schedule_meta: true };
-    if (statusFilter) params.status = statusFilter;
+    const apiStatus = resolveApiStatusFilter(statusFilter);
+    if (apiStatus) params.status = apiStatus;
     Promise.all([
       api.get("/bookings", { params }),
       api.get("/users"),
       api.get("/staff/schedule/effective", { params: { date } }),
     ])
       .then(([bRes, uRes, effRes]) => {
-        setBookings(bRes.data || []);
+        let items = bRes.data || [];
+        items = filterBookingsByScheduleStatus(items, statusFilter);
+        setBookings(items);
         const list = (uRes.data || []).filter(
           (u) => ["doctor", "therapist", "nurse"].includes(u.role) && u.active !== false,
         );
@@ -915,6 +950,7 @@ export default function BookingsScheduleView({
 
   useEffect(() => {
     clearPatientHighlight();
+    setSearchQuery("");
   }, [date, statusFilter, clearPatientHighlight]);
 
   useEffect(() => {
@@ -1388,6 +1424,11 @@ export default function BookingsScheduleView({
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
   const gridScrollClass = isFullscreen ? "h-full" : "max-h-[min(72vh,900px)]";
+  const tooltipContainer = isFullscreen ? shellRef.current : undefined;
+  const searchMatchCount = useMemo(
+    () => countSearchMatches(bookings, searchQuery),
+    [bookings, searchQuery],
+  );
 
   const renderHorizontal = () => (
     <div className={`overflow-auto ${gridScrollClass}`} data-testid="schedule-horizontal">
@@ -1444,6 +1485,8 @@ export default function BookingsScheduleView({
                   onSlotPointerEnter={onSlotPointerEnter}
                   patientHighlight={patientHighlight}
                   onHighlightPatient={onHighlightPatient}
+                  searchQuery={searchQuery}
+                  tooltipContainer={tooltipContainer}
                 />
               ))}
             </div>
@@ -1546,6 +1589,8 @@ export default function BookingsScheduleView({
                 onSlotPointerEnter={onSlotPointerEnter}
                 patientHighlight={patientHighlight}
                 onHighlightPatient={onHighlightPatient}
+                searchQuery={searchQuery}
+                tooltipContainer={tooltipContainer}
               />
             ))}
           </div>
@@ -1566,7 +1611,7 @@ export default function BookingsScheduleView({
       data-testid="bookings-schedule-view"
       data-schedule-fullscreen={isFullscreen ? "true" : "false"}
     >
-      <div className={`flex items-center justify-between flex-wrap gap-3 mb-4 ${isFullscreen ? "shrink-0" : ""}`}>
+      <div className={`flex flex-wrap items-center gap-2 sm:gap-3 mb-4 ${isFullscreen ? "shrink-0" : ""}`}>
         <div className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => shiftDay(-1)} className="bl-icon-btn" data-testid="schedule-prev-day">
             <ChevronLeft className="w-4 h-4" />
@@ -1584,7 +1629,32 @@ export default function BookingsScheduleView({
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {isFullscreen && (
+          <div className="flex items-center gap-2 flex-1 min-w-[12rem] flex-wrap w-full sm:w-auto sm:flex-initial">
+            <SearchInput
+              className="flex-1 min-w-[12rem] max-w-md"
+              inputClassName="text-sm py-2"
+              placeholder="Search patient, phone, treatment..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="schedule-patient-search"
+            />
+            {onStatusFilterChange && (
+              <select
+                className="bl-input text-sm w-auto min-w-[9.5rem] max-w-[13rem] py-2 h-auto"
+                value={statusFilter || ""}
+                onChange={(e) => onStatusFilterChange(e.target.value)}
+                data-testid="schedule-status-filter"
+              >
+                {SCHEDULE_STATUS_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value || "all"} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
           <div className="bl-segmented" data-testid="schedule-orientation-toggle">
             <button
               type="button"
@@ -1626,7 +1696,7 @@ export default function BookingsScheduleView({
             <span className="font-medium">{patientHighlightBannerText(patientHighlight)}</span>
             {patientHighlight.hiddenCount > 0 && (
               <span className="block text-xs text-[#3B82F6] mt-0.5">
-                Some bookings may be hidden by the current filter.
+                Some bookings may be hidden by the current status filter.
               </span>
             )}
           </div>
@@ -1639,6 +1709,12 @@ export default function BookingsScheduleView({
             Clear highlight
           </button>
         </div>
+      )}
+
+      {isFullscreen && searchQuery.trim() && (
+        <p className="text-xs text-[#5C6C62] mb-2 shrink-0" data-testid="schedule-search-hint">
+          {searchMatchCount} appointment{searchMatchCount === 1 ? "" : "s"} match your search
+        </p>
       )}
 
       <p className={`text-xs text-[#A89F8B] mb-3 ${isFullscreen ? "shrink-0" : ""}`}>
@@ -1674,17 +1750,16 @@ export default function BookingsScheduleView({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {unassigned.map((b) => {
-                    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, date);
-                    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+                    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate: date, searchQuery });
                     return (
                     <button
                       key={b.id}
                       type="button"
                       onClick={() => onSelectBooking(b)}
-                      className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${match ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${dimmed ? "opacity-40 saturate-50" : ""}`}
-                      style={{ borderColor: "#EAE6D7", background: match ? "#EFF6FF" : "#FFF8F5" }}
+                      className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${highlight.patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${highlight.searchHighlightMatch ? "ring-1 ring-[#52796F]/70" : ""} ${highlight.patientHighlightDimmed ? "opacity-40 saturate-50" : ""}`}
+                      style={{ borderColor: "#EAE6D7", background: highlight.patientHighlightMatch ? "#EFF6FF" : "#FFF8F5" }}
                       data-testid={`schedule-unassigned-${b.id}`}
-                      data-patient-highlight-match={match ? "true" : undefined}
+                      data-patient-highlight-match={highlight.patientHighlightMatch ? "true" : undefined}
                     >
                       <div className="font-medium">{b.patient_name}</div>
                       <div className="text-xs text-[#5C6C62]">

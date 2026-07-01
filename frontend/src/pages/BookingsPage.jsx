@@ -42,6 +42,7 @@ import {
   ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope, Highlighter,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
+import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
 import { isHighlightableBooking } from "@/components/bookings/schedulePatientHighlight";
 import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
 import { hhmmToMin } from "@/components/bookings/scheduleUtils";
@@ -2328,8 +2329,13 @@ export default function BookingsPage() {
   const refresh = useCallback(() => {
     if (viewMode === "list") {
       const params = { scope };
-      if (statusFilter) params.status = statusFilter;
-      api.get("/bookings", { params }).then(r => setBookings(r.data || []));
+      const apiStatus = resolveApiStatusFilter(statusFilter);
+      if (apiStatus) params.status = apiStatus;
+      api.get("/bookings", { params }).then((r) => {
+        let items = r.data || [];
+        items = filterBookingsByScheduleStatus(items, statusFilter);
+        setBookings(items);
+      });
     }
     setReloadAt(Date.now());
   }, [scope, statusFilter, viewMode]);
@@ -2460,7 +2466,9 @@ export default function BookingsPage() {
             data-testid="status-filter"
           >
             <option value="">All statuses</option>
-            {Object.entries(STATUS_COLORS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            {SCHEDULE_STATUS_FILTER_OPTIONS.filter((o) => o.value).map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -2483,6 +2491,7 @@ export default function BookingsPage() {
             date={scheduleDate}
             onDateChange={setScheduleDate}
             statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
             reloadAt={reloadAt}
             canManage={canManage}
             canCreateOvertime={canCreateOvertime}
