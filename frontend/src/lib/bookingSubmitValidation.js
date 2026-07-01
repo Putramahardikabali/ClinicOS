@@ -2,9 +2,7 @@
  * New-booking submit gate: returns canSubmit, disabledReason, and debug snapshot.
  */
 
-function staffById(staff, id) {
-  return (staff || []).find((s) => s.id === id) || null;
-}
+import { staffMemberById, isPerformerOffAvailable } from "@/lib/performerUtils";
 
 export function evaluateNewBookingSubmit({
   busy,
@@ -28,7 +26,7 @@ export function evaluateNewBookingSubmit({
   const selectedDate = form.scheduled_date || "";
   const selectedTime = form.scheduled_time || "";
   const primaryPerformerId = form.performer_id || "";
-  const selectedPerformer = staffById(staff, primaryPerformerId);
+  const selectedPerformer = staffMemberById(staff, eligibleStaff, primaryPerformerId);
   const isOvertime = !!overtimeMeta;
   const overtimeReason = overtimeMeta?.reason || "";
   const slotChosen = !!(selectedDate && selectedTime);
@@ -38,14 +36,8 @@ export function evaluateNewBookingSubmit({
     !availLoaded ||
     (availablePerformers || []).some((p) => p.id === primaryPerformerId);
   const inEligible = eligibleStaff.some((s) => s.id === primaryPerformerId);
-  const hasConflict =
-    availLoaded &&
-    primaryPerformerId &&
-    !inAvailableList &&
-    inEligible &&
-    !isOvertime;
-  const outsideWorkingHours =
-    isOvertime && primaryPerformerId && availLoaded && !inAvailableList && inEligible;
+  const offAvailable = isPerformerOffAvailable(availablePerformers, primaryPerformerId);
+  const hasConflict = availLoaded && primaryPerformerId && offAvailable && inEligible && !isOvertime;
 
   const debug = {
     selectedPatient,
@@ -58,7 +50,7 @@ export function evaluateNewBookingSubmit({
     primary_performer_id: primaryPerformerId,
     isOvertime,
     overtimeReason,
-    outsideWorkingHours,
+    offAvailable,
     hasConflict,
     inAvailableList,
     inEligible,
@@ -104,27 +96,6 @@ export function evaluateNewBookingSubmit({
   }
   if (loadingPerformers) {
     return { canSubmit: false, disabledReason: "Checking staff availability…", debug };
-  }
-  if (hasConflict) {
-    return {
-      canSubmit: false,
-      disabledReason: "Selected staff member already has an appointment at this time.",
-      debug,
-    };
-  }
-  if (!isOvertime && availLoaded && (availablePerformers || []).length > 0 && !inAvailableList) {
-    return {
-      canSubmit: false,
-      disabledReason: "Selected staff member is not available at this time.",
-      debug,
-    };
-  }
-  if (!isOvertime && availLoaded && (availablePerformers || []).length === 0) {
-    return {
-      canSubmit: false,
-      disabledReason: "No staff available for this time. Try another slot.",
-      debug,
-    };
   }
 
   return { canSubmit: true, disabledReason: null, debug };

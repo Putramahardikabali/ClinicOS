@@ -141,6 +141,54 @@ export function filterEligibleStaff(staff, service) {
   return active.filter((s) => CLINICAL_PERFORMER_ROLES.includes(s.role));
 }
 
+/** Resolve staff by id from full roster or eligible subset. */
+export function staffMemberById(staff, eligibleStaff, id) {
+  if (!id) return null;
+  return (staff || []).find((s) => s.id === id) || (eligibleStaff || []).find((s) => s.id === id) || null;
+}
+
+/**
+ * After availability refresh, keep the current/preferred performer.
+ * Only auto-suggest when nothing is selected yet.
+ */
+export function resolvePerformerAfterAvailability(
+  currentId,
+  list,
+  suggestedId,
+  preferredPerformerId,
+  performerManuallyChanged,
+) {
+  if (currentId) return currentId;
+  if (!performerManuallyChanged && preferredPerformerId) return preferredPerformerId;
+
+  const ids = new Set((list || []).map((p) => p.id));
+  if (suggestedId && ids.has(suggestedId)) return suggestedId;
+  return "";
+}
+
+/** Dropdown options: available staff plus the currently selected performer (even if off-duty/booked). */
+export function buildAssignedStaffOptions({
+  eligibleStaff,
+  availablePerformers,
+  selectedPerformerId,
+  slotChosen,
+}) {
+  if (!slotChosen || availablePerformers === null) return [];
+  const availableIds = new Set((availablePerformers || []).map((p) => p.id));
+  const list = (eligibleStaff || []).filter((s) => availableIds.has(s.id));
+  if (!selectedPerformerId) return list;
+  const selected = (eligibleStaff || []).find((s) => s.id === selectedPerformerId);
+  if (selected && !list.some((s) => s.id === selected.id)) {
+    return [selected, ...list];
+  }
+  return list;
+}
+
+export function isPerformerOffAvailable(availablePerformers, performerId) {
+  if (!performerId || availablePerformers === null) return false;
+  return !(availablePerformers || []).some((p) => p.id === performerId);
+}
+
 export function buildBookingPerformers(primaryId, assistants, staffList) {
   const out = [];
   if (primaryId) {

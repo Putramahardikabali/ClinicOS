@@ -13,6 +13,9 @@ import {
   additionalRowsFromBooking,
   validatePerformerAvailability,
   CLINICAL_PERFORMER_ROLES,
+  resolvePerformerAfterAvailability,
+  buildAssignedStaffOptions,
+  isPerformerOffAvailable,
 } from "@/lib/performerUtils";
 import AdditionalPerformersEditor, { validateAdditionalPerformers } from "@/components/bookings/AdditionalPerformersEditor";
 import { useClinic } from "@/lib/clinic";
@@ -668,49 +671,6 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
   );
 }
 
-/** Pick primary performer after availability refresh without overriding schedule/manual choice. */
-function resolvePerformerAfterAvailability(
-  currentId,
-  list,
-  suggestedId,
-  preferredPerformerId,
-  performerManuallyChanged,
-  { isOvertime = false, eligibleIds = null } = {},
-) {
-  const ids = new Set((list || []).map((p) => p.id));
-  const eligible = eligibleIds instanceof Set ? eligibleIds : new Set(eligibleIds || []);
-
-  const keepIfEligible = (id) => id && eligible.has(id);
-
-  if (isOvertime) {
-    if (performerManuallyChanged && keepIfEligible(currentId)) return currentId;
-    if (!performerManuallyChanged && keepIfEligible(preferredPerformerId)) return preferredPerformerId;
-    if (keepIfEligible(currentId)) return currentId;
-    if (ids.size && currentId && ids.has(currentId)) return currentId;
-    if (ids.size && !currentId && suggestedId && ids.has(suggestedId)) return suggestedId;
-    return currentId && keepIfEligible(currentId) ? currentId : "";
-  }
-
-  if (!ids.size) return "";
-
-  if (performerManuallyChanged) {
-    return currentId && ids.has(currentId) ? currentId : "";
-  }
-
-  const preferred = preferredPerformerId && ids.has(preferredPerformerId) ? preferredPerformerId : "";
-  if (preferred) return preferred;
-
-  if (currentId && ids.has(currentId)) return currentId;
-
-  if (currentId && !ids.has(currentId)) return "";
-
-  if (!preferredPerformerId && !currentId && suggestedId && ids.has(suggestedId)) {
-    return suggestedId;
-  }
-
-  return currentId || "";
-}
-
 function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = null }) {
   const { user } = useAuth();
   const canRedeemGiftCard = hasPermission(user, "gift_cards.redeem");
@@ -881,7 +841,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         const sug = r.data?.suggested_performer_id || null;
         setAvailablePerformers(list);
         setSuggestedPerformerId(sug);
-        const eligibleIds = new Set(eligibleStaff.map((s) => s.id));
         setForm((f) => ({
           ...f,
           performer_id: resolvePerformerAfterAvailability(
@@ -890,7 +849,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
             sug,
             preferredPerformerId,
             performerManuallyChanged,
-            { isOvertime: !!overtimeMeta, eligibleIds },
           ),
         }));
       })
@@ -909,7 +867,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     preferredPerformerId,
     performerManuallyChanged,
     eligibleStaff,
-    overtimeMeta,
   ]);
 
   const keepSchedulePerformer = () =>
@@ -1021,7 +978,11 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       form.assistant_performers,
       availablePerformers,
       additionalAvailByRole,
-      { skipPrimary: !!overtimeMeta },
+      {
+        skipPrimary:
+          !!overtimeMeta
+          || isPerformerOffAvailable(availablePerformers, form.performer_id),
+      },
     );
     if (availErr) { toast.error(availErr); return; }
     if (availablePerformers !== null && availablePerformers.length > 0 && !form.performer_id) {
@@ -1341,25 +1302,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
               </div>
               {(() => {
                 const slotChosen = !!(form.scheduled_date && form.scheduled_time);
+                const list = buildAssignedStaffOptions({
+                  eligibleStaff,
+                  availablePerformers,
+                  selectedPerformerId: form.performer_id,
+                  slotChosen,
+                });
                 const availableIds = new Set((availablePerformers || []).map((p) => p.id));
-                let list =
-                  slotChosen && availablePerformers !== null
-                    ? eligibleStaff.filter((s) => availableIds.has(s.id))
-                    : [];
-                if (
-                  overtimeMeta &&
-                  form.performer_id &&
-                  slotChosen &&
-                  !availableIds.has(form.performer_id)
-                ) {
-                  const extra = eligibleStaff.find((s) => s.id === form.performer_id);
-                  if (extra && !list.some((s) => s.id === extra.id)) {
-                    list = [extra, ...list];
-                  }
-                }
-                const optionIds = new Set(list.map((s) => s.id));
-                const displayValue =
-                  form.performer_id && optionIds.has(form.performer_id) ? form.performer_id : "";
+                const offAvailable = isPerformerOffAvailable(availablePerformers, form.performer_id);
                 const disabled = !serviceSelected || !slotChosen || loadingPerformers;
                 const hint = !serviceSelected || !form.scheduled_date
                   ? "Select treatment and date first."
@@ -1374,24 +1324,30 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                   <>
                     <select
                       className="bl-input"
-                      value={displayValue}
+                      value={form.performer_id || ""}
                       onChange={e => setPrimaryPerformer(e.target.value, true)}
                       disabled={disabled}
                       required={list.length > 0}
                       data-testid="nb-performer"
                     >
-                      {list.length === 0 && <option value="">— No provider available —</option>}
+                      <option value="">Select assigned staff…</option>
                       {list.map(s => {
                         const ap = availablePerformers?.find(p => p.id === s.id);
                         const load = ap?.bookings_today ?? 0;
                         const isSuggested = s.id === suggestedPerformerId;
+                        const unavailable = slotChosen && availablePerformers !== null && !availableIds.has(s.id);
                         return (
                           <option key={s.id} value={s.id}>
-                            {s.name} ({s.role}){isSuggested ? " ✨" : ""} · {load} today
+                            {s.name} ({s.role}){isSuggested ? " ✨" : ""}{unavailable ? " · off-duty/booked" : ""} · {load} today
                           </option>
                         );
                       })}
                     </select>
+                    {offAvailable && form.performer_id && slotChosen && !loadingPerformers && (
+                      <div className="text-xs text-[#B45309] mt-1.5" data-testid="nb-performer-conflict-hint">
+                        Selected staff is off-duty or has another booking at this time. You can still create the appointment; conflicts may require override.
+                      </div>
+                    )}
                     {hint && (
                       <div className="text-xs mt-1.5" style={{ color: list.length === 0 && slotChosen ? "#B14A2C" : "#A89F8B" }} data-testid="nb-performer-hint">
                         {hint}
