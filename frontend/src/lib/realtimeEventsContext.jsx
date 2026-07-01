@@ -237,8 +237,12 @@ export function useRealtimeInvalidation(topic, callback, enabled = true) {
 }
 
 export function useVisibilityPolling(callback, intervalMs = FALLBACK_POLL_MS, enabled = true) {
+  const ctx = useRealtimeEvents();
+  const sseConnected = ctx?.status === "connected";
+  const shouldPoll = enabled && !sseConnected;
+
   useEffect(() => {
-    if (!enabled || !callback) return undefined;
+    if (!shouldPoll || !callback) return undefined;
     const tick = () => {
       if (document.visibilityState === "visible") callback();
     };
@@ -252,5 +256,5 @@ export function useVisibilityPolling(callback, intervalMs = FALLBACK_POLL_MS, en
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [callback, intervalMs, enabled]);
+  }, [callback, intervalMs, shouldPoll]);
 }

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
 import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
+import { debounce } from "@/lib/realtimeEvents";
 import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
 import {
   buildBookingPerformers,
@@ -2326,24 +2327,48 @@ export default function BookingsPage() {
       });
   }, [openBookingId, setSearchParams]);
 
-  const refresh = useCallback(() => {
-    if (viewMode === "list") {
-      const params = { scope };
-      const apiStatus = resolveApiStatusFilter(statusFilter);
-      if (apiStatus) params.status = apiStatus;
-      api.get("/bookings", { params }).then((r) => {
-        let items = r.data || [];
-        items = filterBookingsByScheduleStatus(items, statusFilter);
-        setBookings(items);
-      });
-    }
+  const refreshList = useCallback(() => {
+    const params = { scope };
+    const apiStatus = resolveApiStatusFilter(statusFilter);
+    if (apiStatus) params.status = apiStatus;
+    return api.get("/bookings", { params }).then((r) => {
+      let items = r.data || [];
+      items = filterBookingsByScheduleStatus(items, statusFilter);
+      setBookings(items);
+    });
+  }, [scope, statusFilter]);
+
+  const bumpScheduleReload = useCallback(() => {
     setReloadAt(Date.now());
-  }, [scope, statusFilter, viewMode]);
+  }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const debouncedScheduleReload = useMemo(
+    () => debounce(bumpScheduleReload, 750),
+    [bumpScheduleReload],
+  );
 
-  useRealtimeInvalidation(REALTIME_TOPICS.BOOKINGS, refresh);
-  useVisibilityPolling(refresh, 30000);
+  const invalidateBookings = useCallback(() => {
+    if (viewMode === "list") {
+      refreshList();
+    } else {
+      debouncedScheduleReload();
+    }
+  }, [viewMode, refreshList, debouncedScheduleReload]);
+
+  const invalidateBookingsNow = useCallback(() => {
+    if (viewMode === "list") {
+      refreshList();
+    } else {
+      bumpScheduleReload();
+    }
+  }, [viewMode, refreshList, bumpScheduleReload]);
+
+  useEffect(() => {
+    if (viewMode === "list") refreshList();
+  }, [viewMode, refreshList]);
+
+  useRealtimeInvalidation(REALTIME_TOPICS.BOOKINGS, invalidateBookings);
+  useVisibilityPolling(invalidateBookings, 30000);
   useEffect(() => { api.get("/wa-templates").then(r => setTemplates(r.data || [])); }, []);
   useEffect(() => {
     api.get("/settings/messaging").then(r => setAutomationActive(!!r.data?.automation_active)).catch(() => {});
@@ -2360,14 +2385,14 @@ export default function BookingsPage() {
     if (!next) return;
     await api.put(`/bookings/${b.id}/status`, { status: next });
     toast.success(`Moved to ${next.replace("_", " ")}`);
-    refresh();
+    invalidateBookingsNow();
   };
   const cancel = async (b) => {
     const msg = isTimeBlock(b) ? "Remove this time block?" : "Cancel this booking?";
     if (!window.confirm(msg)) return;
     await api.delete(`/bookings/${b.id}`);
     toast.success(isTimeBlock(b) ? "Blocked time removed" : "Cancelled");
-    refresh();
+    invalidateBookingsNow();
   };
 
   const startVisit = async (b) => {
@@ -2377,7 +2402,7 @@ export default function BookingsPage() {
       const visit = r.data?.visit;
       toast.success("Treatment session started — patient chart is open");
       setDetailBooking(r.data?.booking || b);
-      refresh();
+      invalidateBookingsNow();
       if (visit?.id) navigate(`/visits/${visit.id}`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to start treatment session");
@@ -2665,7 +2690,7 @@ export default function BookingsPage() {
             await cancel(b);
             setDetailBooking(null);
           }}
-          onSaved={(updated) => { setDetailBooking(updated); refresh(); }}
+          onSaved={(updated) => { setDetailBooking(updated); invalidateBookingsNow(); }}
           onStartVisit={startVisit}
           startVisitBusy={startVisitBusy}
           onEditBlock={(b) => { setDetailBooking(null); setBlockEdit(b); setBlockInitial(null); setBlockOpen(true); }}
@@ -2726,12 +2751,12 @@ export default function BookingsPage() {
           }}
           onSaved={(updated) => {
             if (updated) setDetailBooking(updated);
-            refresh();
+            invalidateBookingsNow();
           }}
         />
         )}
       </BookingModalPortal>
-      {waBooking && <WaPanel booking={waBooking} templates={templates} clinicName={clinicName} automationActive={automationActive} canSendViaProvider={canSendViaProvider} canWhatsgoSend={canSendViaProvider} onClose={() => setWaBooking(null)} onSent={() => { setWaBooking(null); refresh(); }} />}
+      {waBooking && <WaPanel booking={waBooking} templates={templates} clinicName={clinicName} automationActive={automationActive} canSendViaProvider={canSendViaProvider} canWhatsgoSend={canSendViaProvider} onClose={() => setWaBooking(null)} onSent={() => { setWaBooking(null); invalidateBookingsNow(); }} />}
       <BookingModalPortal active={!!overtimeSlot} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
         {overtimeSlot && (
         <OutsideWorkingHoursModal
@@ -2761,7 +2786,7 @@ export default function BookingsPage() {
           initial={newInitial}
           overtimeMeta={overtimeMeta}
           onClose={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); }}
-          onCreated={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); refresh(); }}
+          onCreated={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); invalidateBookingsNow(); }}
         />
         )}
       </BookingModalPortal>

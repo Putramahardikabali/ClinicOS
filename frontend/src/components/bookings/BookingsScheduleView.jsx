@@ -819,7 +819,12 @@ export default function BookingsScheduleView({
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
   const [effectiveByStaff, setEffectiveByStaff] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
+  const loadSeqRef = useRef(0);
+  const lastReloadAtRef = useRef(0);
+  const lastRefreshErrorAtRef = useRef(0);
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeUtility, setActiveUtility] = useState(null);
@@ -863,41 +868,67 @@ export default function BookingsScheduleView({
   const clinicNow = useMemo(() => getClinicNowParts(timezone), [timezone]);
   const isToday = date === clinicNow.dateStr;
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    const isBackground = silent || hasLoadedRef.current;
+    const seq = ++loadSeqRef.current;
+    if (!isBackground) setInitialLoading(true);
+    else setRefreshing(true);
+
     const params = { date, schedule_meta: true };
     const apiStatus = resolveApiStatusFilter(statusFilter);
     if (apiStatus) params.status = apiStatus;
-    Promise.all([
-      api.get("/bookings", { params }),
-      api.get("/users"),
-      api.get("/staff/schedule/effective", { params: { date } }),
-    ])
-      .then(([bRes, uRes, effRes]) => {
-        let items = bRes.data || [];
-        items = filterBookingsByScheduleStatus(items, statusFilter);
-        setBookings(items);
-        const list = (uRes.data || []).filter(
-          (u) => ["doctor", "therapist", "nurse"].includes(u.role) && u.active !== false,
-        );
-        setStaff(list);
-        const map = {};
-        for (const row of effRes.data || []) {
-          map[row.staff_id] = row;
-        }
-        setEffectiveByStaff(map);
-      })
-      .catch(() => {
+
+    try {
+      const [bRes, uRes, effRes] = await Promise.all([
+        api.get("/bookings", { params }),
+        api.get("/users"),
+        api.get("/staff/schedule/effective", { params: { date } }),
+      ]);
+      if (seq !== loadSeqRef.current) return;
+
+      let items = bRes.data || [];
+      items = filterBookingsByScheduleStatus(items, statusFilter);
+      setBookings(items);
+      const list = (uRes.data || []).filter(
+        (u) => ["doctor", "therapist", "nurse"].includes(u.role) && u.active !== false,
+      );
+      setStaff(list);
+      const map = {};
+      for (const row of effRes.data || []) {
+        map[row.staff_id] = row;
+      }
+      setEffectiveByStaff(map);
+      hasLoadedRef.current = true;
+    } catch {
+      if (seq !== loadSeqRef.current) return;
+      if (!isBackground) {
         setBookings([]);
         setStaff([]);
         setEffectiveByStaff({});
-      })
-      .finally(() => setLoading(false));
+      } else {
+        const now = Date.now();
+        if (now - lastRefreshErrorAtRef.current > 60000) {
+          lastRefreshErrorAtRef.current = now;
+          toast.message("Could not refresh schedule — showing last loaded data");
+        }
+      }
+    } finally {
+      if (seq === loadSeqRef.current) {
+        setInitialLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, [date, statusFilter]);
 
   useEffect(() => {
-    load();
-  }, [load, reloadAt]);
+    load({ silent: hasLoadedRef.current });
+  }, [date, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!reloadAt || reloadAt === lastReloadAtRef.current) return;
+    lastReloadAtRef.current = reloadAt;
+    load({ silent: true });
+  }, [reloadAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearPatientHighlight = useCallback(() => {
     setPatientHighlight(null);
@@ -1619,6 +1650,11 @@ export default function BookingsScheduleView({
           <div className="font-display text-lg text-[var(--bl-text)] min-w-[140px] text-center" data-testid="schedule-date-label">
             {dateLabel}
           </div>
+          {refreshing && (
+            <span className="text-xs text-[#A89F8B]" data-testid="schedule-updating">
+              Updating…
+            </span>
+          )}
           <button type="button" onClick={() => shiftDay(1)} className="bl-icon-btn" data-testid="schedule-next-day">
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -1723,7 +1759,7 @@ export default function BookingsScheduleView({
 
       <div className={`${isFullscreen ? "flex flex-1 min-h-0 relative" : ""}`}>
         <div className={`${isFullscreen ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
-        {loading ? (
+        {initialLoading && bookings.length === 0 && staff.length === 0 ? (
           <div className="bl-card p-10 text-center text-[#5C6C62]">Loading schedule…</div>
         ) : closed ? (
           <div className="bl-card p-8 text-center text-[#5C6C62]" data-testid="schedule-closed">
