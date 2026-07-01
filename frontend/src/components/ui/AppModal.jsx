@@ -4,6 +4,7 @@ import DiscardChangesDialog from "@/components/ui/DiscardChangesDialog";
 
 /**
  * Standard app modal shell: overlay click, ESC, and unsaved-change guard.
+ * Overlay uses flex + justify-center so modal content stays horizontally centered.
  */
 export default function AppModal({
   open = true,
@@ -49,13 +50,13 @@ export default function AppModal({
 
   const alignClass = align === "bottom-sheet"
     ? "items-end sm:items-center p-0 sm:p-4"
-    : "items-center p-4";
+    : "items-start sm:items-center py-4 sm:py-8 px-4";
 
   return (
     <>
       <div
         className={cn(
-          "fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex justify-center",
+          "fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex justify-center overflow-y-auto",
           alignClass,
           overlayClassName,
         )}
@@ -63,7 +64,14 @@ export default function AppModal({
         onClick={requestClose}
         data-testid={testId}
       >
-        <div className={cn("w-full", contentClassName)} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={cn(
+            "w-full mx-auto my-auto shrink-0",
+            align === "bottom-sheet" ? "max-w-xl" : "max-w-lg",
+            contentClassName,
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
           {children}
         </div>
       </div>

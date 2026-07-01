@@ -2050,9 +2050,12 @@ function BookingDetailPanel({
       hasUnsavedChanges={hasUnsavedChanges}
       allowOverlayClose={!blockDismiss}
       blockEscape={blockDismiss}
+      align="center"
+      contentClassName="max-w-lg"
+      zIndex={125}
       testId="booking-detail-panel"
     >
-      <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
+      <div className="bg-white w-full rounded-3xl p-6 max-h-[min(92vh,calc(100dvh-2rem))] overflow-y-auto shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="label-eyebrow">{block ? "Blocked time" : "Appointment"}</div>
