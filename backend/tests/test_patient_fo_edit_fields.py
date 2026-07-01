@@ -6,6 +6,7 @@ from patient_profile import (
     FO_PATIENT_EDIT_FIELDS,
     filter_patient_update_fields,
     normalize_patient_source,
+    resolve_patient_profile_tabs,
     validate_patient_marketing_fields,
 )
 
@@ -90,3 +91,9 @@ def test_validate_patient_marketing_fields_rejects_invalid_source():
     with pytest.raises(HTTPException) as exc:
         validate_patient_marketing_fields({"patient_source": "Billboard"})
     assert exc.value.status_code == 400
+
+
+def test_resolve_patient_profile_tabs_includes_prepaid_without_crash():
+    tabs = resolve_patient_profile_tabs({"role": "fo", "permissions": ["prepaid.view"]})
+    assert tabs["prepaid"] is True
+    assert tabs["overview"] is True
