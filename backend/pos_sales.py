@@ -1256,7 +1256,7 @@ def register_pos_sales(
         if payload.items is not None:
             items = _normalize_items([i.model_dump() for i in payload.items])
             _require_gift_card_create(user, items)
-        _require_prepaid_sell(user, items)
+            _require_prepaid_sell(user, items)
             items = await _enrich_all_items(user, items)
             upd["items"] = items
             upd["sale_type"] = _infer_sale_type(items)
