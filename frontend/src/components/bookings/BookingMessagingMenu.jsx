@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Bell, CheckCircle2, ExternalLink, MessageCircle, Receipt, Send } from "lucide-react";
+import { Bell, CheckCircle2, MessageCircle, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { openWhatsgoChatSafe } from "@/lib/whatsgo";
@@ -11,10 +11,9 @@ export default function BookingMessagingMenu({
   canSendViaProvider,
   canWhatsgoSend,
   onSent,
-  compact = false,
 }) {
   const [busy, setBusy] = useState(false);
-  const btnClass = compact ? "bl-btn-ghost text-xs inline-flex items-center gap-1.5" : "bl-btn-ghost text-sm inline-flex items-center gap-2";
+  const whatsgoConnected = !!(canSendViaProvider && automationActive);
 
   const sendTemplate = async (templateType) => {
     setBusy(true);
@@ -42,50 +41,58 @@ export default function BookingMessagingMenu({
     }
   };
 
-  const waManual = () => {
-    const phone = (booking.patient_phone || "").replace(/[^0-9]/g, "");
-    if (!phone) {
-      toast.error("No phone number on file");
-      return;
-    }
-    const text = encodeURIComponent(
-      `Hi ${booking.patient_name || ""}, regarding your appointment at ${booking.treatment || "our clinic"}.`,
-    );
-    window.open(`https://wa.me/${phone}?text=${text}`, "_blank", "noopener,noreferrer");
-  };
-
-  if (canSendViaProvider && automationActive) {
+  if (!whatsgoConnected) {
     return (
-      <div className="flex flex-wrap gap-2" data-testid="booking-messaging-actions">
-        <button type="button" className={btnClass} disabled={busy} onClick={() => sendTemplate("booking_reminder")} data-testid="send-reminder-btn">
-          <Bell className="w-4 h-4" /> Send reminder
-        </button>
-        <button type="button" className={btnClass} disabled={busy} onClick={() => sendTemplate("booking_confirmation")} data-testid="send-confirmation-btn">
-          <CheckCircle2 className="w-4 h-4" /> Send confirmation
-        </button>
-        {booking.invoice?.id && (
-          <button type="button" className={btnClass} disabled={busy} onClick={() => sendTemplate("invoice")} data-testid="send-invoice-btn">
-            <Receipt className="w-4 h-4" /> Send invoice
-          </button>
-        )}
-        {canWhatsgoSend && booking.patient_id && (
-          <button type="button" className={btnClass} disabled={busy} onClick={openWhatsgo} data-testid="open-whatsgo-chat-btn">
-            <MessageCircle className="w-4 h-4" /> Open Whatsgo chat
-          </button>
-        )}
+      <div className="text-xs text-[#5C6C62] space-y-1" data-testid="booking-messaging-unavailable">
+        <p>Messaging is not available. Connect Whatsgo to send reminders and invoices.</p>
+        <Link to="/messaging" className="text-[#52796F] hover:underline inline-block">
+          Connect Whatsgo
+        </Link>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-2" data-testid="booking-messaging-fallback">
-      <button type="button" className={btnClass} disabled={busy} onClick={waManual}>
-        <Send className="w-4 h-4" /> Open WhatsApp manually
+    <div className="flex flex-wrap gap-2" data-testid="booking-messaging-actions">
+      <button
+        type="button"
+        className="bl-btn-ghost text-xs inline-flex items-center gap-1.5"
+        disabled={busy}
+        onClick={() => sendTemplate("booking_reminder")}
+        data-testid="send-reminder-btn"
+      >
+        <Bell className="w-3.5 h-3.5" /> Send reminder
       </button>
-      {!automationActive && (
-        <Link to="/messaging" className={`${btnClass} no-underline`}>
-          <ExternalLink className="w-4 h-4" /> Connect Whatsgo
-        </Link>
+      <button
+        type="button"
+        className="bl-btn-ghost text-xs inline-flex items-center gap-1.5"
+        disabled={busy}
+        onClick={() => sendTemplate("booking_confirmation")}
+        data-testid="send-confirmation-btn"
+      >
+        <CheckCircle2 className="w-3.5 h-3.5" /> Send confirmation
+      </button>
+      {booking.invoice?.id && (
+        <button
+          type="button"
+          className="bl-btn-ghost text-xs inline-flex items-center gap-1.5"
+          disabled={busy}
+          onClick={() => sendTemplate("invoice")}
+          data-testid="send-invoice-btn"
+        >
+          <Receipt className="w-3.5 h-3.5" /> Send invoice
+        </button>
+      )}
+      {canWhatsgoSend && booking.patient_id && (
+        <button
+          type="button"
+          className="bl-btn-ghost text-xs inline-flex items-center gap-1.5"
+          disabled={busy}
+          onClick={openWhatsgo}
+          data-testid="open-whatsgo-chat-btn"
+        >
+          <MessageCircle className="w-3.5 h-3.5" /> Open Whatsgo chat
+        </button>
       )}
     </div>
   );

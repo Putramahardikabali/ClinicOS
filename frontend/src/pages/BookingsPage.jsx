@@ -36,11 +36,12 @@ import ManagePatientLabelsModal from "@/components/patient/ManagePatientLabelsMo
 import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import BookingMessagingMenu from "@/components/bookings/BookingMessagingMenu";
 import {
-  APPOINTMENT_STATUS_OPTIONS,
+  APPOINTMENT_STATUS_SELECT_OPTIONS,
   REASON_STATUSES,
   SENSITIVE_STATUSES,
   paymentStatusLabel,
   resolveBookingDetailActions,
+  resolvePrimaryBookingAction,
   statusLabel,
 } from "@/lib/bookingDetailStatuses";
 import { isBlacklisted, blacklistReason } from "@/lib/patientLabelDisplay";
@@ -52,8 +53,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   CalendarDays, Clock, Phone, MessageCircle, Copy, CheckCircle2, X, Plus,
-  ArrowRight, ExternalLink, LayoutList, CalendarRange, Edit2, Ban,
-  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope, Highlighter, Heart,
+  ArrowRight, ExternalLink, LayoutList, CalendarRange, Ban,
+  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Heart,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
 import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
@@ -1586,7 +1587,8 @@ function BookingDetailPanel({
   const [noteDraft, setNoteDraft] = useState(initialBooking?.notes || "");
   const [noteBusy, setNoteBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
-  const [advanceBusy, setAdvanceBusy] = useState(false);
+  const [statusDraft, setStatusDraft] = useState(() => initialBooking?.status || "booked");
+  const [primaryBusy, setPrimaryBusy] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
@@ -1609,9 +1611,14 @@ function BookingDetailPanel({
       .then((r) => {
         setBooking(r.data);
         setNoteDraft(r.data.notes || "");
+        setStatusDraft(r.data.status || "booked");
       })
       .catch(() => setBooking(initialBooking));
   }, [initialBooking?.id]);
+
+  useEffect(() => {
+    setStatusDraft(booking?.status || "booked");
+  }, [booking?.id, booking?.status]);
 
   const refreshBooking = async () => {
     if (!booking?.id) return;
@@ -1621,27 +1628,118 @@ function BookingDetailPanel({
     onSaved?.(r.data);
   };
 
-  const handleAdvance = async () => {
-    const step = NEXT_STATUS[booking?.status];
-    const next = step?.next;
-    if (!next || advanceBusy) return;
-    setAdvanceBusy(true);
+  const handleConfirm = async () => {
+    if (primaryBusy) return;
+    setPrimaryBusy(true);
     try {
-      const r = await api.put(`/bookings/${booking.id}/status`, { status: next });
-      const successMessages = {
-        confirmed: "Appointment confirmed.",
-        checked_in: "Patient checked in.",
-        completed: "Appointment marked complete.",
-      };
+      const r = await api.put(`/bookings/${booking.id}/status`, { status: "confirmed" });
       finishModalSuccess({
-        message: successMessages[next] || "Status updated.",
+        message: "Appointment confirmed.",
         onSuccess: () => onSaved?.(r.data),
         onClose,
       });
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Could not update appointment");
+      toast.error(e?.response?.data?.detail || "Could not confirm appointment");
     } finally {
-      setAdvanceBusy(false);
+      setPrimaryBusy(false);
+    }
+  };
+
+  const handleCheckIn = async () => {
+    if (primaryBusy || startVisitBusy) return;
+    await onStartVisit(booking);
+  };
+
+  const saveStatusChanges = async () => {
+    if (!canEditStatus || primaryBusy) return;
+    const newStatus = statusDraft;
+    if (newStatus === (booking.status || "booked")) return;
+
+    let reason = "";
+    if (REASON_STATUSES.has(newStatus)) {
+      const ok = window.confirm(`Mark this appointment as ${statusLabel(newStatus)}?`);
+      if (!ok) return;
+      reason = window.prompt(`Reason for ${statusLabel(newStatus)} (required):`) || "";
+      if (!reason.trim()) {
+        toast.error("Reason is required");
+        return;
+      }
+    } else if (SENSITIVE_STATUSES.has(newStatus)) {
+      if (!window.confirm(`Change status to ${statusLabel(newStatus)}?`)) return;
+      if (newStatus === "closed") {
+        reason = window.prompt("Note for closing (optional):") || "";
+      }
+    }
+
+    setPrimaryBusy(true);
+    setStatusBusy(true);
+    try {
+      const r = await api.put(`/bookings/${booking.id}/status`, { status: newStatus, reason: reason || undefined });
+      const statusMessages = {
+        cancelled: "Appointment cancelled.",
+        no_show: "Marked as no show.",
+        closed: "Appointment closed.",
+        completed: "Appointment completed.",
+        confirmed: "Appointment confirmed.",
+        checked_in: "Patient checked in.",
+      };
+      finishModalSuccess({
+        message: statusMessages[newStatus] || "Status updated.",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not update status");
+    } finally {
+      setPrimaryBusy(false);
+      setStatusBusy(false);
+    }
+  };
+
+  const runPrimaryAction = async (primary) => {
+    if (!primary || primaryBusy) return;
+
+    switch (primary.type) {
+      case "save_status":
+        await saveStatusChanges();
+        return;
+      case "confirm":
+        await handleConfirm();
+        return;
+      case "check_in":
+        await handleCheckIn();
+        return;
+      case "open_visit":
+        onClose();
+        navigate(`/visits/${primary.visitId}`);
+        return;
+      case "show_invoice":
+        onClose();
+        navigate(`/invoices/${primary.invoiceId}`);
+        return;
+      case "create_invoice":
+        setPrimaryBusy(true);
+        try {
+          const r = await api.post(`/invoices/visit/${booking.visit_id}`);
+          finishModalSuccess({
+            message: "Invoice created.",
+            onSuccess: () => onSaved?.(),
+            onClose: () => {
+              onClose();
+              navigate(`/invoices/${r.data.id}`);
+            },
+          });
+        } catch (e) {
+          toast.error(e?.response?.data?.detail || "Could not create invoice");
+        } finally {
+          setPrimaryBusy(false);
+        }
+        return;
+      case "rebook":
+        onRebook?.(booking);
+        return;
+      default:
+        return;
     }
   };
 
@@ -1664,55 +1762,17 @@ function BookingDetailPanel({
   };
 
   const saveNote = async () => {
+    if (noteBusy) return;
     setNoteBusy(true);
     try {
       const r = await api.put(`/bookings/${booking.id}`, { notes: noteDraft });
       setBooking((b) => ({ ...b, notes: r.data.notes }));
-      toast.success("Booking note saved");
+      toast.success("Note saved");
       onSaved?.(r.data);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not save note");
     } finally {
       setNoteBusy(false);
-    }
-  };
-
-  const changeStatus = async (newStatus) => {
-    if (!canEditStatus || newStatus === (booking.display_status || booking.status)) return;
-    let reason = "";
-    if (REASON_STATUSES.has(newStatus)) {
-      const ok = window.confirm(`Mark this appointment as ${statusLabel(newStatus)}?`);
-      if (!ok) return;
-      reason = window.prompt(`Reason for ${statusLabel(newStatus)} (required):`) || "";
-      if (!reason.trim()) {
-        toast.error("Reason is required");
-        return;
-      }
-    } else if (SENSITIVE_STATUSES.has(newStatus)) {
-      if (!window.confirm(`Change status to ${statusLabel(newStatus)}?`)) return;
-      if (newStatus === "closed") {
-        reason = window.prompt("Note for closing (optional):") || "";
-      }
-    }
-    setStatusBusy(true);
-    try {
-      const r = await api.put(`/bookings/${booking.id}/status`, { status: newStatus, reason: reason || undefined });
-      setBooking(r.data);
-      const statusMessages = {
-        cancelled: "Appointment cancelled.",
-        no_show: "Marked as no show.",
-        closed: "Appointment closed.",
-        completed: "Appointment completed.",
-      };
-      finishModalSuccess({
-        message: statusMessages[newStatus] || "Status updated.",
-        onSuccess: () => onSaved?.(r.data),
-        onClose,
-      });
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Could not update status");
-    } finally {
-      setStatusBusy(false);
     }
   };
 
@@ -1791,19 +1851,28 @@ function BookingDetailPanel({
 
   if (!booking) return null;
   const baselineForm = bookingToForm(booking, treatments, packages);
+  const statusDirty = statusDraft !== (booking.status || "booked");
   const hasUnsavedChanges = editing
     ? JSON.stringify(form) !== JSON.stringify(baselineForm)
-    : noteDraft !== (booking.notes || "");
+    : noteDraft !== (booking.notes || "") || statusDirty;
   const blockDismiss = cancelConfirmOpen || labelsOpen || !!pendingConflict || !!pendingStaffRequestOverride;
   const dt = new Date(booking.scheduled_at);
   const displayStatus = booking.display_status || booking.status;
   const sc = STATUS_COLORS[displayStatus] || STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
-  const actions = resolveBookingDetailActions(booking, {
+  const secondaryActions = resolveBookingDetailActions(booking, {
+    block,
+    canManage,
+    editing,
+    onHighlightPatient: !!onHighlightPatient && isHighlightableBooking(booking),
+  });
+  const primaryAction = resolvePrimaryBookingAction(booking, {
     block,
     canManage,
     canCreateInvoice,
-    editing,
+    statusDirty,
+    canRebook: secondaryActions.showRebook && !!onRebook,
   });
+  const primaryBusyLabel = primaryBusy || startVisitBusy;
   const blockLabel = booking.block_reason || booking.patient_name;
 
   const selectTreatment = (name) => {
@@ -2198,15 +2267,18 @@ function BookingDetailPanel({
                 <label className="label-eyebrow block mb-1.5">Appointment status</label>
                 <select
                   className="bl-input text-sm"
-                  value={displayStatus}
-                  disabled={statusBusy}
-                  onChange={(e) => changeStatus(e.target.value)}
+                  value={statusDraft}
+                  disabled={statusBusy || primaryBusy}
+                  onChange={(e) => setStatusDraft(e.target.value)}
                   data-testid="booking-status-select"
                 >
-                  {APPOINTMENT_STATUS_OPTIONS.map((o) => (
+                  {APPOINTMENT_STATUS_SELECT_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
+                {statusDirty && (
+                  <p className="text-xs text-[#52796F] mt-1">Status changed — use Save changes below to apply.</p>
+                )}
               </div>
             )}
 
@@ -2241,25 +2313,32 @@ function BookingDetailPanel({
                     .join(", ")}
                 </div>
               )}
-              {(viewSubtotal > 0 || viewTotal > 0) && (
-                <div className="bl-card p-3 mt-2 space-y-1.5" data-testid="booking-detail-pricing">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[#5C6C62]">Subtotal</span>
-                    <span>{fmtIDR(viewSubtotal)}</span>
-                  </div>
-                  {viewDiscount > 0 && (
-                    <div className="flex justify-between text-sm text-[#52796F]">
-                      <span>Legacy booking discount{booking.coupon_code ? ` (${booking.coupon_code})` : ""}</span>
-                      <span>− {fmtIDR(viewDiscount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm font-medium pt-1 border-t border-[#EAE6D7]">
-                    <span>Total</span>
-                    <span data-testid="booking-detail-total">{fmtIDR(viewTotal)}</span>
-                  </div>
-                </div>
-              )}
             </div>
+
+            {!block && (viewSubtotal > 0 || viewTotal > 0 || booking.invoice?.id) && (
+              <div className="bl-card p-3 mt-4 space-y-1.5" data-testid="booking-detail-pricing">
+                {booking.invoice?.id && (
+                  <div className="flex justify-between text-xs text-[#5C6C62] pb-2 border-b border-[#EAE6D7]">
+                    <span>Invoice</span>
+                    <span>{paymentStatusLabel(booking.invoice.payment_status)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#5C6C62]">Subtotal</span>
+                  <span>{fmtIDR(viewSubtotal)}</span>
+                </div>
+                {viewDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-[#52796F]">
+                    <span>Legacy booking discount{booking.coupon_code ? ` (${booking.coupon_code})` : ""}</span>
+                    <span>− {fmtIDR(viewDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-medium pt-1 border-t border-[#EAE6D7]">
+                  <span>Total</span>
+                  <span data-testid="booking-detail-total">{fmtIDR(viewTotal)}</span>
+                </div>
+              </div>
+            )}
 
             {!block && (
               <div className="mt-4 space-y-2" data-testid="booking-note-section">
@@ -2307,114 +2386,96 @@ function BookingDetailPanel({
                   canSendViaProvider={canSendViaProvider}
                   canWhatsgoSend={canWhatsgoSend}
                   onSent={refreshBooking}
-                  compact
                 />
               </div>
             )}
 
-          </>
-        )}
+            {!editing && !block && primaryAction && (
+              <div className="mt-5" data-testid="booking-detail-primary-action">
+                <button
+                  type="button"
+                  className="bl-btn-primary w-full text-sm disabled:opacity-50"
+                  disabled={primaryBusyLabel}
+                  onClick={() => runPrimaryAction(primaryAction)}
+                  data-testid={primaryAction.testId}
+                >
+                  {primaryBusyLabel
+                    ? (primaryAction.type === "check_in" ? "Checking in…" : primaryAction.type === "confirm" ? "Confirming…" : "Saving…")
+                    : primaryAction.label}
+                </button>
+              </div>
+            )}
 
-        {!editing && (
-          <div className="mt-5 flex flex-wrap gap-2" data-testid="booking-detail-actions">
-            {actions.showShowInvoice && (
-              <button type="button" onClick={() => navigate(`/invoices/${booking.invoice.id}`)} className="bl-btn-primary text-sm inline-flex items-center gap-2" data-testid="show-invoice-button">
-                <Receipt className="w-4 h-4" /> Show invoice
-              </button>
+            {!editing && block && (
+              <div className="mt-5 space-y-3" data-testid="booking-detail-block-actions">
+                {secondaryActions.showEditBlock && (
+                  <button type="button" onClick={() => onEditBlock?.(booking)} className="bl-btn-primary w-full text-sm" data-testid="edit-block-button">
+                    Edit block
+                  </button>
+                )}
+                {secondaryActions.showCancel && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setCancelConfirmOpen(true)}
+                      disabled={cancelBusy}
+                      className="text-xs text-[#B14A2C] hover:underline disabled:opacity-50"
+                      data-testid="cancel-booking-button"
+                    >
+                      {cancelBusy ? "Removing…" : "Remove block"}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
-            {actions.showStartVisit && (
-              <button type="button" onClick={() => onStartVisit(booking)} disabled={startVisitBusy} className="bl-btn-primary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="start-visit-button">
-                <Stethoscope className="w-4 h-4" />
-                {startVisitBusy ? "Starting…" : "Start treatment session"}
-              </button>
+
+            {!editing && !block && (secondaryActions.showEdit || secondaryActions.showHighlight || secondaryActions.showCancel || secondaryActions.showConsent) && (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-1 gap-y-1 text-xs text-[#5C6C62]" data-testid="booking-detail-secondary-actions">
+                {secondaryActions.showEdit && (
+                  <>
+                    <button type="button" onClick={() => setEditing(true)} className="hover:text-[#2D3A33] hover:underline" data-testid="edit-booking-button">
+                      Edit
+                    </button>
+                    {(secondaryActions.showHighlight || secondaryActions.showCancel || secondaryActions.showConsent) && (
+                      <span className="text-[#D4CFC0] px-0.5" aria-hidden>·</span>
+                    )}
+                  </>
+                )}
+                {secondaryActions.showHighlight && (
+                  <>
+                    <button type="button" onClick={() => onHighlightPatient(booking)} className="hover:text-[#2D3A33] hover:underline" data-testid="highlight-patient-button">
+                      Highlight Patient
+                    </button>
+                    {(secondaryActions.showCancel || secondaryActions.showConsent) && (
+                      <span className="text-[#D4CFC0] px-0.5" aria-hidden>·</span>
+                    )}
+                  </>
+                )}
+                {secondaryActions.showConsent && (
+                  <>
+                    <Link to={`/visits/${booking.visit_id}?tab=consent`} className="hover:text-[#2D3A33] hover:underline" data-testid="booking-consent-link">
+                      Consent
+                    </Link>
+                    {secondaryActions.showCancel && (
+                      <span className="text-[#D4CFC0] px-0.5" aria-hidden>·</span>
+                    )}
+                  </>
+                )}
+                {secondaryActions.showCancel && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelConfirmOpen(true)}
+                    disabled={cancelBusy}
+                    className="text-[#B14A2C] hover:underline disabled:opacity-50"
+                    data-testid="cancel-booking-button"
+                  >
+                    {cancelBusy ? "Cancelling…" : (block ? "Remove block" : "Cancel booking")}
+                  </button>
+                )}
+              </div>
             )}
-            {actions.showOpenVisit && (
-              <Link to={`/visits/${booking.visit_id}`} className={actions.showShowInvoice ? "bl-btn-secondary text-sm inline-flex items-center gap-2" : "bl-btn-primary text-sm inline-flex items-center gap-2"} data-testid="open-visit-link">
-                <Stethoscope className="w-4 h-4" /> Open treatment session
-              </Link>
-            )}
-            {actions.showCreateInvoice && (
-              <button
-                type="button"
-                className="bl-btn-secondary text-sm inline-flex items-center gap-2"
-                data-testid="create-invoice-button"
-                onClick={async () => {
-                  try {
-                    const r = await api.post(`/invoices/visit/${booking.visit_id}`);
-                    navigate(`/invoices/${r.data.id}`);
-                  } catch (e) {
-                    toast.error(e?.response?.data?.detail || "Could not create invoice");
-                  }
-                }}
-              >
-                <Receipt className="w-4 h-4" /> Create invoice
-              </button>
-            )}
-            {actions.showConfirm && (
-              <button type="button" onClick={handleAdvance} disabled={advanceBusy} className="bl-btn-secondary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="advance-booking-button">
-                {advanceBusy ? "Confirming…" : "Confirm"} <ArrowRight className="w-4 h-4" />
-              </button>
-            )}
-            {actions.showCheckIn && (
-              <button type="button" onClick={handleAdvance} disabled={advanceBusy} className="bl-btn-secondary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="check-in-booking-button">
-                {advanceBusy ? "Checking in…" : "Check in"} <ArrowRight className="w-4 h-4" />
-              </button>
-            )}
-            {editable && block && (
-              <button type="button" onClick={() => onEditBlock?.(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="edit-block-button">
-                <Edit2 className="w-4 h-4" /> Edit block
-              </button>
-            )}
-            {actions.showEdit && !block && (
-              <button type="button" onClick={() => setEditing(true)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="edit-booking-button">
-                <Edit2 className="w-4 h-4" /> Edit
-              </button>
-            )}
-            {!block && isHighlightableBooking(booking) && onHighlightPatient && (
-              <button type="button" onClick={() => onHighlightPatient(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="highlight-patient-button">
-                <Highlighter className="w-4 h-4" /> Highlight Patient
-              </button>
-            )}
-            {actions.showAddNote && (
-              <button
-                type="button"
-                className="bl-btn-ghost text-sm"
-                onClick={() => {
-                  noteInputRef.current?.focus();
-                  noteInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                }}
-                data-testid="add-note-button"
-              >
-                Add note
-              </button>
-            )}
-            {actions.showRebook && onRebook && (
-              <button type="button" onClick={() => onRebook(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="rebook-button">
-                <CalendarClock className="w-4 h-4" /> Rebook
-              </button>
-            )}
-            {booking.visit_id && (
-              <Link to={`/visits/${booking.visit_id}?tab=consent`} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="booking-consent-link">
-                Consent
-              </Link>
-            )}
-            {actions.showNoShow && (
-              <button type="button" onClick={() => changeStatus("no_show")} className="text-sm text-[#B14A2C] hover:underline" data-testid="no-show-button">
-                Mark no show
-              </button>
-            )}
-            {actions.showCancel && (
-              <button
-                type="button"
-                onClick={() => setCancelConfirmOpen(true)}
-                disabled={cancelBusy}
-                className="text-sm text-[#B14A2C] hover:underline disabled:opacity-50"
-                data-testid="cancel-booking-button"
-              >
-                {cancelBusy ? "Cancelling…" : (block ? "Remove block" : "Cancel booking")}
-              </button>
-            )}
-          </div>
+
+          </>
         )}
 
         {booking.patient_id && (
