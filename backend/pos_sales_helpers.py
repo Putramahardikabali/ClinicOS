@@ -91,13 +91,16 @@ def pos_sale_category_totals(sale: dict) -> Dict[str, int]:
     total = int(sale.get("total") or 0)
     cash = int(sale.get("amount_paid") or 0)
     gc = int(sale.get("gift_card_payment_total_idr") or 0)
-    product = package = gift = service = custom = 0
+    gift = product = package = service = custom = prepaid = 0
     redemption_settled = 0
     for it in sale.get("items") or []:
         line = int(it.get("total") or 0)
         t = (it.get("item_type") or "custom").strip().lower()
         if t == "gift_card":
             gift += line
+            continue
+        if t == "prepaid":
+            prepaid += line
             continue
         cash_line, gc_line = _split_line_amount(line, total, cash, gc)
         redemption_settled += gc_line
@@ -115,6 +118,7 @@ def pos_sale_category_totals(sale: dict) -> Dict[str, int]:
         "product_sales_idr": product,
         "package_sales_idr": package,
         "gift_card_sales_idr": gift,
+        "prepaid_sales_idr": prepaid,
         "service_sales_idr": service,
         "custom_sales_idr": custom,
         "gift_card_redemption_settled_idr": redemption_settled,
@@ -213,25 +217,28 @@ def summarize_paid_pos_sales(sales: List[dict]) -> dict:
     from daily_closing import _allocate_money_and_redemption
 
     methods: Dict[str, int] = defaultdict(int)
-    product = package = gift_card = service = custom = 0
+    product = package = gift_card = prepaid = service = custom = 0
     redemption_settled = 0
     money_collected = 0
     gc_redemptions = 0
+    prepaid_redemptions = 0
     count = 0
     for sale in sales:
         if sale.get("status") != "paid":
             continue
         count += 1
-        income, gc_amt = _allocate_money_and_redemption(sale, is_pos=True)
+        income, gc_amt, wallet_amt, prepaid_amt = _allocate_money_and_redemption(sale, is_pos=True)
         cash_amt = int(sale.get("amount_paid") or 0)
         money_collected += cash_amt
         gc_redemptions += gc_amt
+        prepaid_redemptions += prepaid_amt
         for k, v in income.items():
             methods[k] += v
         cats = pos_sale_category_totals(sale)
         product += cats["product_sales_idr"]
         package += cats["package_sales_idr"]
         gift_card += cats["gift_card_sales_idr"]
+        prepaid += cats.get("prepaid_sales_idr", 0)
         service += cats["service_sales_idr"]
         custom += cats["custom_sales_idr"]
         redemption_settled += cats["gift_card_redemption_settled_idr"]
@@ -253,6 +260,8 @@ def summarize_paid_pos_sales(sales: List[dict]) -> dict:
         "product_sales_idr": product,
         "package_sales_idr": package,
         "gift_card_sales_idr": gift_card,
+        "prepaid_sales_idr": prepaid,
+        "prepaid_redemptions_idr": prepaid_redemptions,
         "service_sales_idr": service,
         "custom_sales_idr": custom,
         "service_custom_sales_idr": service_custom,

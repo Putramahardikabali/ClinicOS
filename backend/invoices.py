@@ -27,7 +27,7 @@ PAID_BY_VALUES = frozenset({
 })
 PAYMENT_METHODS = frozenset({
     "cash", "card", "bank_transfer", "package", "mixed", "other",
-    "debit_card", "credit_card", "qris", "e_wallet", "gift_card", "store_credit",
+    "debit_card", "credit_card", "qris", "e_wallet", "gift_card", "store_credit", "prepaid",
 })
 
 INVOICE_WRITE_ROLES = ("super_admin", "fo")
@@ -570,6 +570,7 @@ def _recalculate_invoice_from_payments(inv: dict) -> dict:
     from transaction_corrections import (
         active_gift_card_payment_total,
         active_payment_total,
+        active_prepaid_payment_total,
         active_store_credit_payment_total,
     )
 
@@ -577,6 +578,7 @@ def _recalculate_invoice_from_payments(inv: dict) -> dict:
     inv["amount_paid"] = active_payment_total(payments)
     inv["gift_card_payment_total_idr"] = active_gift_card_payment_total(payments)
     inv["wallet_payment_total_idr"] = active_store_credit_payment_total(payments)
+    inv["prepaid_payment_total_idr"] = active_prepaid_payment_total(payments)
     inv = _apply_totals_and_payment(inv)
     if inv.get("payment_status") != "paid":
         if inv.get("payment_status") == "unpaid":
@@ -695,6 +697,8 @@ class InvoicePaymentIn(BaseModel):
     gift_card_code: Optional[str] = None
     gift_card_amount_idr: Optional[int] = None
     wallet_amount_idr: Optional[int] = None
+    prepaid_id: Optional[str] = None
+    prepaid_amount_idr: Optional[int] = None
     overpayment_to_wallet: bool = False
 
 
@@ -1333,6 +1337,37 @@ def register_invoices(
             inv["amount_paid"] = already_paid + cash + gc_paid
             inv["gift_card_payment_total_idr"] = int(inv.get("gift_card_payment_total_idr") or 0) + gc_paid
             gift_card_redemptions.extend(reds)
+            payments.extend(new_pays)
+            inv["payment_method"] = pmethod
+        elif method == "prepaid" or (payload.prepaid_id and int(payload.prepaid_amount_idr or 0) != 0):
+            from prepaid_core import apply_prepaid_payment
+
+            if not inv.get("patient_id"):
+                raise HTTPException(status_code=400, detail="Patient required for prepaid payment")
+            if not payload.prepaid_id:
+                raise HTTPException(status_code=400, detail="prepaid_id is required")
+            prepaid_req = int(payload.prepaid_amount_idr or 0)
+            pay_cap = remaining if prepaid_req <= 0 else min(remaining, prepaid_req)
+            cash_target = payload.amount_paid
+            if payload.mark_paid and cash_target is None:
+                cash_target = max(0, pay_cap - prepaid_req)
+            cash, prepaid_paid, reds, pmethod, new_pays = await apply_prepaid_payment(
+                db,
+                user,
+                total_idr=pay_cap,
+                prepaid_id=payload.prepaid_id,
+                prepaid_amount_idr=prepaid_req or pay_cap,
+                cash_amount_paid=cash_target,
+                reference_type="invoice",
+                reference_id=invoice_id,
+                patient_id=inv.get("patient_id"),
+                payment_method=method if method != "prepaid" else "cash",
+            )
+            inv["amount_paid"] = already_paid + cash + prepaid_paid
+            inv["prepaid_payment_total_idr"] = int(inv.get("prepaid_payment_total_idr") or 0) + prepaid_paid
+            prepaid_redemptions = list(inv.get("prepaid_redemptions") or [])
+            prepaid_redemptions.extend(reds)
+            inv["prepaid_redemptions"] = prepaid_redemptions
             payments.extend(new_pays)
             inv["payment_method"] = pmethod
         elif method == "store_credit" or int(payload.wallet_amount_idr or 0) > 0:

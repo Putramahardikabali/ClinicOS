@@ -147,6 +147,10 @@ def resolve_patient_profile_tabs(user: dict) -> Dict[str, bool]:
             user, "billing.view",
             legacy_roles=("fo", "manager", "super_admin"),
         ),
+        "prepaid": _tab_access(
+            user, "prepaid.view",
+            fallback_perm="billing.view",
+        ),
         "wallet": _tab_access(
             user, "wallet.view",
             legacy_roles=("fo", "manager", "super_admin"),

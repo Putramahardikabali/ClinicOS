@@ -25,6 +25,7 @@ export const REPORT_SECTIONS = [
   { id: "inventory", label: "Inventory usage", endpoint: "/reports/inventory-usage" },
   { id: "audit", label: "Audit Log", endpoint: "/reports/audit-log", export: "/reports/audit-log/export" },
   { id: "gift-cards", label: "Gift Cards", endpoint: "/reports/gift-cards", export: "/reports/gift-cards/export" },
+  { id: "prepaid", label: "Prepaid", endpoint: "/reports/prepaid", export: "/reports/prepaid/export" },
   { id: "wallet", label: "Patient Wallet", endpoint: "/wallet/report", export: "/wallet/report/export", exportCsv: true },
   { id: "online-booking-payments", label: "Online appointment payments", endpoint: "/reports/online-booking-payments", noDate: true },
 ];
@@ -37,6 +38,7 @@ const ACCOUNTING_SECTIONS = new Set([
   "billing",
   "packages",
   "gift-cards",
+  "prepaid",
   "wallet",
   "online-booking-payments",
 ]);
@@ -56,6 +58,7 @@ export function canAccessReportSection(user, sectionId) {
   if (hasPermission(user, "reports.view")) return true;
   if (sectionId === "inventory" && hasPermission(user, "inventory.view")) return true;
   if (sectionId === "wallet" && (hasPermission(user, "wallet.view") || hasPermission(user, "accounting.view"))) return true;
+  if (sectionId === "prepaid" && (hasPermission(user, "prepaid.view") || hasPermission(user, "accounting.view"))) return true;
   if (hasPermission(user, "billing.view") && FO_SECTIONS.has(sectionId)) return true;
   return false;
 }

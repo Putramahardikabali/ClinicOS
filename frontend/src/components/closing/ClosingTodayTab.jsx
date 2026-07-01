@@ -154,7 +154,10 @@ export default function ClosingTodayTab() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             <SummaryCard label="Money collected" value={fmtIDR(preview.money_collected_idr ?? preview.total_collected_idr)} sub="Cash, card, QRIS, bank" />
             <SummaryCard label="Gift card redemptions" value={fmtIDR(preview.gift_card_redemptions_idr)} sub="Not cash income" />
-            <SummaryCard label="Outstanding liability" value={fmtIDR(preview.outstanding_gift_card_liability_idr)} sub="Active card balances" />
+            <SummaryCard label="Prepaid sold" value={fmtIDR(preview.prepaid_sales_idr)} sub="Liability added" />
+            <SummaryCard label="Prepaid redeemed" value={fmtIDR(preview.prepaid_redeemed_idr)} sub="Revenue recognized" />
+            <SummaryCard label="Outstanding prepaid" value={fmtIDR(preview.outstanding_prepaid_liability_idr)} sub="Unearned liability" />
+            <SummaryCard label="Outstanding gift cards" value={fmtIDR(preview.outstanding_gift_card_liability_idr)} sub="Active card balances" />
             <SummaryCard label="Expected cash" value={fmtIDR(expectedCash)} />
           </div>
 
@@ -166,6 +169,9 @@ export default function ClosingTodayTab() {
               <Row label="Service sales" value={fmtIDR(bd.service_sales_idr ?? pos.service_sales_idr)} />
               <Row label="Custom sales" value={fmtIDR(bd.custom_sales_idr ?? pos.custom_sales_idr)} />
               <Row label="Gift card sales (issued)" value={fmtIDR(bd.gift_card_sales_idr ?? pos.gift_card_sales_idr)} />
+              <Row label="Prepaid sold (liability)" value={fmtIDR(bd.prepaid_sales_idr ?? preview.prepaid_sales_idr)} />
+              <Row label="Prepaid redeemed (revenue)" value={fmtIDR(bd.prepaid_redeemed_idr ?? preview.prepaid_redeemed_idr)} />
+              <Row label="Outstanding prepaid liability" value={fmtIDR(bd.outstanding_prepaid_liability_idr ?? preview.outstanding_prepaid_liability_idr)} />
               <Row
                 label="Sales paid with gift card"
                 value={fmtIDR(bd.gift_card_redemption_settled_idr ?? preview.gift_card_redemption_settled_idr)}
@@ -191,6 +197,9 @@ export default function ClosingTodayTab() {
               )}
               {giftCardRedemptionIdr(preview) > 0 && (
                 <Row label="Gift card redemptions" value={fmtIDR(giftCardRedemptionIdr(preview))} />
+              )}
+              {(preview.redemption_payment_methods?.prepaid || preview.prepaid_redeemed_idr || 0) > 0 && (
+                <Row label="Prepaid redemptions" value={fmtIDR(preview.redemption_payment_methods?.prepaid ?? preview.prepaid_redeemed_idr)} />
               )}
             </div>
           </div>

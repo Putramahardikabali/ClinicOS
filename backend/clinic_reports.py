@@ -1106,4 +1106,31 @@ def register_clinic_reports(
         data = await reports_gift_cards(user=user, preset=preset, from_date=from_date, to_date=to_date)
         return _xlsx("gift-cards", data, preset, from_date, to_date)
 
+    @api.get("/reports/prepaid")
+    async def reports_prepaid(
+        user: dict = Depends(get_current_user),
+        preset: Optional[str] = None,
+        from_date: Optional[str] = Query(None, alias="from"),
+        to_date: Optional[str] = Query(None, alias="to"),
+    ):
+        assert_report_access(user, "prepaid")
+        await _assert_reports_feature(user, "prepaid")
+        from prepaid_reports import aggregate_prepaid_report
+
+        start_iso, end_iso, from_str, to_str = resolve_date_range(preset, from_date, to_date)
+        data = await aggregate_prepaid_report(db, user["clinic_id"], start_iso, end_iso)
+        return {"range": range_meta(start_iso, end_iso, from_str, to_str, preset), **data}
+
+    @api.get("/reports/prepaid/export")
+    async def reports_prepaid_export(
+        user: dict = Depends(get_current_user),
+        preset: Optional[str] = None,
+        from_date: Optional[str] = Query(None, alias="from"),
+        to_date: Optional[str] = Query(None, alias="to"),
+    ):
+        assert_report_access(user, "prepaid")
+        await _assert_reports_feature(user, "prepaid")
+        data = await reports_prepaid(user=user, preset=preset, from_date=from_date, to_date=to_date)
+        return _xlsx("prepaid", data, preset, from_date, to_date)
+
     return api

@@ -56,9 +56,12 @@ export default function InvoiceDetailPage() {
   const [giftCardAmount, setGiftCardAmount] = useState("");
   const [walletAmount, setWalletAmount] = useState("");
   const [walletBalance, setWalletBalance] = useState(0);
+  const [selectedPrepaidId, setSelectedPrepaidId] = useState("");
+  const [prepaidAmount, setPrepaidAmount] = useState("");
   const [giftLookup, setGiftLookup] = useState(null);
   const [busy, setBusy] = useState(false);
   const canRedeemGiftCard = hasPermission(user, "gift_cards.redeem");
+  const canRedeemPrepaid = hasPermission(user, "prepaid.redeem");
   const canVoidPayment = hasPermission(user, "payments.void") || hasPermission(user, "billing.edit");
   const canRecordRefund = hasPermission(user, "refunds.create");
   const canUseWallet = hasPermission(user, "wallet.use");
@@ -251,12 +254,14 @@ export default function InvoiceDetailPage() {
     const total = subtotal - discountAmount;
     const alreadyPaid = Number(invoice?.amount_paid || 0);
     const received = parseInt(String(amountReceived).replace(/\D/g, ""), 10) || 0;
+    const prepaidApply = parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0;
     const outstanding = Math.max(0, total - alreadyPaid);
+    const cashDueAfterPrepaid = Math.max(0, outstanding - prepaidApply);
     const hasPackageCovered = items.some((it) => it.paid_by === "package");
     let status = "unpaid";
     if (total === 0 && hasPackageCovered) status = "paid";
-    else if (alreadyPaid + received >= total && total > 0) status = "paid";
-    else if (alreadyPaid + received > 0) status = "partial";
+    else if (alreadyPaid + received + prepaidApply >= total && total > 0) status = "paid";
+    else if (alreadyPaid + received + prepaidApply > 0) status = "partial";
     return {
       subtotal,
       serviceSubtotal,
@@ -265,10 +270,11 @@ export default function InvoiceDetailPage() {
       total,
       alreadyPaid,
       outstanding,
-      remaining: Math.max(0, outstanding - received),
+      cashDueAfterPrepaid,
+      remaining: Math.max(0, cashDueAfterPrepaid - received),
       status,
     };
-  }, [items, discountType, discountValue, amountReceived, invoice?.amount_paid]);
+  }, [items, discountType, discountValue, amountReceived, prepaidAmount, invoice?.amount_paid]);
 
   const giftRedemption = useMemo(
     () => resolveGiftCardRedemption({
@@ -335,12 +341,17 @@ export default function InvoiceDetailPage() {
       }
     }
     const received = parseInt(String(amountReceived).replace(/\D/g, ""), 10) || 0;
+    const prepaidApply = parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0;
     if (!markPaid && paymentMethod !== "gift_card" && paymentMethod !== "store_credit") {
-      if (received <= 0) {
-        toast.error("Enter amount received");
+      if (received <= 0 && prepaidApply <= 0) {
+        toast.error("Enter amount received or apply prepaid");
         return;
       }
-      if (!isCashPayment(paymentMethod) && received > preview.outstanding) {
+      if (prepaidApply > preview.outstanding) {
+        toast.error("Prepaid cannot exceed balance due");
+        return;
+      }
+      if (!isCashPayment(paymentMethod) && received > preview.cashDueAfterPrepaid) {
         toast.error("Amount cannot exceed balance due for this payment method");
         return;
       }
@@ -371,8 +382,12 @@ export default function InvoiceDetailPage() {
           const w = parseInt(String(walletAmount).replace(/\D/g, ""), 10) || 0;
           return w > 0 ? w : (paymentMethod === "store_credit" ? preview.outstanding : undefined);
         })(),
+        prepaid_id: prepaidApply > 0 && selectedPrepaidId ? selectedPrepaidId : undefined,
+        prepaid_amount_idr: prepaidApply > 0 ? prepaidApply : undefined,
       });
       applyInvoice(r.data);
+      setSelectedPrepaidId("");
+      setPrepaidAmount("");
       toast.success(markPaid ? "Marked as paid" : "Payment updated");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Payment failed");
@@ -701,6 +716,12 @@ export default function InvoiceDetailPage() {
             onGiftLookup={setGiftLookup}
             onWalletAmountChange={setWalletAmount}
             canRedeemGiftCard={canRedeemGiftCard}
+            canRedeemPrepaid={canRedeemPrepaid}
+            selectedPrepaidId={selectedPrepaidId}
+            onSelectedPrepaidIdChange={setSelectedPrepaidId}
+            prepaidAmount={prepaidAmount}
+            onPrepaidAmountChange={setPrepaidAmount}
+            prepaidAppliedPreview={parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0}
             canUseWallet={canUseWallet}
             canVoidPayment={canVoidPayment}
             canRecordRefund={canRecordRefund}

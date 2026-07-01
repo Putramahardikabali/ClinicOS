@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { CheckCircle2, Printer } from "lucide-react";
 import GiftCardPaymentFields from "@/components/giftcards/GiftCardPaymentFields";
+import PrepaidPaymentFields from "@/components/invoices/PrepaidPaymentFields";
 import PaymentAmountQuickFill from "@/components/payments/PaymentAmountQuickFill";
 import { computeChangeDue, isCashPayment } from "@/lib/paymentAmountQuickFill";
 import { campaignAppliesToSummary, campaignDateRangeLabel, campaignDiscountLabel } from "@/lib/campaignUi";
@@ -53,6 +54,12 @@ export default function InvoiceCheckoutPanel({
   onGiftLookup,
   onWalletAmountChange,
   canRedeemGiftCard,
+  canRedeemPrepaid,
+  selectedPrepaidId,
+  onSelectedPrepaidIdChange,
+  prepaidAmount,
+  onPrepaidAmountChange,
+  prepaidAppliedPreview = 0,
   canUseWallet,
   canVoidPayment,
   canRecordRefund,
@@ -78,7 +85,8 @@ export default function InvoiceCheckoutPanel({
   const isUnpaid = paymentStatus === "unpaid" || (!isPaid && !isPartial);
 
   const receivedNum = parseInt(String(amountReceived).replace(/\D/g, ""), 10) || 0;
-  const canCollect = receivedNum > 0 || paymentMethod === "gift_card" || paymentMethod === "store_credit";
+  const prepaidNum = parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0;
+  const canCollect = receivedNum > 0 || prepaidNum > 0 || paymentMethod === "gift_card" || paymentMethod === "store_credit";
 
   return (
     <div className="space-y-4" data-testid="invoice-checkout-panel">
@@ -111,6 +119,18 @@ export default function InvoiceCheckoutPanel({
             <div className="flex justify-between text-[#52796F]">
               <span>Already paid</span>
               <span className="font-mono">−{fmtIDR(preview.alreadyPaid)}</span>
+            </div>
+          )}
+          {(invoice?.prepaid_payment_total_idr || 0) > 0 && (
+            <div className="flex justify-between text-[#52796F]">
+              <span>Prepaid applied</span>
+              <span className="font-mono">−{fmtIDR(invoice.prepaid_payment_total_idr)}</span>
+            </div>
+          )}
+          {prepaidAppliedPreview > 0 && (
+            <div className="flex justify-between text-[#52796F]">
+              <span>Prepaid to apply</span>
+              <span className="font-mono">−{fmtIDR(prepaidAppliedPreview)}</span>
             </div>
           )}
         </div>
@@ -294,6 +314,19 @@ export default function InvoiceCheckoutPanel({
               />
             )}
 
+            {canRedeemPrepaid && invoice?.patient_id && paymentMethod !== "gift_card" && (
+              <PrepaidPaymentFields
+                patientId={invoice.patient_id}
+                amountDue={preview.outstanding}
+                selectedPrepaidId={selectedPrepaidId}
+                onSelectedPrepaidIdChange={onSelectedPrepaidIdChange}
+                prepaidAmount={prepaidAmount}
+                onPrepaidAmountChange={onPrepaidAmountChange}
+                disabled={closed || busy}
+                testIdPrefix="invoice-prepaid"
+              />
+            )}
+
             {paymentMethod === "store_credit" && canUseWallet && invoice?.patient_id && (
               <div className="text-sm space-y-2 rounded-lg border border-[#EAE6D7] p-3">
                 <div className="flex justify-between">
@@ -332,7 +365,7 @@ export default function InvoiceCheckoutPanel({
                   data-testid="invoice-amount-received"
                 />
                 <PaymentAmountQuickFill
-                  balanceDue={preview.outstanding}
+                  balanceDue={Math.max(0, preview.outstanding - prepaidAppliedPreview)}
                   paymentMethod={paymentMethod}
                   disabled={busy}
                   onSelectAmount={(amount) => onAmountReceivedChange(String(amount))}
@@ -345,13 +378,19 @@ export default function InvoiceCheckoutPanel({
             <div className="text-sm space-y-1 rounded-lg bg-[#F8F5EC]/80 p-3">
               <div className="flex justify-between">
                 <span className="text-[#5C6C62]">Balance due</span>
-                <span className="font-mono font-medium">{fmtIDR(preview.outstanding)}</span>
+                <span className="font-mono font-medium">{fmtIDR(Math.max(0, preview.outstanding - prepaidAppliedPreview))}</span>
               </div>
-              {isCashPayment(paymentMethod) && computeChangeDue(amountReceived, preview.outstanding) > 0 && (
+              {prepaidAppliedPreview > 0 && (
+                <div className="flex justify-between text-[#52796F]">
+                  <span>Prepaid applied</span>
+                  <span className="font-mono">−{fmtIDR(prepaidAppliedPreview)}</span>
+                </div>
+              )}
+              {isCashPayment(paymentMethod) && computeChangeDue(amountReceived, Math.max(0, preview.outstanding - prepaidAppliedPreview)) > 0 && (
                 <div className="flex justify-between text-[#52796F]" data-testid="invoice-change-due">
                   <span>Change</span>
                   <span className="font-mono font-medium">
-                    {fmtIDR(computeChangeDue(amountReceived, preview.outstanding))}
+                    {fmtIDR(computeChangeDue(amountReceived, Math.max(0, preview.outstanding - prepaidAppliedPreview)))}
                   </span>
                 </div>
               )}

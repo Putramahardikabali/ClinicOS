@@ -283,6 +283,52 @@ function SectionBody({ section, data }) {
     );
   }
 
+  if (section === "prepaid") {
+    const statusLabel = {
+      active: "Active",
+      partially_used: "Partially used",
+      used: "Used",
+      expired: "Expired",
+      refunded: "Refunded",
+      voided: "Voided",
+    };
+    return (
+      <>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <SummaryCard label="Prepaid sold (range)" value={formatIdr(s.prepaid_sold_in_range_idr)} sub={`${s.prepaid_sold_in_range_count ?? 0} sales · liability, not revenue`} />
+          <SummaryCard label="Prepaid redeemed (range)" value={formatIdr(s.prepaid_redeemed_in_range_idr)} sub={`${s.prepaid_redeemed_in_range_count ?? 0} uses · revenue recognized`} />
+          <SummaryCard label="Outstanding liability" value={formatIdr(s.outstanding_balance_idr)} sub={`${s.active_prepaid_count ?? 0} active records`} />
+          <SummaryCard label="Expiring prepaid" value={String(s.expiring_count ?? 0)} sub="Active with expiry date" />
+        </div>
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bl-card p-4">
+            <h3 className="font-display text-base mb-3">By status</h3>
+            <KeyValueList
+              items={(data.by_status || []).map((r) => ({
+                label: statusLabel[r.status] || r.status,
+                count: r.count,
+              }))}
+            />
+          </div>
+        </div>
+        <div className="mt-4 bl-card p-4">
+          <h3 className="font-display text-base mb-3">Redemption history</h3>
+          <DataTable
+            columns={[
+              { key: "created_at", label: "Date", render: (r) => (r.created_at || "").slice(0, 16).replace("T", " ") },
+              { key: "prepaid_code", label: "Code" },
+              { key: "amount_redeemed_idr", label: "Amount", right: true, render: (r) => formatIdr(r.amount_redeemed_idr) },
+              { key: "reference_type", label: "Reference" },
+              { key: "created_by_name_snapshot", label: "By" },
+            ]}
+            rows={data.redemptions}
+            empty="No redemptions in this range."
+          />
+        </div>
+      </>
+    );
+  }
+
   if (section === "treatments") {
     return (
       <>

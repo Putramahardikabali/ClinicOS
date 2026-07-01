@@ -27,16 +27,23 @@ from pos_sales_helpers import (
 
 SALE_STATUSES = frozenset({"draft", "paid", "cancelled"})
 SALE_TYPES = frozenset({
-    "product_sale", "package_sale", "gift_card", "service_sale", "mixed",
+    "product_sale", "package_sale", "gift_card", "prepaid_sale", "service_sale", "mixed",
 })
 PAYMENT_STATUSES = frozenset({"unpaid", "partial", "paid"})
 PAYMENT_METHODS = frozenset({"cash", "card", "bank_transfer", "qris", "other", "gift_card"})
-ITEM_TYPES = frozenset({"product", "package", "gift_card", "service", "custom"})
+ITEM_TYPES = frozenset({"product", "package", "gift_card", "prepaid", "service", "custom"})
 GIFT_CARD_TYPES = frozenset({"value_credit", "treatment", "package"})
 
 
 def _sale_has_gift_card_items(items: List[dict]) -> bool:
     return any((i.get("item_type") or "").strip().lower() == "gift_card" for i in items)
+
+
+def _require_prepaid_sell(user: dict, items: List[dict]) -> None:
+    if not any((i.get("item_type") or "").strip().lower() == "prepaid" for i in items):
+        return
+    if not user_has_permission(user, "prepaid.sell"):
+        raise HTTPException(status_code=403, detail="prepaid.sell permission is required to sell prepaid on POS")
 
 
 def _require_gift_card_create(user: dict, items: List[dict]) -> None:
@@ -133,6 +140,8 @@ def _infer_sale_type(items: List[dict]) -> str:
             return "package_sale"
         if t == "gift_card":
             return "gift_card"
+        if t == "prepaid":
+            return "prepaid_sale"
         if t == "service":
             return "service_sale"
         if t == "custom":
@@ -141,7 +150,7 @@ def _infer_sale_type(items: List[dict]) -> str:
 
 
 def _sale_requires_patient(items: List[dict]) -> bool:
-    return any((it.get("item_type") or "") == "package" for it in items)
+    return any((it.get("item_type") or "") in ("package", "prepaid") for it in items)
 
 
 async def _next_sale_number(db, clinic_id: str) -> str:
@@ -172,6 +181,8 @@ def _normalize_items(raw_items: List[dict]) -> List[dict]:
         if not name:
             if item_type == "gift_card":
                 name = "Gift card"
+            elif item_type == "prepaid":
+                name = "Prepaid"
             else:
                 raise HTTPException(status_code=400, detail=f"Item name required on line {i + 1}")
         qty = float(raw.get("qty") or 1)
@@ -183,6 +194,15 @@ def _normalize_items(raw_items: List[dict]) -> List[dict]:
             if gc_type not in GIFT_CARD_TYPES:
                 raise HTTPException(status_code=400, detail=f"Invalid gift_card_type on line {i + 1}")
             meta["gift_card_type"] = gc_type
+        if item_type == "prepaid":
+            ptype = (meta.get("prepaid_type") or "credit").strip().lower()
+            if ptype not in ("credit", "treatment"):
+                raise HTTPException(status_code=400, detail=f"Invalid prepaid_type on line {i + 1}")
+            meta["prepaid_type"] = ptype
+            amt = int(meta.get("amount_idr") or raw.get("unit_price") or 0)
+            if amt <= 0:
+                raise HTTPException(status_code=400, detail=f"Prepaid amount must be greater than zero on line {i + 1}")
+            meta["amount_idr"] = amt
         item = {
             "id": raw.get("id") or str(uuid.uuid4()),
             "item_type": item_type,
@@ -190,6 +210,7 @@ def _normalize_items(raw_items: List[dict]) -> List[dict]:
             "package_catalog_id": raw.get("package_catalog_id") or None,
             "treatment_catalog_id": raw.get("treatment_catalog_id") or None,
             "gift_card_id": raw.get("gift_card_id") or None,
+            "prepaid_id": raw.get("prepaid_id") or None,
             "patient_package_id": raw.get("patient_package_id") or None,
             "name_snapshot": name,
             "qty": qty,
@@ -256,6 +277,13 @@ async def _issue_gift_card_for_item(
     )
 
 
+async def _issue_prepaid_for_item(
+    db, sale: dict, item: dict, *, user: dict,
+) -> Tuple[str, str]:
+    from prepaid_core import issue_prepaid_from_pos_item
+    return await issue_prepaid_from_pos_item(db, sale, item, user=user)
+
+
 async def _fulfill_paid_sale(
     db, sale: dict, *, created_by: str, issuer_user: Optional[dict] = None,
 ) -> dict:
@@ -268,6 +296,7 @@ async def _fulfill_paid_sale(
     pkg_stats = await create_patient_packages_from_pos_sale(db, sale)
     items = list(sale.get("items") or [])
     gift_card_ids: List[str] = []
+    prepaid_ids: List[str] = []
     patient_package_ids: List[str] = []
     changed = False
 
@@ -308,6 +337,15 @@ async def _fulfill_paid_sale(
                 )
             except Exception:
                 pass
+        elif item.get("item_type") == "prepaid" and not item.get("prepaid_id"):
+            pp_id, pp_code = await _issue_prepaid_for_item(
+                db, sale, item, user=issuer_user or {"id": created_by},
+            )
+            item["prepaid_id"] = pp_id
+            item["prepaid_code"] = pp_code
+            item["fulfilled"] = True
+            prepaid_ids.append(pp_id)
+            changed = True
         elif item.get("item_type") == "package":
             pp = await db.patient_packages.find_one(
                 {
@@ -327,6 +365,8 @@ async def _fulfill_paid_sale(
         upd["items"] = items
     if gift_card_ids:
         upd["gift_card_ids"] = list({*(sale.get("gift_card_ids") or []), *gift_card_ids})
+    if prepaid_ids:
+        upd["prepaid_ids"] = list({*(sale.get("prepaid_ids") or []), *prepaid_ids})
     if patient_package_ids:
         upd["patient_package_ids"] = list({
             *(sale.get("patient_package_ids") or []),
@@ -1136,6 +1176,7 @@ def register_pos_sales(
         patient = await _validate_patient(user, payload.patient_id)
         items = _normalize_items([i.model_dump() for i in payload.items])
         _require_gift_card_create(user, items)
+        _require_prepaid_sell(user, items)
         _validate_customer_and_patient(
             is_walk_in=bool(payload.is_walk_in or not payload.patient_id),
             patient_id=payload.patient_id,
@@ -1215,6 +1256,7 @@ def register_pos_sales(
         if payload.items is not None:
             items = _normalize_items([i.model_dump() for i in payload.items])
             _require_gift_card_create(user, items)
+        _require_prepaid_sell(user, items)
             items = await _enrich_all_items(user, items)
             upd["items"] = items
             upd["sale_type"] = _infer_sale_type(items)
@@ -1260,6 +1302,7 @@ def register_pos_sales(
         if _sale_requires_patient(sale.get("items") or []) and not sale.get("patient_id"):
             raise HTTPException(status_code=400, detail="Patient required for package sale")
         _require_gift_card_create(user, sale.get("items") or [])
+        _require_prepaid_sell(user, sale.get("items") or [])
         sale = await _complete_pos_payment(
             user,
             sale,

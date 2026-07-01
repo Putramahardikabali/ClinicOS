@@ -14,6 +14,7 @@ import { saleHasGiftCardItems } from "@/lib/posGiftCardSale";
 import { printPosReceipt } from "@/lib/posReceipt";
 import PosDayClosingSnippet from "@/components/pos/PosDayClosingSnippet";
 import { buildGiftCardCartLine } from "@/lib/posGiftCard";
+import { buildPrepaidCartLine } from "@/lib/posPrepaid";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { computeInvoiceDiscount, lineTotal, parseIdr, receiptPhone } from "@/lib/posUtils";
 import { isCashPayment } from "@/lib/paymentAmountQuickFill";
@@ -98,6 +99,7 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
   const paid = amountPaid === "" ? cashDue : parseIdr(amountPaid);
   const balanceDue = Math.max(0, total - gcApplied - walletApplied - paid);
   const cartHasPackage = cart.some((ln) => ln.item_type === "package");
+  const cartHasPrepaid = cart.some((ln) => ln.item_type === "prepaid");
 
   const updateCartLine = (key, patch) => {
     setCart((prev) => prev.map((ln) => (ln.key === key ? { ...ln, ...patch } : ln)));
@@ -162,6 +164,13 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
         return;
       }
       line = built.line;
+    } else if (activeTab === "prepaid") {
+      const built = buildPrepaidCartLine(draft);
+      if (built.error) {
+        toast.error(built.error);
+        return;
+      }
+      line = built.line;
     } else {
       if (!draft.customName.trim()) {
         toast.error("Enter line name");
@@ -206,6 +215,10 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
   const validateCustomer = () => {
     if (cartHasPackage && !selectedPatient) {
       toast.error("Select a patient — packages create a patient package after payment");
+      return false;
+    }
+    if (cartHasPrepaid && !selectedPatient) {
+      toast.error("Select a patient — prepaid is issued to the patient after payment");
       return false;
     }
     if (!walkIn && !selectedPatient) {

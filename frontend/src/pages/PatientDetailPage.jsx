@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import PatientPackagesPanel from "@/components/patient/PatientPackagesPanel";
+import PatientPrepaidPanel from "@/components/patient/PatientPrepaidPanel";
 import PatientWalletPanel from "@/components/patient/PatientWalletPanel";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
@@ -597,6 +598,7 @@ export default function PatientDetailPage() {
     clinical_notes: renderClinicalNotes(),
     photos: renderPhotos(),
     packages: <PatientPackagesPanel patientId={pid} compact />,
+    prepaid: access?.prepaid ? <PatientPrepaidPanel patientId={pid} /> : <Empty message="No access to prepaid." />,
     wallet: access?.wallet ? <PatientWalletPanel patientId={pid} /> : <Empty message="No access to wallet." />,
     invoices: renderInvoices(),
     consents: renderConsents(),

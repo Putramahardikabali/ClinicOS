@@ -234,6 +234,34 @@ def export_gift_cards(data: dict, filters: Optional[dict] = None) -> bytes:
     return build_report_workbook("Gift Card Report", data.get("range") or {}, filters, summary, sheets)
 
 
+def export_prepaid(data: dict, filters: Optional[dict] = None) -> bytes:
+    summary = summary_from_dict(data.get("summary") or {})
+    status_headers, status_rows = kv_rows(
+        data.get("by_status") or [],
+        "status",
+        "count",
+        "Status",
+        "Count",
+    )
+    red_headers, red_rows = dict_rows(
+        data.get("redemptions") or [],
+        [
+            ("created_at", "Date"),
+            ("prepaid_code", "Code"),
+            ("amount_redeemed_idr", "Amount IDR"),
+            ("balance_after_idr", "Balance after"),
+            ("reference_type", "Reference type"),
+            ("reference_id", "Reference ID"),
+            ("created_by_name_snapshot", "Redeemed by"),
+        ],
+    )
+    sheets = [
+        {"name": "By status", "title": "Prepaid by status", "headers": status_headers, "rows": status_rows},
+        {"name": "Redemptions", "title": "Redemption history", "headers": red_headers, "rows": red_rows},
+    ]
+    return build_report_workbook("Prepaid Report", data.get("range") or {}, filters, summary, sheets)
+
+
 def export_analytics_marketing(data: dict, filters: Optional[dict] = None) -> bytes:
     completeness = data.get("data_completeness") or {}
     summary = summary_from_dict(data.get("summary") or {})
@@ -286,6 +314,7 @@ EXPORTERS = {
     "consent": export_consent,
     "audit": export_audit,
     "gift-cards": export_gift_cards,
+    "prepaid": export_prepaid,
     "analytics-marketing": export_analytics_marketing,
     "analytics-treatments": export_analytics_treatments,
     "analytics-operational": export_analytics_operational,

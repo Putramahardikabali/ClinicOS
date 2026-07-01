@@ -46,3 +46,11 @@ def active_store_credit_payment_total(payments: list) -> int:
         for p in (payments or [])
         if not p.get("voided") and (p.get("method") or "").strip().lower() == "store_credit"
     )
+
+
+def active_prepaid_payment_total(payments: list) -> int:
+    return sum(
+        int(p.get("amount_idr") or 0)
+        for p in (payments or [])
+        if not p.get("voided") and (p.get("method") or "").strip().lower() == "prepaid"
+    )

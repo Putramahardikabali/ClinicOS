@@ -18,6 +18,7 @@ export const ITEM_TABS = [
   { id: "product", label: "Product" },
   { id: "package", label: "Package" },
   { id: "gift_card", label: "Gift Card" },
+  { id: "prepaid", label: "Prepaid" },
   { id: "service", label: "Service" },
   { id: "custom", label: "Custom" },
 ];
@@ -26,6 +27,7 @@ export const TYPE_LABELS = {
   product: "Product",
   package: "Package",
   gift_card: "Gift Card",
+  prepaid: "Prepaid",
   service: "Service",
   custom: "Custom",
 };
@@ -34,6 +36,7 @@ export const TYPE_BADGE_CLASS = {
   product: "bg-[#EDF3EF] text-[#2D5A3D]",
   package: "bg-[#F3EDE8] text-[#6B4E3D]",
   gift_card: "bg-[#F8F0E8] text-[#8B5A2B]",
+  prepaid: "bg-[#EDE8F3] text-[#4A3D6B]",
   service: "bg-[#E8EEF3] text-[#2D4A5A]",
   custom: "bg-[#F0F0EB] text-[#5C6C62]",
 };

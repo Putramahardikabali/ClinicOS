@@ -15,6 +15,7 @@ REPORT_SECTIONS = frozenset({
     "overview", "revenue", "billing", "packages", "treatments",
     "staff", "commission", "appointments", "patients", "consent", "audit", "inventory",
     "gift-cards",
+    "prepaid",
     "analytics-marketing", "analytics-treatments", "analytics-operational",
 })
 
@@ -24,7 +25,7 @@ UNKNOWN_LABEL = "Unknown / Not recorded"
 BILLING_VIEW_SECTIONS = frozenset({"billing"})
 
 ACCOUNTING_REPORT_SECTIONS = frozenset({
-    "overview", "revenue", "billing", "packages", "gift-cards", "online-booking-payments",
+    "overview", "revenue", "billing", "packages", "gift-cards", "prepaid", "online-booking-payments",
 })
 
 
@@ -181,6 +182,15 @@ def assert_report_access(user: dict, section: str = "overview") -> None:
         if user_has_permission(user, "reports.view"):
             return
         if user_has_permission(user, "gift_cards.view"):
+            return
+        if user_has_permission(user, "accounting.view"):
+            return
+        raise HTTPException(status_code=403, detail="Not allowed to view reports")
+
+    if section == "prepaid":
+        if user_has_permission(user, "reports.view"):
+            return
+        if user_has_permission(user, "prepaid.view"):
             return
         if user_has_permission(user, "accounting.view"):
             return

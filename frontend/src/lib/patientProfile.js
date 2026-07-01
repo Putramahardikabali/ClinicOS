@@ -8,6 +8,7 @@ export const PATIENT_TABS = [
   { id: "clinical_notes", label: "Clinical Notes", key: "clinical_notes" },
   { id: "photos", label: "Before/After Photos", key: "photos" },
   { id: "packages", label: "Packages", key: "packages" },
+  { id: "prepaid", label: "Prepaid", key: "prepaid" },
   { id: "invoices", label: "Invoices", key: "invoices" },
   { id: "wallet", label: "Wallet", key: "wallet" },
   { id: "consents", label: "Consents", key: "consents" },

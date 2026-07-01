@@ -6,6 +6,7 @@ import { ITEM_TABS, fmtIDR } from "@/lib/posUtils";
 import PosSearchCombobox from "@/components/pos/PosSearchCombobox";
 
 import PosGiftCardForm from "@/components/pos/PosGiftCardForm";
+import PosPrepaidForm from "@/components/pos/PosPrepaidForm";
 
 export function emptyDraft(tab = "product") {
   return {
@@ -40,6 +41,16 @@ export function emptyDraft(tab = "product") {
     giftPackageQuery: "",
     giftPackageOptions: [],
     selectedGiftPackage: null,
+    prepaidType: "credit",
+    prepaidValue: "",
+    prepaidUnitPrice: "",
+    prepaidQuantity: "1",
+    prepaidExpiry: "",
+    prepaidNotes: "",
+    prepaidCampaignName: "",
+    prepaidTreatmentQuery: "",
+    prepaidTreatmentOptions: [],
+    selectedPrepaidTreatment: null,
   };
 }
 
@@ -62,9 +73,15 @@ export default function PosItemPicker({
   const { user } = useAuth();
   const canAddGiftCardToPos =
     hasPermission(user, "pos.create") && hasPermission(user, "gift_cards.create");
+  const canSellPrepaid =
+    hasPermission(user, "pos.create") && hasPermission(user, "prepaid.sell");
   const visibleTabs = useMemo(
-    () => ITEM_TABS.filter((t) => t.id !== "gift_card" || canAddGiftCardToPos),
-    [canAddGiftCardToPos],
+    () => ITEM_TABS.filter((t) => {
+      if (t.id === "gift_card") return canAddGiftCardToPos;
+      if (t.id === "prepaid") return canSellPrepaid;
+      return true;
+    }),
+    [canAddGiftCardToPos, canSellPrepaid],
   );
   const patchDraft = (patch) => onDraftChange({ ...draft, ...patch });
 
@@ -72,7 +89,10 @@ export default function PosItemPicker({
     if (activeTab === "gift_card" && !canAddGiftCardToPos) {
       onTabChange("product");
     }
-  }, [activeTab, canAddGiftCardToPos, onTabChange]);
+    if (activeTab === "prepaid" && !canSellPrepaid) {
+      onTabChange("product");
+    }
+  }, [activeTab, canAddGiftCardToPos, canSellPrepaid, onTabChange]);
 
   useEffect(() => {
     const q = draft.productQuery;
@@ -128,7 +148,7 @@ export default function PosItemPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.serviceQuery, activeTab]);
 
-  const showQtyPrice = activeTab !== "gift_card";
+  const showQtyPrice = activeTab !== "gift_card" && activeTab !== "prepaid";
 
   const renderForm = () => {
     if (activeTab === "product") {
@@ -281,6 +301,10 @@ export default function PosItemPicker({
 
     if (activeTab === "gift_card") {
       return <PosGiftCardForm draft={draft} onDraftChange={onDraftChange} />;
+    }
+
+    if (activeTab === "prepaid") {
+      return <PosPrepaidForm draft={draft} onDraftChange={onDraftChange} />;
     }
 
     return (

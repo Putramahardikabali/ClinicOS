@@ -35,21 +35,15 @@ def _add_method(bucket: Dict[str, int], method: str, amount: int) -> None:
     bucket[m] += int(amount or 0)
 
 
-def _allocate_money_and_redemption(doc: dict, *, is_pos: bool) -> tuple[Dict[str, int], int, int]:
-    """
-    Split a paid POS sale or invoice into:
-    - income_methods: cash/card/QRIS/bank (money collected; excludes gift card / store credit)
-    - gift_card_redemption_idr: store credit applied via gift card
-    - store_credit_redemption_idr: patient wallet applied as payment
-    """
+def _allocate_money_and_redemption(doc: dict, *, is_pos: bool) -> tuple[Dict[str, int], int, int, int]:
     income = _method_bucket()
     gc_redemption = int(doc.get("gift_card_payment_total_idr") or 0)
     wallet_redemption = int(doc.get("wallet_payment_total_idr") or 0)
+    prepaid_redemption = int(doc.get("prepaid_payment_total_idr") or 0)
     payments = doc.get("payments") or []
 
     if payments:
-        gc_from_payments = 0
-        wallet_from_payments = 0
+        gc_from_payments = wallet_from_payments = prepaid_from_payments = 0
         for p in payments:
             if p.get("voided"):
                 continue
@@ -61,30 +55,33 @@ def _allocate_money_and_redemption(doc: dict, *, is_pos: bool) -> tuple[Dict[str
             if m == "store_credit":
                 wallet_from_payments += amt
                 continue
+            if m == "prepaid":
+                prepaid_from_payments += amt
+                continue
             _add_method(income, m, amt)
         if gc_from_payments > 0:
             gc_redemption = gc_from_payments
         if wallet_from_payments > 0:
             wallet_redemption = wallet_from_payments
+        if prepaid_from_payments > 0:
+            prepaid_redemption = prepaid_from_payments
     else:
         if is_pos:
             cash_amt = int(doc.get("amount_paid") or 0)
             total = int(doc.get("total") or 0)
         else:
             total_paid = int(doc.get("amount_paid") or 0)
-            cash_amt = max(0, total_paid - gc_redemption - wallet_redemption)
+            cash_amt = max(0, total_paid - gc_redemption - wallet_redemption - prepaid_redemption)
             total = int(doc.get("total_amount") or 0)
         pm = (doc.get("payment_method") or "other").strip().lower()
-        if gc_redemption <= 0:
+        if gc_redemption <= 0 and prepaid_redemption <= 0:
             tender = cash_amt if cash_amt > 0 else total
-            _add_method(income, pm if pm != "gift_card" else "cash", tender)
+            _add_method(income, pm if pm not in ("gift_card", "prepaid") else "cash", tender)
         elif cash_amt > 0:
-            tender_method = pm if pm not in ("gift_card", "mixed") else "cash"
+            tender_method = pm if pm not in ("gift_card", "mixed", "prepaid") else "cash"
             _add_method(income, tender_method, cash_amt)
 
-    if gc_redemption > 0:
-        pass  # tracked separately, not in income_methods
-    return income, gc_redemption, wallet_redemption
+    return income, gc_redemption, wallet_redemption, prepaid_redemption
 
 
 def _invoice_customer(inv: dict) -> str:
@@ -187,11 +184,12 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     closing = await get_closing_for_date(db, clinic_id, date_str)
 
     pos_income_methods = _method_bucket()
-    pos_product = pos_package = pos_gift = pos_service = pos_custom = 0
+    pos_product = pos_package = pos_gift = pos_prepaid = pos_service = pos_custom = 0
     pos_redemption_settled = 0
     pos_money_collected = 0
     pos_gc_redemptions = 0
     pos_wallet_redemptions = 0
+    pos_prepaid_redemptions = 0
     pos_count = 0
     pos_transactions: List[dict] = []
 
@@ -201,11 +199,12 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     ).sort("paid_at", -1).to_list(5000)
     for sale in pos_rows:
         pos_count += 1
-        income, gc_amt, wallet_amt = _allocate_money_and_redemption(sale, is_pos=True)
+        income, gc_amt, wallet_amt, prepaid_amt = _allocate_money_and_redemption(sale, is_pos=True)
         cash_amt = int(sale.get("amount_paid") or 0)
         pos_money_collected += cash_amt
         pos_gc_redemptions += gc_amt
         pos_wallet_redemptions += wallet_amt
+        pos_prepaid_redemptions += prepaid_amt
         for k in pos_income_methods:
             pos_income_methods[k] += income.get(k, 0)
         pos_transactions.append(_pos_transaction_row(sale))
@@ -213,6 +212,7 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         pos_product += cats["product_sales_idr"]
         pos_package += cats["package_sales_idr"]
         pos_gift += cats["gift_card_sales_idr"]
+        pos_prepaid += cats.get("prepaid_sales_idr") or 0
         pos_service += cats["service_sales_idr"]
         pos_custom += cats["custom_sales_idr"]
         pos_redemption_settled += cats["gift_card_redemption_settled_idr"]
@@ -225,6 +225,7 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     inv_money_collected = 0
     inv_gc_redemptions = 0
     inv_wallet_redemptions = 0
+    inv_prepaid_redemptions = 0
     inv_count = 0
     inv_transactions: List[dict] = []
     inv_campaign_discount_idr = 0
@@ -236,12 +237,13 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     ).sort("paid_at", -1).to_list(5000)
     for inv in inv_rows:
         inv_count += 1
-        income, gc_amt, wallet_amt = _allocate_money_and_redemption(inv, is_pos=False)
+        income, gc_amt, wallet_amt, prepaid_amt = _allocate_money_and_redemption(inv, is_pos=False)
         amt = int(inv.get("amount_paid") or inv.get("total_amount") or 0)
-        cash_portion = max(0, amt - gc_amt - wallet_amt)
+        cash_portion = max(0, amt - gc_amt - wallet_amt - prepaid_amt)
         inv_money_collected += cash_portion
         inv_gc_redemptions += gc_amt
         inv_wallet_redemptions += wallet_amt
+        inv_prepaid_redemptions += prepaid_amt
         for k in inv_income_methods:
             inv_income_methods[k] += income.get(k, 0)
         inv_transactions.append(_invoice_transaction_row(inv))
@@ -272,6 +274,9 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         redemption_from_ledger,
     )
 
+    from prepaid_core import aggregate_outstanding_prepaid_liability, aggregate_prepaid_for_date
+    prepaid_summary = await aggregate_prepaid_for_date(db, clinic_id, date_str)
+    prepaid_outstanding = await aggregate_outstanding_prepaid_liability(db, clinic_id)
     from gift_cards_core import aggregate_outstanding_summary
     from wallet_core import aggregate_outstanding_wallet_liability, aggregate_wallet_for_date
     outstanding = await aggregate_outstanding_summary(db, clinic_id)
@@ -280,16 +285,22 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
     refunds_summary = await aggregate_refunds_for_date(db, clinic_id, date_str)
 
     store_credit_payments_idr = pos_wallet_redemptions + inv_wallet_redemptions
+    prepaid_payments_idr = pos_prepaid_redemptions + inv_prepaid_redemptions
+    prepaid_sold_idr = pos_prepaid + int(prepaid_summary.get("prepaid_sold_idr") or 0)
+    prepaid_redeemed_idr = max(
+        prepaid_payments_idr,
+        int(prepaid_summary.get("prepaid_redeemed_idr") or 0),
+    )
 
     income_methods = _method_bucket()
     for k in income_methods:
         income_methods[k] = pos_income_methods[k] + inv_income_methods[k]
 
-    # Income tenders (cash/card/QRIS/bank) — separate from gift card redemption usage.
     payment_methods = dict(income_methods)
     redemption_payment_methods = {
         "gift_card": gift_card_redemptions_idr,
         "store_credit": store_credit_payments_idr,
+        "prepaid": prepaid_redeemed_idr,
     }
     redemption_settled_total = pos_redemption_settled + inv_redemption_settled
 
@@ -302,6 +313,11 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         "service_sales_idr": pos_service,
         "custom_sales_idr": pos_custom,
         "gift_card_sales_idr": pos_gift,
+        "prepaid_sales_idr": prepaid_sold_idr,
+        "prepaid_liability_added_idr": prepaid_sold_idr,
+        "prepaid_redeemed_idr": prepaid_redeemed_idr,
+        "prepaid_liability_used_idr": prepaid_redeemed_idr,
+        "outstanding_prepaid_liability_idr": int(prepaid_outstanding.get("outstanding_balance_idr") or 0),
         "gift_card_redemptions_idr": gift_card_redemptions_idr,
         "gift_card_redemption_settled_idr": redemption_settled_total,
         "refunds_idr": refunds_summary.get("total_idr") or 0,
@@ -340,10 +356,14 @@ async def aggregate_daily_closing(db, clinic_id: str, date_str: str) -> dict:
         "gift_card_redemptions_idr": gift_card_redemptions_idr,
         "gift_card_redemption_settled_idr": redemption_settled_total,
         "gift_card_sales_idr": pos_gift,
+        "prepaid_sales_idr": prepaid_sold_idr,
+        "prepaid_redeemed_idr": prepaid_redeemed_idr,
+        "outstanding_prepaid_liability_idr": int(prepaid_outstanding.get("outstanding_balance_idr") or 0),
         "outstanding_gift_card_liability_idr": int(outstanding.get("outstanding_balance_idr") or 0),
         "outstanding_wallet_liability_idr": int(wallet_outstanding.get("outstanding_balance_idr") or 0),
         "store_credit_payments_idr": store_credit_payments_idr,
         "wallet": wallet_summary,
+        "prepaid": prepaid_summary,
         "payment_methods": payment_methods,
         "redemption_payment_methods": redemption_payment_methods,
         "income_payment_methods": income_methods,

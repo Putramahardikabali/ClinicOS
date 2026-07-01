@@ -1,5 +1,6 @@
 import { PAYMENT_METHODS, TYPE_LABELS, fmtIDR, parseIdr } from "@/lib/posUtils";
 import PosReceiptGiftCardsSection from "@/components/pos/PosReceiptGiftCardsSection";
+import PosReceiptPrepaidSection from "@/components/pos/PosReceiptPrepaidSection";
 
 function paymentLabel(method) {
   const m = PAYMENT_METHODS.find((p) => p.v === method);
@@ -79,6 +80,7 @@ export default function PosReceiptDocument({ sale, clinicName = "Clinic" }) {
       </table>
 
       <PosReceiptGiftCardsSection sale={sale} />
+      <PosReceiptPrepaidSection sale={sale} />
 
       <section className="text-sm space-y-1 border-t border-[#2D3A33] pt-3">
         <div className="flex justify-between">

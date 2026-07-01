@@ -128,6 +128,7 @@ from daily_closing import register_daily_closing
 from gift_cards import register_gift_cards
 from refunds import register_refunds
 from patient_wallets import register_patient_wallets
+from prepaid import register_prepaid
 import totp_2fa as t2fa
 from platform_ops import create_platform_notification, seed_clinic_settings, invalidate_user_sessions
 from subscription_gates import assert_operational_access, maybe_notify_trial_expired_platform
@@ -2697,6 +2698,16 @@ register_refunds(
 )
 
 register_patient_wallets(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    assert_writeable=assert_writeable,
+    assert_feature=assert_feature,
+    audit=audit,
+    scope=scope,
+)
+
+register_prepaid(
     api=api,
     db=db,
     get_current_user=get_operational_user,
