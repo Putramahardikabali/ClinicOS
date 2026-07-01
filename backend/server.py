@@ -839,7 +839,6 @@ DEFAULT_SETTINGS = {
         "tagline": "Aesthetic Clinic · Patient chart",
         "logo_path": "",  # storage path for logo
         "primary_color": "#8A9A86",
-        "primary_hover": "#748470",
         "accent_color": "#D4A373",
         "background": "#FDFBF7",
         "surface": "#FFFFFF",
@@ -1349,6 +1348,11 @@ async def set_staff_schedule(uid: str, payload: StaffScheduleIn, user: dict = De
     }
 
 # ---------------- Settings ----------------
+def _resolved_branding(raw: Optional[dict]) -> dict:
+    from branding_theme import resolve_branding_theme
+    return resolve_branding_theme(raw or DEFAULT_SETTINGS.get("branding") or {})
+
+
 @api.get("/settings")
 async def get_settings(user: dict = Depends(get_operational_user)):
     s = await db.settings.find_one(scope(user, {"id": "global"}), {"_id": 0})
@@ -1369,11 +1373,15 @@ async def get_settings(user: dict = Depends(get_operational_user)):
         return {
             "id": s.get("id"),
             "clinic_id": s.get("clinic_id"),
-            "branding": s.get("branding"),
+            "branding": _resolved_branding(s.get("branding")),
             "form_config": s.get("form_config"),
             "mapping_templates": s.get("mapping_templates", []),
             "online_booking_payment": (s.get("online_booking_payment") or DEFAULT_SETTINGS.get("online_booking_payment")),
         }
+    if s.get("branding"):
+        s = {**s, "branding": _resolved_branding(s.get("branding"))}
+    else:
+        s = {**s, "branding": _resolved_branding(None)}
     return s
 
 @api.put("/admin/settings")
@@ -1387,6 +1395,10 @@ async def update_settings(payload: SettingsIn, user: dict = Depends(require_role
         except BookingSlugError as e:
             raise HTTPException(status_code=e.status_code, detail=e.message)
         await db.clinics.update_one({"id": user["clinic_id"]}, {"$set": {"slug": new_slug}})
+    branding_in = upd.get("branding")
+    if isinstance(branding_in, dict):
+        from branding_theme import branding_base_for_save
+        upd["branding"] = branding_base_for_save(branding_in)
     await db.settings.update_one(scope(user, {"id": "global"}), {"$set": upd}, upsert=True)
     # Ensure clinic_id is set on upsert
     await db.settings.update_one(scope(user, {"id": "global"}), {"$set": {"clinic_id": user.get("clinic_id")}})
@@ -1401,7 +1413,10 @@ async def update_settings(payload: SettingsIn, user: dict = Depends(require_role
         if clinic_upd:
             await db.clinics.update_one({"id": user["clinic_id"]}, {"$set": clinic_upd})
     await audit(user, "update", "settings", "global")
-    return await db.settings.find_one(scope(user, {"id": "global"}), {"_id": 0})
+    s = await db.settings.find_one(scope(user, {"id": "global"}), {"_id": 0})
+    if s and s.get("branding"):
+        s = {**s, "branding": _resolved_branding(s.get("branding"))}
+    return s
 
 @api.post("/admin/template-image")
 async def upload_template_image(file: UploadFile = File(...), user: dict = Depends(require_roles("super_admin"))):
@@ -2425,7 +2440,7 @@ async def serve_file_api(path: str, auth: Optional[str] = Query(None), authoriza
 @api.get("/branding")
 async def public_branding():
     s = await db.settings.find_one({"id": "global"}, {"_id": 0, "branding": 1})
-    return (s or {}).get("branding", DEFAULT_SETTINGS["branding"])
+    return _resolved_branding((s or {}).get("branding"))
 
 @api.get("/platform/support")
 async def platform_support():

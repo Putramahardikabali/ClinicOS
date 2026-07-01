@@ -1,31 +1,11 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import api, { API_BASE } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { applyBrandingTheme, resolveBrandingTheme } from "@/lib/clinicTheme";
 
 const SettingsContext = createContext(null);
 
-const FALLBACK_BRANDING = {
-  clinic_name: "ClinicOS",
-  tagline: "Clinic management",
-  logo_path: "",
-  primary_color: "#8A9A86",
-  primary_hover: "#748470",
-  accent_color: "#D4A373",
-  background: "#FDFBF7",
-  surface: "#FFFFFF",
-  text_primary: "#2D3A33",
-};
-
-function applyTheme(branding) {
-  const r = document.documentElement;
-  r.style.setProperty("--bl-primary", branding.primary_color);
-  r.style.setProperty("--bl-primary-hover", branding.primary_hover);
-  r.style.setProperty("--bl-accent", branding.accent_color);
-  r.style.setProperty("--bl-background", branding.background);
-  r.style.setProperty("--bl-surface", branding.surface);
-  r.style.setProperty("--bl-text", branding.text_primary);
-  document.title = `${branding.clinic_name} · ClinicOS`;
-}
+const FALLBACK_BRANDING = resolveBrandingTheme();
 
 export function SettingsProvider({ children }) {
   const { user } = useAuth();
@@ -37,18 +17,25 @@ export function SettingsProvider({ children }) {
       if (user) {
         const r = await api.get("/settings");
         setSettings(r.data);
-        if (r.data.branding) { setBranding(r.data.branding); applyTheme(r.data.branding); }
+        if (r.data.branding) {
+          const theme = resolveBrandingTheme(r.data.branding);
+          setBranding(theme);
+          applyBrandingTheme(theme);
+        }
       } else {
-        // public branding for login page
-        const r = await fetch(`${API_BASE}/branding`).then(x => x.json()).catch(() => null);
-        if (r) { setBranding(r); applyTheme(r); }
+        const r = await fetch(`${API_BASE}/branding`).then((x) => x.json()).catch(() => null);
+        if (r) {
+          const theme = resolveBrandingTheme(r);
+          setBranding(theme);
+          applyBrandingTheme(theme);
+        }
       }
     } catch {
-      applyTheme(FALLBACK_BRANDING);
+      applyBrandingTheme(FALLBACK_BRANDING);
     }
   }, [user]);
 
-  useEffect(() => { applyTheme(FALLBACK_BRANDING); }, []); // initial paint
+  useEffect(() => { applyBrandingTheme(FALLBACK_BRANDING); }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
   return (
@@ -67,5 +54,5 @@ export const logoUrl = (logo_path) => {
     || process.env.VITE_PUBLIC_UPLOAD_BASE_URL
     || (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL.replace(/\/$/, "")}/uploads` : "");
   if (publicBase) return `${publicBase}/${logo_path}`;
-  return `${API_BASE}/files/${logo_path}`; // backward-compatible fallback
+  return `${API_BASE}/files/${logo_path}`;
 };

@@ -154,7 +154,7 @@ export default function PosPaymentPanel({
 
                   discountType === m.id
 
-                    ? "border-[var(--bl-primary)] bg-[#EDF3EF] text-[#2D3A33]"
+                    ? "border-[var(--bl-primary)] bg-[var(--bl-primary-soft)] text-[var(--bl-text)]"
 
                     : "border-[#EAE6D7] text-[#5C6C62]"
 

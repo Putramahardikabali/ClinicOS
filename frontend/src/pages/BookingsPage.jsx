@@ -289,7 +289,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
                   type="button"
                   onClick={() => setForm({ ...form, duration_min: d })}
                   className="px-3 py-1.5 rounded-lg border text-sm font-medium"
-                  style={form.duration_min === d ? { borderColor: "var(--bl-primary)", background: "#EDF3EF" } : { borderColor: "#EAE6D7" }}
+                  style={form.duration_min === d ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)" } : { borderColor: "var(--bl-border)" }}
                   data-testid={`block-duration-${d}`}
                 >
                   {d} min
@@ -530,7 +530,7 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
               key={t.key}
               onClick={() => setTplKey(t.key)}
               className="text-left px-3 py-2 rounded-lg border text-xs font-medium"
-              style={t.key === tplKey ? { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" } : { borderColor: "#EAE6D7", color: "#5C6C62", background: "white" }}
+              style={t.key === tplKey ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)", color: "var(--bl-text)" } : { borderColor: "var(--bl-border)", color: "var(--bl-muted-text)", background: "white" }}
               data-testid={`wa-tpl-${t.key}`}
             >
               {t.name}

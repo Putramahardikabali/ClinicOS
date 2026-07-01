@@ -1260,9 +1260,9 @@ export default function PublicBookingPage() {
 
                         style={active
 
-                          ? { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }
+                          ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)", color: "var(--bl-text)" }
 
-                          : { borderColor: "#EAE6D7", color: "#5C6C62", background: "white" }}
+                          : { borderColor: "var(--bl-border)", color: "var(--bl-muted-text)", background: "white" }}
 
                         data-testid={`date-${ds}`}
 
@@ -1362,7 +1362,7 @@ export default function PublicBookingPage() {
 
                                 : active
 
-                                  ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary)", color: "white" }
+                                  ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary)", color: "var(--bl-primary-contrast)" }
 
                                   : { borderColor: "#D6D0BD", color: "#2D3A33", background: "white" }}
 

@@ -7,10 +7,16 @@
 :root {
   --bl-primary: #8A9A86;
   --bl-primary-hover: #748470;
+  --bl-primary-soft: #EDF3EF;
+  --bl-primary-contrast: #FFFFFF;
   --bl-accent: #D4A373;
   --bl-background: #FDFBF7;
   --bl-surface: #FFFFFF;
   --bl-text: #2D3A33;
+  --bl-muted-text: #5C6C62;
+  --bl-border: #EAE6D7;
+  --bl-focus-ring: rgba(138, 154, 134, 0.22);
+  --bl-link: #8A9A86;
 
   --background: 42 50% 98%;
   --foreground: 145 12% 19%;
@@ -54,12 +60,12 @@ h1, h2, h3, h4, h5, .font-display {
   letter-spacing: 0.22em;
   text-transform: uppercase;
   font-weight: 600;
-  color: #5C6C62;
+  color: var(--bl-muted-text);
 }
 
 .bl-card {
   background: var(--bl-surface);
-  border: 1px solid #EAE6D7;
+  border: 1px solid var(--bl-border);
   border-radius: 1rem;
   transition: all 0.2s ease;
 }
@@ -67,7 +73,7 @@ h1, h2, h3, h4, h5, .font-display {
 
 .bl-input {
   background: var(--bl-surface);
-  border: 1px solid #EAE6D7;
+  border: 1px solid var(--bl-border);
   border-radius: 0.75rem;
   padding: 0.7rem 0.9rem;
   width: 100%;
@@ -75,7 +81,7 @@ h1, h2, h3, h4, h5, .font-display {
   color: var(--bl-text);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.bl-input:focus { outline: none; border-color: var(--bl-primary); box-shadow: 0 0 0 3px rgba(138, 154, 134, 0.18); }
+.bl-input:focus { outline: none; border-color: var(--bl-primary); box-shadow: 0 0 0 3px var(--bl-focus-ring); }
 
 /* Search icon inside inputs — overrides .bl-input padding shorthand */
 .bl-search-icon {
@@ -88,7 +94,7 @@ h1, h2, h3, h4, h5, .font-display {
   width: 1rem;
   height: 1rem;
   flex-shrink: 0;
-  color: #5C6C62;
+  color: var(--bl-muted-text);
 }
 
 .bl-input.bl-input--with-search-icon,
@@ -98,7 +104,7 @@ input.bl-input--with-search-icon {
 
 .bl-btn-primary {
   background: var(--bl-primary);
-  color: #FFFFFF;
+  color: var(--bl-primary-contrast);
   padding: 0.7rem 1.2rem;
   border-radius: 0.75rem;
   font-weight: 500;
@@ -116,10 +122,10 @@ input.bl-input--with-search-icon {
   padding: 0.6rem 1rem;
   border-radius: 0.75rem;
   font-weight: 500;
-  border: 1px solid #EAE6D7;
+  border: 1px solid var(--bl-border);
   transition: background 0.15s;
 }
-.bl-btn-ghost:hover { background: #F3F1EB; }
+.bl-btn-ghost:hover { background: var(--bl-primary-soft); }
 
 .bl-chip {
   display: inline-flex;
@@ -130,9 +136,9 @@ input.bl-input--with-search-icon {
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   font-weight: 600;
-  background: #F3F1EB;
-  color: #5C6C62;
-  border: 1px solid #EAE6D7;
+  background: var(--bl-primary-soft);
+  color: var(--bl-muted-text);
+  border: 1px solid var(--bl-border);
 }
 .bl-chip.success { background: #EDF3EF; color: #52796F; border-color: #CFE0D5; }
 .bl-chip.warning { background: #FBF3DB; color: #8A6D1F; border-color: #EFE2B0; }
@@ -145,13 +151,36 @@ input.bl-input--with-search-icon {
   gap: 0.75rem;
   padding: 0.7rem 0.9rem;
   border-radius: 0.75rem;
-  color: #5C6C62;
+  color: var(--bl-muted-text);
   font-size: 0.92rem;
   font-weight: 500;
   transition: background 0.15s, color 0.15s;
 }
-.bl-sidebar-link:hover { background: #ECE7D7; color: var(--bl-text); }
-.bl-sidebar-link.active { background: var(--bl-surface); color: var(--bl-text); box-shadow: 0 1px 3px rgba(45, 58, 51, 0.06); }
+.bl-sidebar-link:hover { background: var(--bl-primary-soft); color: var(--bl-text); }
+.bl-sidebar-link.active {
+  background: var(--bl-primary-soft);
+  color: var(--bl-primary);
+  box-shadow: 0 1px 3px rgba(45, 58, 51, 0.06);
+}
+
+/* Selected / active non-status surfaces (tabs, segmented controls, slots) */
+.bl-surface-selected {
+  border-color: var(--bl-primary) !important;
+  background: var(--bl-primary-soft) !important;
+  color: var(--bl-text);
+}
+.bl-surface-selected-solid {
+  border-color: var(--bl-primary) !important;
+  background: var(--bl-primary) !important;
+  color: var(--bl-primary-contrast) !important;
+}
+
+.bl-link {
+  color: var(--bl-link);
+}
+.bl-link:hover {
+  color: var(--bl-primary-hover);
+}
 
 /* Print styles */
 @media print {
@@ -194,7 +223,7 @@ input.bl-input--with-search-icon {
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  border-bottom: 1px solid #EAE6D7;
+  border-bottom: 1px solid var(--bl-border);
 }
 .bl-tab-scroller::-webkit-scrollbar { display: none; }
 .bl-tab-scroller > * { scroll-snap-align: start; flex-shrink: 0; }

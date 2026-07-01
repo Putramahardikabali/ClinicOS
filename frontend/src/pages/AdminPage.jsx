@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { Settings, Stethoscope, Heart, Pill, MapPin, Plus, Trash2, Upload, RefreshCw, CalendarClock, Calendar as CalendarIcon, Award, Tag, ChevronDown, ChevronUp, MoreHorizontal, Edit2, CreditCard, MessageSquare, Shield, Percent } from "lucide-react";
 import { FeatureRoute } from "@/components/FeatureGate";
 import CommissionSettingsPanel from "@/components/commission/CommissionSettingsPanel";
+import BrandingThemePreview from "@/components/settings/BrandingThemePreview";
+import { applyBrandingTheme, brandingBaseForSave, resolveBrandingTheme } from "@/lib/clinicTheme";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -203,19 +205,43 @@ function BrandingTab() {
   const [b, setB] = useState(branding);
   const [bookingSlug, setBookingSlug] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => { setB(branding); }, [branding]);
   useEffect(() => {
     if (clinic?.slug) setBookingSlug(clinic.slug);
   }, [clinic?.slug]);
 
+  const resolvedTheme = useMemo(() => resolveBrandingTheme(b), [b]);
+
+  useEffect(() => {
+    applyBrandingTheme(b);
+  }, [b]);
+
   const slugPreview = normalizeBookingSlug(bookingSlug) || "your-clinic";
   const publicBookingUrl = `${window.location.origin}/book/${slugPreview}`;
+
+  const baseColorFields = [
+    { k: "primary_color", label: "Primary", hint: "Buttons, active nav, tabs, links, focus" },
+    { k: "accent_color", label: "Accent", hint: "Tagline, badges, decorative highlights" },
+    { k: "background", label: "Background", hint: "Page background" },
+    { k: "surface", label: "Surface", hint: "Cards, modals, panels" },
+    { k: "text_primary", label: "Text", hint: "Primary readable text" },
+  ];
+
+  const derivedPreview = [
+    { k: "primary_hover", label: "Primary hover" },
+    { k: "primary_soft", label: "Primary soft" },
+    { k: "primary_contrast", label: "Primary contrast" },
+    { k: "border_color", label: "Border" },
+    { k: "muted_text", label: "Muted text" },
+    { k: "link_color", label: "Link" },
+  ];
 
   const save = async () => {
     setBusy(true);
     try {
-      await api.put("/admin/settings", { branding: b, booking_slug: bookingSlug });
+      await api.put("/admin/settings", { branding: brandingBaseForSave(b), booking_slug: bookingSlug });
       toast.success("Branding updated");
       await refresh();
       await refreshClinic();
@@ -293,26 +319,49 @@ function BrandingTab() {
       </div>
 
       <div className="bl-card p-5">
-        <div className="font-display text-lg mb-4 text-[#2D3A33]">Theme colors</div>
+        <div className="font-display text-lg mb-1 text-[var(--bl-text)]">Theme colors</div>
+        <p className="text-sm text-[var(--bl-muted-text)] mb-4">
+          Set a small group of colors — related UI elements update automatically. Status colors (success, warning, appointments) stay fixed.
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[
-            { k: "primary_color", label: "Primary" },
-            { k: "primary_hover", label: "Primary hover" },
-            { k: "accent_color", label: "Accent" },
-            { k: "background", label: "Background" },
-            { k: "surface", label: "Surface" },
-            { k: "text_primary", label: "Text" },
-          ].map(c => (
+          {baseColorFields.map((c) => (
             <div key={c.k}>
               <label className="label-eyebrow block mb-2">{c.label}</label>
               <div className="flex items-center gap-2">
-                <input type="color" className="w-12 h-10 rounded-lg border border-[#EAE6D7] cursor-pointer" value={b[c.k] || "#000000"} onChange={(e)=>setB({...b, [c.k]: e.target.value})} />
-                <input className="bl-input flex-1 font-mono text-sm" value={b[c.k] || ""} onChange={(e)=>setB({...b, [c.k]: e.target.value})} data-testid={`branding-${c.k}`} />
+                <input type="color" className="w-12 h-10 rounded-lg border border-[var(--bl-border)] cursor-pointer" value={resolvedTheme[c.k] || "#000000"} onChange={(e) => setB({ ...b, [c.k]: e.target.value })} />
+                <input className="bl-input flex-1 font-mono text-sm" value={b[c.k] || resolvedTheme[c.k] || ""} onChange={(e) => setB({ ...b, [c.k]: e.target.value })} data-testid={`branding-${c.k}`} />
               </div>
+              <p className="text-[11px] text-[var(--bl-muted-text)] mt-1.5">{c.hint}</p>
             </div>
           ))}
         </div>
+
+        <button
+          type="button"
+          className="mt-4 text-sm text-[var(--bl-link)] hover:underline inline-flex items-center gap-1"
+          onClick={() => setShowAdvanced((v) => !v)}
+          data-testid="branding-advanced-toggle"
+        >
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          Advanced theme colors (auto-generated)
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border border-[var(--bl-border)] bg-[var(--bl-background)]" data-testid="branding-derived-colors">
+            {derivedPreview.map((c) => (
+              <div key={c.k} className="flex items-center gap-2 text-sm">
+                <span className="w-8 h-8 rounded-lg border border-[var(--bl-border)] shrink-0" style={{ background: resolvedTheme[c.k] }} />
+                <div>
+                  <div className="text-[var(--bl-text)]">{c.label}</div>
+                  <div className="font-mono text-xs text-[var(--bl-muted-text)]">{resolvedTheme[c.k]}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      <BrandingThemePreview branding={b} />
 
       <div className="flex gap-3">
         <button onClick={save} disabled={busy} className="bl-btn-primary" data-testid="branding-save">{busy ? "Saving…" : "Save branding"}</button>
@@ -922,8 +971,8 @@ function ScheduleTab() {
                 onClick={() => setInterval(n)}
                 className="px-4 py-2 rounded-xl border text-sm font-medium transition"
                 style={active
-                  ? { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }
-                  : { borderColor: "#EAE6D7", color: "#5C6C62", background: "white" }}
+                  ? { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)", color: "var(--bl-text)" }
+                  : { borderColor: "var(--bl-border)", color: "var(--bl-muted-text)", background: "white" }}
                 data-testid={`slot-interval-${n}`}
               >
                 {n} min
@@ -969,7 +1018,7 @@ function ScheduleTab() {
                   className="text-xs px-3 py-1.5 rounded-lg border font-medium"
                   style={isClosed
                     ? { borderColor: "#EAE6D7", background: "#F3F1EB", color: "#A89F8B" }
-                    : { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }}
+                    : { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)", color: "var(--bl-text)" }}
                   data-testid={`hours-toggle-${d.key}`}
                 >
                   {isClosed ? "Closed" : "Open"}
@@ -1154,7 +1203,7 @@ function StaffScheduleTab() {
                   className="text-xs px-3 py-1.5 rounded-lg border font-medium"
                   style={isClosed
                     ? { borderColor: "#EAE6D7", background: "#F3F1EB", color: "#A89F8B" }
-                    : { borderColor: "var(--bl-primary)", background: "#EDF3EF", color: "#2D3A33" }}
+                    : { borderColor: "var(--bl-primary)", background: "var(--bl-primary-soft)", color: "var(--bl-text)" }}
                   data-testid={`staff-hours-toggle-${d.key}`}
                 >
                   {isClosed ? "Inherit / Off" : "Working"}
