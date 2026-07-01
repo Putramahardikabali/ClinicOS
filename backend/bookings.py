@@ -173,6 +173,11 @@ class BookingIn(BaseModel):
     overtime_note: Optional[str] = None
     specific_staff_requested: Optional[bool] = False
     requested_performer_id: Optional[str] = None
+    duration_source: Optional[str] = None
+    duration_override_reason: Optional[str] = None
+    treatment_default_duration_minutes: Optional[int] = None
+    overlap_override: Optional[bool] = False
+    overlap_override_reason: Optional[str] = None
 
 
 OVERTIME_REASONS = (
@@ -182,6 +187,42 @@ OVERTIME_REASONS = (
     "Manager approved",
     "Other",
 )
+
+
+def _apply_duration_metadata(doc: dict, data: dict) -> None:
+    for key in ("duration_source", "duration_override_reason", "treatment_default_duration_minutes"):
+        val = data.get(key)
+        if val is not None and val != "":
+            doc[key] = val
+
+
+async def _enforce_booking_staff_conflicts(
+    db,
+    user: dict,
+    clinic_id: str,
+    staff_ids: List[str],
+    scheduled_at: str,
+    duration_min: int,
+    *,
+    overlap_override: bool = False,
+    overlap_override_reason: Optional[str] = None,
+    exclude_booking_id: Optional[str] = None,
+) -> Optional[List[dict]]:
+    from booking_conflicts import enforce_staff_schedule_conflicts
+
+    if not staff_ids:
+        return None
+    return await enforce_staff_schedule_conflicts(
+        db,
+        user,
+        clinic_id,
+        staff_ids,
+        scheduled_at,
+        duration_min,
+        overlap_override=bool(overlap_override),
+        overlap_override_reason=overlap_override_reason,
+        exclude_booking_id=exclude_booking_id,
+    )
 
 
 class BookingUpdateIn(BaseModel):
@@ -200,6 +241,11 @@ class BookingUpdateIn(BaseModel):
     coupon_code: Optional[str] = None
     specific_staff_requested: Optional[bool] = None
     requested_performer_id: Optional[str] = None
+    duration_source: Optional[str] = None
+    duration_override_reason: Optional[str] = None
+    treatment_default_duration_minutes: Optional[int] = None
+    overlap_override: Optional[bool] = None
+    overlap_override_reason: Optional[str] = None
 
 
 class CouponIn(BaseModel):
@@ -1612,11 +1658,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             block_duration = int(duration_min or 30)
             if block_duration <= 0:
                 raise HTTPException(status_code=400, detail="Block duration must be greater than zero")
-            if await _has_slot_conflict(
-                cid, "Blocked", payload.scheduled_at, block_duration, payload.performer_id,
-                booking_type="block",
-            ):
-                raise HTTPException(status_code=409, detail="This performer is already busy at this time")
+            block_conflicts = await _enforce_booking_staff_conflicts(
+                db,
+                user,
+                cid,
+                [payload.performer_id],
+                payload.scheduled_at,
+                block_duration,
+                overlap_override=bool(payload.overlap_override),
+                overlap_override_reason=payload.overlap_override_reason,
+            )
             doc = {
                 "id": str(uuid.uuid4()),
                 "clinic_id": cid,
@@ -1643,6 +1694,13 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 "created_at": iso(now_utc()),
                 "created_by": user["id"],
             }
+            if block_conflicts and bool(payload.overlap_override):
+                from booking_conflicts import apply_overlap_override_fields
+                apply_overlap_override_fields(doc, user, block_conflicts, payload.overlap_override_reason)
+                from audit_log import log_appointment_overlap_override
+                await log_appointment_overlap_override(
+                    db, user, doc["id"], block_conflicts, payload.overlap_override_reason or "",
+                )
             await db.bookings.insert_one(doc)
             doc.pop("_id", None)
             await audit(user, "create", "booking", doc["id"], {"booking_type": "block", "reason": reason})
@@ -1706,6 +1764,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         staff_ids_booking = staff_ids_from_performers({"performers": performers})
         primary_pid = primary_performer_id({"performers": performers}) or payload.performer_id
 
+        overlap_conflicts: Optional[List[dict]] = None
         if is_overtime:
             ot_reason = (payload.overtime_reason or "").strip()
             ot_note = (payload.overtime_note or "").strip()
@@ -1719,17 +1778,33 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 raise HTTPException(status_code=400, detail="Select a performer for overtime")
             await _validate_overtime_booking(user, cid, primary_pid, payload.scheduled_at, duration_min)
             for sid in staff_ids_booking:
-                if sid != primary_pid and not await _is_staff_free_at_slot(
-                    cid, sid, payload.scheduled_at, duration_min, require_on_duty=False,
-                ):
-                    raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
+                if sid == primary_pid:
+                    continue
+                found = await _enforce_booking_staff_conflicts(
+                    db,
+                    user,
+                    cid,
+                    [sid],
+                    payload.scheduled_at,
+                    duration_min,
+                    overlap_override=bool(payload.overlap_override),
+                    overlap_override_reason=payload.overlap_override_reason,
+                )
+                if found:
+                    overlap_conflicts = (overlap_conflicts or []) + [
+                        c for c in found if not any(x.get("id") == c.get("id") for x in (overlap_conflicts or []))
+                    ]
         else:
-            for sid in staff_ids_booking:
-                if await _has_slot_conflict(
-                    cid, treatment_name, payload.scheduled_at, duration_min, sid,
-                    package_id=package_id, booking_type=booking_type,
-                ):
-                    raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
+            overlap_conflicts = await _enforce_booking_staff_conflicts(
+                db,
+                user,
+                cid,
+                staff_ids_booking,
+                payload.scheduled_at,
+                duration_min,
+                overlap_override=bool(payload.overlap_override),
+                overlap_override_reason=payload.overlap_override_reason,
+            )
         subtotal = await _resolve_booking_subtotal(cid, booking_type, treatment_name, package_id)
         b = payload.model_dump()
         b["treatment"] = treatment_name
@@ -1750,6 +1825,10 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         b["wa_history"] = []
         b["created_at"] = iso(now_utc())
         b["created_by"] = user["id"]
+        _apply_duration_metadata(b, payload.model_dump())
+        if overlap_conflicts and bool(payload.overlap_override):
+            from booking_conflicts import apply_overlap_override_fields
+            apply_overlap_override_fields(b, user, overlap_conflicts, payload.overlap_override_reason)
         if is_overtime:
             b["is_overtime"] = True
             b["overtime_reason"] = (payload.overtime_reason or "").strip()
@@ -1768,8 +1847,12 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 patient_id=b.get("patient_id"),
             )
         if b.get("booking_type") != "block":
-            from audit_log import log_appointment_created
+            from audit_log import log_appointment_created, log_appointment_overlap_override
             await log_appointment_created(db, user, b)
+            if overlap_conflicts and b.get("overlap_override"):
+                await log_appointment_overlap_override(
+                    db, user, b["id"], overlap_conflicts, payload.overlap_override_reason or "",
+                )
             try:
                 from messaging_automation import safe_trigger_automation_rules
                 safe_trigger_automation_rules(
@@ -1840,16 +1923,20 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                     raise
                 except Exception:
                     raise HTTPException(status_code=400, detail="Invalid scheduled_at")
-                if await _has_slot_conflict(
+                block_conflicts = await _enforce_booking_staff_conflicts(
+                    db,
+                    user,
                     cid,
-                    "Blocked",
+                    [merged.get("performer_id")] if merged.get("performer_id") else [],
                     sched_at,
                     int(merged.get("duration_min") or 30),
-                    merged.get("performer_id"),
+                    overlap_override=bool(upd.get("overlap_override") or raw.get("overlap_override")),
+                    overlap_override_reason=upd.get("overlap_override_reason") or raw.get("overlap_override_reason"),
                     exclude_booking_id=bid,
-                    booking_type="block",
-                ):
-                    raise HTTPException(status_code=409, detail="This performer is already busy at this time")
+                )
+                if block_conflicts and bool(upd.get("overlap_override") or raw.get("overlap_override")):
+                    from booking_conflicts import apply_overlap_override_fields
+                    apply_overlap_override_fields(upd, user, block_conflicts, upd.get("overlap_override_reason"))
             if upd.get("performer_id"):
                 p = await db.users.find_one({"id": upd["performer_id"], "clinic_id": cid}, {"_id": 0, "role": 1})
                 if not p or p.get("role") not in ("doctor", "therapist"):
@@ -1942,32 +2029,23 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             performer_ids = staff_ids_from_performers(merged) if merged.get("performers") else (
                 [merged["performer_id"]] if merged.get("performer_id") else []
             )
+            overlap_conflicts = None
             if performer_ids:
-                for sid in performer_ids:
-                    if await _has_slot_conflict(
-                        cid,
-                        merged.get("treatment", ""),
-                        sched_at,
-                        int(merged.get("duration_min") or 30),
-                        sid,
-                        exclude_booking_id=bid,
-                        package_id=merged.get("package_id"),
-                        booking_type=merged.get("booking_type"),
-                    ):
-                        raise HTTPException(status_code=409, detail="One or more selected performers are already booked at this time")
-            elif await _has_slot_conflict(
-                cid,
-                merged.get("treatment", ""),
-                sched_at,
-                int(merged.get("duration_min") or 30),
-                merged.get("performer_id"),
-                exclude_booking_id=bid,
-                package_id=merged.get("package_id"),
-                booking_type=merged.get("booking_type"),
-            ):
-                if merged.get("performer_id"):
-                    raise HTTPException(status_code=409, detail="Selected performer is already booked at this time")
-                raise HTTPException(status_code=409, detail="No available performer for this slot")
+                overlap_conflicts = await _enforce_booking_staff_conflicts(
+                    db,
+                    user,
+                    cid,
+                    performer_ids,
+                    sched_at,
+                    int(merged.get("duration_min") or 30),
+                    overlap_override=bool(upd.get("overlap_override") or raw.get("overlap_override")),
+                    overlap_override_reason=upd.get("overlap_override_reason") or raw.get("overlap_override_reason"),
+                    exclude_booking_id=bid,
+                )
+            if overlap_conflicts and bool(upd.get("overlap_override") or raw.get("overlap_override")):
+                from booking_conflicts import apply_overlap_override_fields
+                apply_overlap_override_fields(upd, user, overlap_conflicts, upd.get("overlap_override_reason"))
+            _apply_duration_metadata(upd, {**existing, **upd})
 
         pricing_keys = ("treatment", "package_id", "booking_type")
         if any(k in upd for k in pricing_keys):
@@ -1988,7 +2066,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise HTTPException(status_code=404, detail="Booking not found")
         updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
         if existing.get("booking_type") != "block" and existing.get("status") != "blocked":
-            from audit_log import log_appointment_rescheduled, log_performer_changes
+            from audit_log import log_appointment_rescheduled, log_performer_changes, log_appointment_overlap_override
             await log_performer_changes(
                 db, user, bid, get_performers(existing), get_performers(updated),
             )
@@ -1997,6 +2075,33 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 or existing.get("duration_min") != updated.get("duration_min")
             ):
                 await log_appointment_rescheduled(db, user, bid, existing, updated)
+            if updated.get("overlap_override") and schedule_changed:
+                from booking_conflicts import find_staff_slot_conflicts
+
+                perf_ids = staff_ids_from_performers(updated) or (
+                    [updated["performer_id"]] if updated.get("performer_id") else []
+                )
+                conflicts_logged: List[dict] = []
+                for sid in perf_ids:
+                    found = await find_staff_slot_conflicts(
+                        db,
+                        cid,
+                        sid,
+                        updated.get("scheduled_at", ""),
+                        int(updated.get("duration_min") or 30),
+                        exclude_booking_id=bid,
+                    )
+                    for c in found:
+                        if not any(x.get("id") == c.get("id") for x in conflicts_logged):
+                            conflicts_logged.append(c)
+                if conflicts_logged:
+                    await log_appointment_overlap_override(
+                        db,
+                        user,
+                        bid,
+                        conflicts_logged,
+                        upd.get("overlap_override_reason") or "",
+                    )
                 try:
                     from messaging import safe_trigger_booking_messaging
                     safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], cid, updated, "rescheduled")

@@ -885,6 +885,10 @@ DEFAULT_SETTINGS = {
         "webhook_url": "",
         "provider_credentials_encrypted": None,
     },
+    "scheduling": {
+        "conflict_policy": "warn_allow",
+        "fo_can_override_conflict": True,
+    },
     "inventory": {
         "allow_negative_stock": False,
     },

@@ -28,6 +28,7 @@ PERMISSION_CATALOG: Dict[str, List[Dict[str, str]]] = {
         {"key": "appointments.create", "label": "Create bookings"},
         {"key": "appointments.edit", "label": "Edit bookings"},
         {"key": "appointments.cancel", "label": "Cancel bookings"},
+        {"key": "appointments.override_conflict", "label": "Override schedule conflicts (double-book staff)"},
         {"key": "bookings.create_overtime", "label": "Create overtime bookings (outside working hours)"},
         {"key": "coupons.manage", "label": "Manage campaigns (legacy permission key)"},
         {"key": "campaigns.view", "label": "View campaigns"},
@@ -192,7 +193,7 @@ SYSTEM_ROLE_DEFINITIONS = [
         "permissions": sorted({
             "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.export",
             "appointments.view", "appointments.create", "appointments.edit", "appointments.cancel",
-            "bookings.create_overtime", "coupons.manage", "campaigns.view", "campaigns.manage",
+            "appointments.override_conflict", "bookings.create_overtime", "coupons.manage", "campaigns.view", "campaigns.manage",
             "loyalty.view", "loyalty.manage",
             "visits.view", "clinical_records.view", "billing.view", "billing.create", "billing.edit",
             "payments.void", "refunds.view", "refunds.create",

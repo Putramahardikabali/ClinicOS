@@ -44,6 +44,59 @@ import {
   evaluateGiftCardBookingConstraints,
   isGiftCardServiceLocked,
 } from "@/lib/bookingGiftCard";
+import AppointmentDurationFields from "@/components/bookings/AppointmentDurationFields";
+import ConflictOverrideModal from "@/components/bookings/ConflictOverrideModal";
+import {
+  DURATION_SOURCES,
+  durationFromStartEnd,
+  endTimeFromStartDuration,
+} from "@/lib/bookingDuration";
+import { parseScheduleConflict } from "@/lib/bookingConflicts";
+
+function newBookingDurationDefaults(initial) {
+  const dragRange = !!(initial?.fromDragRange && initial?.scheduled_time && initial?.scheduled_end_time);
+  const start = initial?.scheduled_time || "";
+  const durationMin = dragRange
+    ? durationFromStartEnd(initial.scheduled_time, initial.scheduled_end_time, initial?.duration_min || 30)
+    : (initial?.duration_min || 30);
+  return {
+    scheduled_end_time: dragRange
+      ? initial.scheduled_end_time
+      : (start ? endTimeFromStartDuration(start, durationMin) : ""),
+    duration_source: dragRange ? DURATION_SOURCES.DRAG_SELECTION : DURATION_SOURCES.TREATMENT_DEFAULT,
+    treatment_default_duration_minutes: null,
+    manualDurationLocked: dragRange,
+    duration_min: durationMin,
+  };
+}
+
+function appendBookingDurationMetadata(body, form) {
+  if (form.duration_source) body.duration_source = form.duration_source;
+  if (form.duration_override_reason) body.duration_override_reason = form.duration_override_reason;
+  if (form.treatment_default_duration_minutes != null) {
+    body.treatment_default_duration_minutes = form.treatment_default_duration_minutes;
+  }
+}
+
+async function postBookingWithConflict(api, body) {
+  try {
+    return await api.post("/bookings", body);
+  } catch (e) {
+    const conflict = parseScheduleConflict(e);
+    if (conflict) throw Object.assign(e, { scheduleConflict: conflict });
+    throw e;
+  }
+}
+
+async function putBookingWithConflict(api, bookingId, body) {
+  try {
+    return await api.put(`/bookings/${bookingId}`, body);
+  } catch (e) {
+    const conflict = parseScheduleConflict(e);
+    if (conflict) throw Object.assign(e, { scheduleConflict: conflict });
+    throw e;
+  }
+}
 
 const STATUS_COLORS = {
   booked:      { label: "Booked",      cls: "info"    },
@@ -90,7 +143,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
         </p>
         {fromRange && (
           <p className="text-xs text-[#52796F] bg-[#EDF3EF] rounded-lg px-3 py-2" data-testid="slot-action-range-hint">
-            Appointments use the start time; duration follows the treatment. Blocked time uses the full range.
+            Appointment will use the selected time range. You can adjust duration in the booking form.
           </p>
         )}
         <div className="grid grid-cols-1 gap-2">
@@ -656,17 +709,20 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   const [staff, setStaff] = useState([]);
   const [pSearch, setPSearch] = useState("");
   const [step, setStep] = useState("patient"); // patient -> details
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     patient_id: "", patient_name: "", patient_phone: "", patient_email: "",
     booking_kind: "treatment",
     treatment_category: "",
     package_type: "",
-    treatment: "", package_id: "", duration_min: 30, performer_type: "therapist",
+    treatment: "", package_id: "", performer_type: "therapist",
     scheduled_date: "", scheduled_time: "",
     performer_id: "",
     assistant_performers: [],
     notes: "",
-  });
+    ...newBookingDurationDefaults(initial),
+  }));
+  const [pendingConflict, setPendingConflict] = useState(null);
+  const [pendingSubmitBody, setPendingSubmitBody] = useState(null);
   const [slots, setSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -840,11 +896,17 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
+    const def = t?.duration_min || 30;
     setForm(f => ({
       ...f,
       treatment: name,
       package_id: "",
-      duration_min: t?.duration_min || 30,
+      duration_min: f.manualDurationLocked ? f.duration_min : def,
+      treatment_default_duration_minutes: def,
+      scheduled_end_time: f.manualDurationLocked
+        ? f.scheduled_end_time
+        : endTimeFromStartDuration(f.scheduled_time, def),
+      duration_source: f.manualDurationLocked ? f.duration_source : DURATION_SOURCES.TREATMENT_DEFAULT,
       performer_type: t?.performer_type || "therapist",
       performer_id: keepSchedulePerformer() || (performerManuallyChanged ? f.performer_id : ""),
       assistant_performers: [],
@@ -853,11 +915,17 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const selectPackage = (id) => {
     const p = packages.find(x => x.id === id);
+    const def = p?.duration_min || 60;
     setForm(f => ({
       ...f,
       package_id: id,
       treatment: p?.name || "",
-      duration_min: p?.duration_min || 60,
+      duration_min: f.manualDurationLocked ? f.duration_min : def,
+      treatment_default_duration_minutes: def,
+      scheduled_end_time: f.manualDurationLocked
+        ? f.scheduled_end_time
+        : endTimeFromStartDuration(f.scheduled_time, def),
+      duration_source: f.manualDurationLocked ? f.duration_source : DURATION_SOURCES.TREATMENT_DEFAULT,
       performer_type: p?.performer_type || "therapist",
       performer_id: keepSchedulePerformer() || (performerManuallyChanged ? f.performer_id : ""),
       assistant_performers: [],
@@ -905,7 +973,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     setStep("details");
   };
 
-  const submit = async () => {
+  const submit = async (overlapOverride = false) => {
     if (!form.scheduled_date || !form.scheduled_time) { toast.error("Pick a date and time"); return; }
     const apErr = validateAdditionalPerformers(form.assistant_performers, form.performer_id);
     if (apErr) { toast.error(apErr); return; }
@@ -927,7 +995,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     }
     setBusy(true);
     try {
-      // Combine date + time into ISO with seconds
       const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
       const performers = buildBookingPerformers(form.performer_id, form.assistant_performers, staff);
       const body = {
@@ -944,6 +1011,8 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         booking_type: isPackage ? "package" : "treatment",
         package_id: isPackage ? form.package_id : null,
       };
+      appendBookingDurationMetadata(body, form);
+      if (overlapOverride) body.overlap_override = true;
       if (overtimeMeta) {
         body.is_overtime = true;
         body.overtime_reason = overtimeMeta.reason;
@@ -952,12 +1021,62 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       if (giftCardLocksService && appliedGiftCard?.gift_card_id) {
         body.gift_card_id = appliedGiftCard.gift_card_id;
       }
-      await api.post("/bookings", body);
+      await postBookingWithConflict(api, body);
       toast.success(overtimeMeta ? "Overtime appointment created" : "Appointment created");
+      setPendingConflict(null);
+      setPendingSubmitBody(null);
       onCreated();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to create");
+      if (e.scheduleConflict) {
+        setPendingConflict(e.scheduleConflict);
+        const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
+        const performers = buildBookingPerformers(form.performer_id, form.assistant_performers, staff);
+        setPendingSubmitBody({
+          patient_id: form.patient_id || null,
+          patient_name: form.patient_name,
+          patient_phone: form.patient_phone,
+          patient_email: form.patient_email,
+          treatment: form.treatment,
+          duration_min: form.duration_min,
+          scheduled_at,
+          performer_id: form.performer_id || null,
+          performers: performers.length ? performers : undefined,
+          notes: form.notes,
+          booking_type: isPackage ? "package" : "treatment",
+          package_id: isPackage ? form.package_id : null,
+          ...(overtimeMeta ? {
+            is_overtime: true,
+            overtime_reason: overtimeMeta.reason,
+            overtime_note: overtimeMeta.note,
+          } : {}),
+          ...(giftCardLocksService && appliedGiftCard?.gift_card_id
+            ? { gift_card_id: appliedGiftCard.gift_card_id }
+            : {}),
+        });
+        return;
+      }
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === "object" ? (detail.message || "Failed to create") : (detail || "Failed to create"));
     } finally { setBusy(false); }
+  };
+
+  const continueAfterConflict = async () => {
+    if (!pendingSubmitBody) return;
+    setBusy(true);
+    try {
+      const body = { ...pendingSubmitBody, overlap_override: true };
+      appendBookingDurationMetadata(body, form);
+      await api.post("/bookings", body);
+      toast.success(overtimeMeta ? "Overtime appointment created" : "Appointment created");
+      setPendingConflict(null);
+      setPendingSubmitBody(null);
+      onCreated();
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === "object" ? (detail.message || "Failed to create") : (detail || "Failed to create"));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const visiblePatients = patients;
@@ -1127,17 +1246,26 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                     ))}
                   </select>
                 )}
-                {customTime && (
+                {customTime && overtimeMeta && (
                   <p className="text-xs text-[#A89F8B] mt-1">
-                    {initial?.ignoreDraggedEnd
-                      ? "Treatment duration is based on the selected treatment."
-                      : overtimeMeta
-                        ? "Overtime appointment — availability rechecks when you change time or assigned staff."
-                        : "Staff availability is still enforced on save."}
+                    Overtime appointment — availability rechecks when you change time or assigned staff.
                   </p>
                 )}
               </div>
             </div>
+
+            {serviceSelected && form.scheduled_date && form.scheduled_time && (
+              <AppointmentDurationFields
+                scheduledDate={form.scheduled_date}
+                startTime={form.scheduled_time}
+                endTime={form.scheduled_end_time}
+                durationMin={form.duration_min}
+                treatmentDefaultMin={form.treatment_default_duration_minutes ?? selectedService?.duration_min}
+                durationSource={form.duration_source}
+                onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                testIdPrefix="nb-dur"
+              />
+            )}
 
             {overtimeMeta && (
               <p className="text-xs text-[#5C6C62] -mt-2" data-testid="nb-overtime-notice">
@@ -1296,6 +1424,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
             </div>
           </div>
         )}
+        {pendingConflict && (
+          <ConflictOverrideModal
+            conflict={pendingConflict}
+            busy={busy}
+            onCancel={() => { setPendingConflict(null); setPendingSubmitBody(null); }}
+            onContinue={continueAfterConflict}
+          />
+        )}
       </div>
     </div>
   );
@@ -1324,6 +1460,14 @@ function bookingToForm(booking, treatments = [], packages = []) {
     duration_min: booking.duration_min || 30,
     scheduled_date: booking.scheduled_at.slice(0, 10),
     scheduled_time: `${pad(dt.getHours())}:${pad(dt.getMinutes())}`,
+    scheduled_end_time: endTimeFromStartDuration(
+      `${pad(dt.getHours())}:${pad(dt.getMinutes())}`,
+      booking.duration_min || 30,
+    ),
+    duration_source: booking.duration_source || DURATION_SOURCES.TREATMENT_DEFAULT,
+    treatment_default_duration_minutes: booking.treatment_default_duration_minutes ?? (t?.duration_min || pkg?.duration_min || null),
+    manualDurationLocked: booking.duration_source === DURATION_SOURCES.MANUAL_OVERRIDE
+      || booking.duration_source === DURATION_SOURCES.DRAG_SELECTION,
     performer_id: booking.performer_id || "",
     assistant_performers: additionalRowsFromBooking(booking),
     notes: booking.notes || "",
@@ -1341,6 +1485,8 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   const [availablePerformers, setAvailablePerformers] = useState(null);
   const [loadingPerformers, setLoadingPerformers] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingConflict, setPendingConflict] = useState(null);
+  const [pendingEditPayload, setPendingEditPayload] = useState(null);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [consentForms, setConsentForms] = useState([]);
 
@@ -1431,22 +1577,34 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
+    const def = t?.duration_min || 30;
     setForm(f => ({
       ...f,
       treatment: name,
       package_id: "",
-      duration_min: t?.duration_min || f.duration_min,
+      duration_min: f.manualDurationLocked ? f.duration_min : def,
+      treatment_default_duration_minutes: def,
+      scheduled_end_time: f.manualDurationLocked
+        ? f.scheduled_end_time
+        : endTimeFromStartDuration(f.scheduled_time, def),
+      duration_source: f.manualDurationLocked ? f.duration_source : DURATION_SOURCES.TREATMENT_DEFAULT,
       treatment_category: t?.category || f.treatment_category,
     }));
   };
 
   const selectPackage = (id) => {
     const p = packages.find(x => x.id === id);
+    const def = p?.duration_min || 60;
     setForm(f => ({
       ...f,
       package_id: id,
       treatment: p?.name || "",
-      duration_min: p?.duration_min || f.duration_min,
+      duration_min: f.manualDurationLocked ? f.duration_min : def,
+      treatment_default_duration_minutes: def,
+      scheduled_end_time: f.manualDurationLocked
+        ? f.scheduled_end_time
+        : endTimeFromStartDuration(f.scheduled_time, def),
+      duration_source: f.manualDurationLocked ? f.duration_source : DURATION_SOURCES.TREATMENT_DEFAULT,
       package_type: p?.package_type || f.package_type,
     }));
   };
@@ -1493,12 +1651,40 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
         booking_type: isPackage ? "package" : "treatment",
         package_id: isPackage ? form.package_id : null,
       };
+      appendBookingDurationMetadata(payload, form);
+      const r = await putBookingWithConflict(api, booking.id, payload);
+      toast.success("Appointment updated");
+      onSaved?.(r.data);
+      setEditing(false);
+      setPendingConflict(null);
+    } catch (e) {
+      if (e.scheduleConflict) {
+        setPendingConflict(e.scheduleConflict);
+        setPendingEditPayload(payload);
+        return;
+      }
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === "object" ? (detail.message || "Failed to update appointment") : (detail || "Failed to update appointment"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const continueEditAfterConflict = async () => {
+    if (!pendingEditPayload) return;
+    setBusy(true);
+    try {
+      const payload = { ...pendingEditPayload, overlap_override: true };
+      appendBookingDurationMetadata(payload, form);
       const r = await api.put(`/bookings/${booking.id}`, payload);
       toast.success("Appointment updated");
       onSaved?.(r.data);
       setEditing(false);
+      setPendingConflict(null);
+      setPendingEditPayload(null);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to update appointment");
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === "object" ? (detail.message || "Failed to update appointment") : (detail || "Failed to update appointment"));
     } finally {
       setBusy(false);
     }
@@ -1593,7 +1779,7 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label-eyebrow block mb-1.5">Date</label>
                 <input type="date" className="bl-input" value={form.scheduled_date} onChange={e => setForm({ ...form, scheduled_date: e.target.value })} required data-testid="edit-booking-date" />
@@ -1602,11 +1788,19 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 <label className="label-eyebrow block mb-1.5">Time</label>
                 <input type="time" className="bl-input" value={form.scheduled_time} onChange={e => setForm({ ...form, scheduled_time: e.target.value })} required data-testid="edit-booking-time" />
               </div>
-              <div>
-                <label className="label-eyebrow block mb-1.5">Duration</label>
-                <input type="number" min="5" step="5" className="bl-input" value={form.duration_min} onChange={e => setForm({ ...form, duration_min: Number(e.target.value) })} data-testid="edit-booking-duration" />
-              </div>
             </div>
+            {form.scheduled_date && form.scheduled_time && (
+              <AppointmentDurationFields
+                scheduledDate={form.scheduled_date}
+                startTime={form.scheduled_time}
+                endTime={form.scheduled_end_time}
+                durationMin={form.duration_min}
+                treatmentDefaultMin={form.treatment_default_duration_minutes ?? selectedService?.duration_min}
+                durationSource={form.duration_source}
+                onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                testIdPrefix="edit-dur"
+              />
+            )}
             <div>
               <label className="label-eyebrow block mb-1.5">Assigned staff</label>
               <select
@@ -1800,6 +1994,14 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
               </button>
             )}
           </div>
+        )}
+        {pendingConflict && (
+          <ConflictOverrideModal
+            conflict={pendingConflict}
+            busy={busy}
+            onCancel={() => { setPendingConflict(null); setPendingEditPayload(null); }}
+            onContinue={continueEditAfterConflict}
+          />
         )}
       </div>
     </div>
@@ -2200,7 +2402,6 @@ export default function BookingsPage() {
           onBook={() => {
             setNewInitial({
               ...slotAction,
-              ignoreDraggedEnd: !!(slotAction.fromDragRange || slotAction.scheduled_end_time),
             });
             setSlotAction(null);
             setNewOpen(true);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Layers, Maximize2, Minimize2 } from "lucide-react";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import {
   buildSchedulePreviewLines,
@@ -34,6 +34,7 @@ import {
   SCHEDULE_DRAG_THRESHOLD_PX,
   slotInDragPreview,
 } from "@/components/bookings/scheduleDragSelect";
+import { layoutOverlappingBookings } from "@/lib/scheduleOverlapLayout";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
 const SLOT_PX = 32;
@@ -81,7 +82,7 @@ function slotOverlapsBooking(bookings, staffId, slotStart, slotEnd) {
   });
 }
 
-function BookingBlock({ booking, openMin, interval, onSelect, orientation = "horizontal" }) {
+function BookingBlock({ booking, openMin, interval, onSelect, orientation = "horizontal", overlapLayout = null }) {
   const start = bookingStartMin(booking.scheduled_at);
   const dur = booking.duration_min || 30;
   const block = isTimeBlock(booking);
@@ -90,21 +91,39 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
   const label = block ? (booking.block_reason || booking.patient_name) : booking.patient_name;
   const sub = block ? "Blocked" : booking.treatment;
   const overtime = !block && booking.is_overtime;
+  const ol = overlapLayout || { column: 0, columns: 1, hasOverlap: false };
+  const showOverlapBadge = ol.hasOverlap || booking.overlap_override;
   const { visible: visibleIcons, overflow: iconOverflow } = selectCardIcons(booking);
   const hoverPreview = supportsHoverPreview();
-  const previewLines = useMemo(() => buildSchedulePreviewLines(booking), [booking]);
+  const previewLines = useMemo(() => {
+    const lines = buildSchedulePreviewLines(booking);
+    if (showOverlapBadge) {
+      lines.push({ label: "Overlap", value: "Overlapping appointment", strong: false });
+    }
+    return lines;
+  }, [booking, showOverlapBadge]);
+
+  const baseSpan = orientation === "vertical"
+    ? Math.max((dur / interval) * ROW_H - 2, ROW_H - 2)
+    : Math.max((dur / interval) * SLOT_PX - 2, SLOT_PX - 2);
+  const baseOffset = orientation === "vertical"
+    ? ((start - openMin) / interval) * ROW_H
+    : ((start - openMin) / interval) * SLOT_PX;
+  const colCount = Math.max(1, ol.columns || 1);
+  const col = ol.column || 0;
 
   const positionStyle =
     orientation === "vertical"
       ? {
-          top: ((start - openMin) / interval) * ROW_H,
-          height: Math.max((dur / interval) * ROW_H - 2, ROW_H - 2),
-          left: 2,
-          right: 2,
+          top: baseOffset,
+          height: baseSpan,
+          left: colCount > 1 ? `calc(2px + ${col} * (100% - 4px) / ${colCount})` : 2,
+          right: colCount > 1 ? undefined : 2,
+          width: colCount > 1 ? `calc((100% - 4px) / ${colCount} - 2px)` : undefined,
         }
       : {
-          left: ((start - openMin) / interval) * SLOT_PX,
-          width: Math.max((dur / interval) * SLOT_PX - 2, SLOT_PX - 2),
+          left: baseOffset + (col * baseSpan) / colCount,
+          width: Math.max(baseSpan / colCount - 2, SLOT_PX / colCount - 2),
         };
 
   const cardStyle = {
@@ -149,6 +168,15 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
           </div>
         )}
         {overtime && <OvertimeBadge className="shrink-0 scale-90" />}
+        {showOverlapBadge && (
+          <span
+            className="inline-flex items-center justify-center rounded-sm bg-amber-100/80 text-amber-800 p-0.5 shrink-0"
+            title="Overlapping appointment"
+            data-testid={`schedule-overlap-${booking.id}`}
+          >
+            <Layers className="w-3 h-3" strokeWidth={2.25} aria-hidden />
+          </span>
+        )}
       </div>
       <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
       <div className="text-[10px] opacity-70 mt-0.5">{timeLabel} · {dur}m</div>
@@ -284,6 +312,7 @@ function StaffRow({
       b.status !== "cancelled" &&
       b.status !== "no_show",
   );
+  const overlapLayout = useMemo(() => layoutOverlappingBookings(rowBookings), [rowBookings]);
   const slotCount = (closeMin - openMin) / interval;
 
   return (
@@ -349,6 +378,7 @@ function StaffRow({
             interval={interval}
             onSelect={onSelectBooking}
             orientation="horizontal"
+            overlapLayout={overlapLayout.get(b.id)}
           />
         ))}
         {dragPreview?.staffId === staff.id && (
@@ -393,6 +423,7 @@ function StaffColumn({
       b.status !== "cancelled" &&
       b.status !== "no_show",
   );
+  const overlapLayout = useMemo(() => layoutOverlappingBookings(rowBookings), [rowBookings]);
   const slotCount = (closeMin - openMin) / interval;
   const trackHeight = slotCount * ROW_H;
 
@@ -451,6 +482,7 @@ function StaffColumn({
           interval={interval}
           onSelect={onSelectBooking}
           orientation="vertical"
+          overlapLayout={overlapLayout.get(b.id)}
         />
       ))}
       {dragPreview?.staffId === staff.id && (

@@ -133,6 +133,28 @@ async def log_appointment_rescheduled(db, user: dict, booking_id: str, old: dict
     )
 
 
+async def log_appointment_overlap_override(
+    db,
+    user: dict,
+    booking_id: str,
+    conflicts: list,
+    reason: str = "",
+) -> None:
+    await write_audit(
+        db,
+        user,
+        action="overlap_override",
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        new_value={
+            "overlap_override": True,
+            "conflict_ids": [c.get("id") for c in (conflicts or []) if c.get("id")],
+            "conflict_count": len(conflicts or []),
+        },
+        reason=reason,
+    )
+
+
 async def log_appointment_cancelled(db, user: dict, booking_id: str, booking: dict, reason: str = "") -> None:
     await write_audit(
         db, user,
