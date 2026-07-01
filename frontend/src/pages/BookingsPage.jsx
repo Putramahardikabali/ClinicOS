@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
+import { finishModalSuccess } from "@/lib/modalSubmit";
 import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
 import { debounce } from "@/lib/realtimeEvents";
 import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
@@ -224,6 +225,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
 
   const save = async (e) => {
     e.preventDefault();
+    if (busy) return;
     if (!reason) { toast.error("Enter a reason for the block"); return; }
     if (!form.scheduled_date || !form.scheduled_time) { toast.error("Pick date and time"); return; }
     if (!form.performer_id) { toast.error("Select assigned staff"); return; }
@@ -243,14 +245,19 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
       };
       if (isEdit) {
         const r = await api.put(`/bookings/${booking.id}`, body);
-        toast.success("Blocked time updated");
-        onSaved?.(r.data);
+        finishModalSuccess({
+          message: "Blocked time updated",
+          onSuccess: () => onSaved?.(r.data),
+          onClose,
+        });
       } else {
         await api.post("/bookings", body);
-        toast.success("Time slot blocked");
-        onSaved?.();
+        finishModalSuccess({
+          message: "Time slot blocked",
+          onSuccess: onSaved,
+          onClose,
+        });
       }
-      onClose();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Failed to save");
     } finally {
@@ -966,6 +973,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   };
 
   const submit = async (overlapOverride = false) => {
+    if (busy) return;
     if (!form.scheduled_date || !form.scheduled_time) { toast.error("Pick a date and time"); return; }
     const apErr = validateAdditionalPerformers(form.assistant_performers, form.performer_id);
     if (apErr) { toast.error(apErr); return; }
@@ -1018,10 +1026,13 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         body.gift_card_id = appliedGiftCard.gift_card_id;
       }
       await postBookingWithConflict(api, body);
-      toast.success(overtimeMeta ? "Overtime appointment created" : "Appointment created");
       setPendingConflict(null);
       setPendingSubmitBody(null);
-      onCreated();
+      finishModalSuccess({
+        message: overtimeMeta ? "Overtime appointment created" : "Appointment created.",
+        onSuccess: onCreated,
+        onClose,
+      });
     } catch (e) {
       if (e.scheduleConflict) {
         setPendingConflict(e.scheduleConflict);
@@ -1057,16 +1068,19 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   };
 
   const continueAfterConflict = async () => {
-    if (!pendingSubmitBody) return;
+    if (!pendingSubmitBody || busy) return;
     setBusy(true);
     try {
       const body = { ...pendingSubmitBody, overlap_override: true };
       appendBookingDurationMetadata(body, form);
       await api.post("/bookings", body);
-      toast.success(overtimeMeta ? "Overtime appointment created" : "Appointment created");
       setPendingConflict(null);
       setPendingSubmitBody(null);
-      onCreated();
+      finishModalSuccess({
+        message: overtimeMeta ? "Overtime appointment created" : "Appointment created.",
+        onSuccess: onCreated,
+        onClose,
+      });
     } catch (e) {
       const detail = e?.response?.data?.detail;
       toast.error(typeof detail === "object" ? (detail.message || "Failed to create") : (detail || "Failed to create"));
@@ -1399,12 +1413,13 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
             <div className="space-y-2 pt-1">
               <div className="flex gap-3">
                 <button
-                  onClick={submit}
-                  disabled={!submitState.canSubmit}
+                  type="button"
+                  onClick={() => submit()}
+                  disabled={!submitState.canSubmit || busy}
                   className="bl-btn-primary flex-1 disabled:opacity-50"
                   data-testid="new-booking-submit"
                 >
-                  {busy ? "Saving…" : "Create appointment"}
+                  {busy ? "Creating…" : "Create appointment"}
                 </button>
                 <button type="button" onClick={onClose} className="bl-btn-ghost shrink-0">Cancel</button>
               </div>
@@ -1568,8 +1583,11 @@ function BookingDetailPanel({
     try {
       const r = await api.put(`/bookings/${booking.id}/status`, { status: newStatus, reason: reason || undefined });
       setBooking(r.data);
-      toast.success("Status updated");
-      onSaved?.(r.data);
+      finishModalSuccess({
+        message: "Status updated",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not update status");
     } finally {
@@ -1712,6 +1730,7 @@ function BookingDetailPanel({
       toast.error(`Fill in patient, ${isPackage ? "package" : "treatment"}, date, and time`);
       return;
     }
+    if (busy) return;
     const apErr = validateAdditionalPerformers(form.assistant_performers, form.performer_id);
     if (apErr) { toast.error(apErr); return; }
     const availErr = validatePerformerAvailability(
@@ -1740,8 +1759,11 @@ function BookingDetailPanel({
       };
       appendBookingDurationMetadata(payload, form);
       const r = await putBookingWithConflict(api, booking.id, payload);
-      toast.success("Appointment updated");
-      onSaved?.(r.data);
+      finishModalSuccess({
+        message: "Appointment updated",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
       setEditing(false);
       setPendingConflict(null);
     } catch (e) {
@@ -1758,14 +1780,17 @@ function BookingDetailPanel({
   };
 
   const continueEditAfterConflict = async () => {
-    if (!pendingEditPayload) return;
+    if (!pendingEditPayload || busy) return;
     setBusy(true);
     try {
       const payload = { ...pendingEditPayload, overlap_override: true };
       appendBookingDurationMetadata(payload, form);
       const r = await api.put(`/bookings/${booking.id}`, payload);
-      toast.success("Appointment updated");
-      onSaved?.(r.data);
+      finishModalSuccess({
+        message: "Appointment updated",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
       setEditing(false);
       setPendingConflict(null);
       setPendingEditPayload(null);
@@ -2357,7 +2382,8 @@ export default function BookingsPage() {
       const r = await api.post(`/bookings/${b.id}/start-visit`);
       const visit = r.data?.visit;
       toast.success("Treatment session started — patient chart is open");
-      setDetailBooking(r.data?.booking || b);
+      setDetailBooking(null);
+      setDetailStartEdit(false);
       invalidateBookingsNow();
       if (visit?.id) navigate(`/visits/${visit.id}`);
     } catch (e) {

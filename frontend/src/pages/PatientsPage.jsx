@@ -267,6 +267,7 @@ export default function PatientsPage() {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     try {
       await api.post("/patients", form);

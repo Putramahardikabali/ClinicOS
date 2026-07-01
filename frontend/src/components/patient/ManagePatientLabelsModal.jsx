@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth, hasPermission } from "@/lib/auth";
 import { toast } from "sonner";
+import { finishModalSuccess } from "@/lib/modalSubmit";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 
 export default function ManagePatientLabelsModal({ patientId, patientName, open, onClose, onUpdated }) {
@@ -62,11 +63,14 @@ export default function ManagePatientLabelsModal({ patientId, patientName, open,
     setBusy(true);
     try {
       await api.post(`/patients/${patientId}/labels`, { label_id: selectedLabelId, notes: notes.trim() || undefined });
-      toast.success("Label assigned");
       setSelectedLabelId("");
       setNotes("");
       await reloadLabels();
-      onUpdated?.();
+      finishModalSuccess({
+        message: "Label assigned",
+        onSuccess: onUpdated,
+        onClose,
+      });
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not assign label");
     } finally {

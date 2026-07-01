@@ -253,6 +253,7 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [], taxInclu
       else await api.post("/treatments-catalog", payload);
       toast.success(editing ? "Treatment updated" : "Treatment added");
       onSaved();
+      onClose();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Save failed");
     } finally { setBusy(false); }

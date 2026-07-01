@@ -42,6 +42,7 @@ export default function PosCustomerBar({
 
   const submitQuickPatient = async (e) => {
     e.preventDefault();
+    if (quickBusy) return;
     if (!quickForm.full_name.trim()) {
       toast.error("Name is required");
       return;

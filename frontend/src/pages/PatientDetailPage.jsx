@@ -241,7 +241,7 @@ export default function PatientDetailPage() {
 
   const savePatientInfo = async (e) => {
     e.preventDefault();
-    if (!canEditBasic) return;
+    if (!canEditBasic || editBusy) return;
     setEditBusy(true);
     try {
       const payload = canEditFull ? fullPatientPayload(editForm) : basicPatientPayload(editForm);

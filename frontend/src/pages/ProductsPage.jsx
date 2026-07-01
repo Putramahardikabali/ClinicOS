@@ -333,6 +333,7 @@ function EditorModal({ initial, onClose, onSaved, categoryOptions = [] }) {
       else await api.post("/products-catalog", payload);
       toast.success(editing ? "Product updated" : "Product added");
       onSaved();
+      onClose();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Save failed");
     } finally { setBusy(false); }

@@ -1363,6 +1363,7 @@ export default function BookingsScheduleView({
       if (conflict) {
         setPendingConfirm((p) => (p ? { ...p, conflicts: conflict.conflicts || p.conflicts || [] } : p));
         if (withOverlapOverride) {
+          const detail = e?.response?.data?.detail;
           toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
         }
       } else {

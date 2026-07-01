@@ -301,6 +301,7 @@ function EditorModal({ initial, onClose, onSaved }) {
       else await api.post("/packages-catalog", payload);
       toast.success(editing ? "Package updated" : "Package added");
       onSaved();
+      onClose();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Save failed");
     } finally { setBusy(false); }
