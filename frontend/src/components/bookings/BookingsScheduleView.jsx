@@ -71,14 +71,23 @@ import {
   bookingMatchesScheduleSearch,
   countSearchMatches,
 } from "@/components/bookings/scheduleSearch";
+import ScheduleFitControls from "@/components/bookings/ScheduleFitControls";
+import {
+  adjustManualScale,
+  applyFitModeToState,
+  buildScheduleMetrics,
+  computeFitScales,
+  DEFAULT_SCALE_STATE,
+  loadScheduleScaleState,
+  saveScheduleScaleState,
+  SCHEDULE_FIT_MODES,
+  ScheduleMetricsProvider,
+  useScheduleMetrics,
+} from "@/lib/scheduleScale";
 import SearchInput from "@/components/ui/SearchInput";
 import { toast } from "sonner";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
-const SLOT_PX = 32;
-const ROW_H = 52;
-const STAFF_COL_W = 132;
-const TIME_COL_W = 76;
 
 function isTimeBlock(booking) {
   return isTimeBlockBooking(booking);
@@ -150,6 +159,7 @@ function BookingBlock({
   onHighlightPatient,
   tooltipContainer = null,
 }) {
+  const { slotPx, rowH } = useScheduleMetrics();
   const start = displayOverride?.startMin ?? bookingStartMin(booking.scheduled_at);
   const dur = displayOverride?.durationMin ?? (booking.duration_min || 30);
   const block = isTimeBlock(booking);
@@ -172,11 +182,11 @@ function BookingBlock({
   }, [booking, showOverlapBadge]);
 
   const baseSpan = orientation === "vertical"
-    ? Math.max((dur / interval) * ROW_H - 2, ROW_H - 2)
-    : Math.max((dur / interval) * SLOT_PX - 2, SLOT_PX - 2);
+    ? Math.max((dur / interval) * rowH - 2, rowH - 2)
+    : Math.max((dur / interval) * slotPx - 2, slotPx - 2);
   const baseOffset = orientation === "vertical"
-    ? ((start - openMin) / interval) * ROW_H
-    : ((start - openMin) / interval) * SLOT_PX;
+    ? ((start - openMin) / interval) * rowH
+    : ((start - openMin) / interval) * slotPx;
   const colCount = Math.max(1, ol.columns || 1);
   const col = ol.column || 0;
 
@@ -192,7 +202,7 @@ function BookingBlock({
         }
       : {
           left: baseOffset + (col * baseSpan) / colCount,
-          width: Math.max(baseSpan / colCount - 2, SLOT_PX / colCount - 2),
+          width: Math.max(baseSpan / colCount - 2, slotPx / colCount - 2),
           zIndex: ghost ? 25 : 10,
         };
 
@@ -367,6 +377,7 @@ function ScheduleSlotCell({
   orientation,
   highlighted,
 }) {
+  const { rowH } = useScheduleMetrics();
   const edge =
     orientation === "vertical"
       ? "border-b border-[#F0EDE4] w-full"
@@ -378,8 +389,8 @@ function ScheduleSlotCell({
     return (
       <button
         type="button"
-        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[1] ${highlightCls} ${orientation === "vertical" ? "min-h-[52px] w-full" : ""}`}
-        style={orientation === "vertical" ? { height: ROW_H } : undefined}
+        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[1] ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
+        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
         data-schedule-slot=""
         data-staff-id={staffId}
         data-slot-min={slotMin}
@@ -397,8 +408,8 @@ function ScheduleSlotCell({
     return (
       <button
         type="button"
-        className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
-        style={orientation === "vertical" ? { height: ROW_H } : undefined}
+        className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 ${orientation === "vertical" ? "" : ""}`}
+        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
         onClick={onOvertimeClick}
         aria-label={state.title}
         title={state.title}
@@ -410,8 +421,8 @@ function ScheduleSlotCell({
   if (state.kind === "past") {
     return (
       <div
-        className={`${edge} bg-[#EDE8DC]/70 opacity-60 cursor-not-allowed ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
-        style={orientation === "vertical" ? { height: ROW_H } : undefined}
+        className={`${edge} bg-[#EDE8DC]/70 opacity-60 cursor-not-allowed ${orientation === "vertical" ? "" : ""}`}
+        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
         title="Past time"
         aria-label="Past time"
         data-testid={`schedule-slot-past-${testSuffix}`}
@@ -421,8 +432,8 @@ function ScheduleSlotCell({
 
   return (
     <div
-      className={`${edge} bg-[#F3F1EB]/55 cursor-default ${orientation === "vertical" ? "min-h-[52px]" : ""}`}
-      style={orientation === "vertical" ? { height: ROW_H } : undefined}
+      className={`${edge} bg-[#F3F1EB]/55 cursor-default ${orientation === "vertical" ? "" : ""}`}
+      style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
       title={state.title}
       data-testid={`schedule-slot-disabled-${testSuffix}`}
     />
@@ -454,6 +465,7 @@ function StaffRow({
   searchQuery = "",
   tooltipContainer = null,
 }) {
+  const { slotPx, rowH, staffColW } = useScheduleMetrics();
   const rowBookings = bookings.filter(
     (b) =>
       bookingAssignedToStaff(b, staff.id) &&
@@ -522,24 +534,26 @@ function StaffRow({
     <div className="flex border-b border-[#EAE6D7]" data-testid={`schedule-row-${staff.id}`}>
       <div
         className="shrink-0 border-r border-[#EAE6D7] bg-[#FAFAF7] px-3 py-2.5 flex flex-col justify-center sticky left-0 z-[2]"
-        style={{ width: STAFF_COL_W }}
+        style={{ width: staffColW }}
       >
         <div className="text-sm font-semibold text-[#2D3A33] truncate leading-snug">{staff.name}</div>
         <div className="text-[10px] uppercase tracking-wide text-[#A89F8B] mt-0.5">{formatStaffRole(staff.role)}</div>
       </div>
       <div
         className="relative flex-1 overflow-hidden"
-        style={{ height: ROW_H, minWidth: gridWidth }}
+        style={{ height: rowH, minWidth: gridWidth }}
         data-schedule-track=""
         data-staff-id={staff.id}
         data-open-min={openMin}
         data-close-min={closeMin}
         data-interval={interval}
         data-orientation="horizontal"
+        data-slot-px={slotPx}
+        data-row-h={rowH}
       >
         <div
           className="absolute inset-0 grid"
-          style={{ gridTemplateColumns: `repeat(${slotCount}, ${SLOT_PX}px)` }}
+          style={{ gridTemplateColumns: `repeat(${slotCount}, ${slotPx}px)` }}
         >
           {Array.from({ length: slotCount }, (_, i) => {
             const slotMin = openMin + i * interval;
@@ -587,8 +601,8 @@ function StaffRow({
           <div
             className="absolute top-0 bottom-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
             style={{
-              left: ((dragPreview.startMin - openMin) / interval) * SLOT_PX,
-              width: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * SLOT_PX,
+              left: ((dragPreview.startMin - openMin) / interval) * slotPx,
+              width: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * slotPx,
             }}
             data-testid="schedule-drag-preview-horizontal"
           >
@@ -626,6 +640,7 @@ function StaffColumn({
   searchQuery = "",
   tooltipContainer = null,
 }) {
+  const { slotPx, rowH, staffColW } = useScheduleMetrics();
   const rowBookings = bookings.filter(
     (b) =>
       bookingAssignedToStaff(b, staff.id) &&
@@ -634,7 +649,7 @@ function StaffColumn({
   );
   const overlapLayout = useMemo(() => layoutOverlappingBookings(rowBookings), [rowBookings]);
   const slotCount = (closeMin - openMin) / interval;
-  const trackHeight = slotCount * ROW_H;
+  const trackHeight = slotCount * rowH;
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
@@ -694,7 +709,7 @@ function StaffColumn({
   return (
     <div
       className="shrink-0 border-r border-[#EAE6D7] relative"
-      style={{ width: STAFF_COL_W, height: trackHeight }}
+      style={{ width: staffColW, height: trackHeight }}
       data-testid={`schedule-col-${staff.id}`}
       data-schedule-track=""
       data-staff-id={staff.id}
@@ -702,6 +717,8 @@ function StaffColumn({
       data-close-min={closeMin}
       data-interval={interval}
       data-orientation="vertical"
+      data-slot-px={slotPx}
+      data-row-h={rowH}
     >
       {Array.from({ length: slotCount }, (_, i) => {
         const slotMin = openMin + i * interval;
@@ -721,7 +738,7 @@ function StaffColumn({
           timeStr,
         });
         return (
-          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: i * ROW_H, height: ROW_H }}>
+          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: i * rowH, height: rowH }}>
             <ScheduleSlotCell
               state={state}
               timeStr={timeStr}
@@ -749,8 +766,8 @@ function StaffColumn({
         <div
           className="absolute left-0 right-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
           style={{
-            top: ((dragPreview.startMin - openMin) / interval) * ROW_H,
-            height: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * ROW_H,
+            top: ((dragPreview.startMin - openMin) / interval) * rowH,
+            height: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * rowH,
           }}
           data-testid="schedule-drag-preview-vertical"
         >
@@ -764,7 +781,8 @@ function StaffColumn({
 }
 
 function NowIndicator({ orientation, openMin, interval, nowMin }) {
-  const offset = ((nowMin - openMin) / interval) * (orientation === "vertical" ? ROW_H : SLOT_PX);
+  const { slotPx, rowH } = useScheduleMetrics();
+  const offset = ((nowMin - openMin) / interval) * (orientation === "vertical" ? rowH : slotPx);
   if (orientation === "vertical") {
     return (
       <div
@@ -849,6 +867,8 @@ export default function BookingsScheduleView({
   const lastRefreshErrorAtRef = useRef(0);
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [scaleState, setScaleState] = useState(() => loadScheduleScaleState());
+  const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1055,7 +1075,7 @@ export default function BookingsScheduleView({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [isFullscreen, activeUtility]);
 
-  const { openMin, closeMin, interval, closed, closedReason, gridWidth, hourMarks, slotCount } = useMemo(() => {
+  const { openMin, closeMin, interval, closed, closedReason, slotCount } = useMemo(() => {
     const dk = dayKey(date);
     const hours = clinic?.operating_hours || {};
     const dayH = hours[dk] || DEFAULT_HOURS;
@@ -1064,27 +1084,38 @@ export default function BookingsScheduleView({
     let o = hhmmToMin(dayH.open) ?? hhmmToMin(DEFAULT_HOURS.open);
     let c = hhmmToMin(dayH.close) ?? hhmmToMin(DEFAULT_HOURS.close);
     if (o == null || c == null || o >= c) {
-      return { openMin: 540, closeMin: 1200, interval: iv, closed: true, closedReason: "Clinic closed", gridWidth: 0, hourMarks: [], slotCount: 0 };
+      return { openMin: 540, closeMin: 1200, interval: iv, closed: true, closedReason: "Clinic closed", slotCount: 0 };
     }
     if (closedDate) {
-      return { openMin: o, closeMin: c, interval: iv, closed: true, closedReason: closedDate.reason || "Clinic closed", gridWidth: 0, hourMarks: [], slotCount: 0 };
+      return { openMin: o, closeMin: c, interval: iv, closed: true, closedReason: closedDate.reason || "Clinic closed", slotCount: 0 };
     }
     const slots = (c - o) / iv;
-    const marks = [];
-    for (let m = o; m < c; m += 60) {
-      if (m >= o && m < c) marks.push({ min: m, left: ((m - o) / iv) * SLOT_PX });
-    }
     return {
       openMin: o,
       closeMin: c,
       interval: iv,
       closed: false,
       closedReason: "",
-      gridWidth: slots * SLOT_PX,
-      hourMarks: marks,
       slotCount: slots,
     };
   }, [clinic, date]);
+
+  const metrics = useMemo(
+    () => buildScheduleMetrics(scaleState, isFullscreen),
+    [scaleState, isFullscreen],
+  );
+
+  const gridWidth = useMemo(() => slotCount * metrics.slotPx, [slotCount, metrics.slotPx]);
+  const hourMarks = useMemo(() => {
+    if (closed || !slotCount) return [];
+    const marks = [];
+    for (let m = openMin; m < closeMin; m += 60) {
+      if (m >= openMin && m < closeMin) {
+        marks.push({ min: m, left: ((m - openMin) / interval) * metrics.slotPx });
+      }
+    }
+    return marks;
+  }, [openMin, closeMin, interval, metrics.slotPx, closed, slotCount]);
 
   const workingStaff = useMemo(
     () => staff.filter((s) => effectiveByStaff[s.id]?.is_working === true),
@@ -1101,6 +1132,97 @@ export default function BookingsScheduleView({
   );
 
   const flatStaff = useMemo(() => staffGroups.flatMap((g) => g.members), [staffGroups]);
+
+  const persistScale = useCallback((next) => {
+    setScaleState(next);
+    saveScheduleScaleState(next);
+  }, []);
+
+  const measureFitRatios = useCallback(() => {
+    const el = gridViewportRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return computeFitScales({
+      orientation,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height,
+      slotCount,
+      staffCount: flatStaff.length,
+    });
+  }, [orientation, slotCount, flatStaff.length]);
+
+  const applyFitMode = useCallback((mode) => {
+    if (mode === SCHEDULE_FIT_MODES.default) {
+      persistScale({ ...DEFAULT_SCALE_STATE });
+      return;
+    }
+    const ratios = measureFitRatios();
+    if (!ratios) return;
+    persistScale(applyFitModeToState(mode, ratios, scaleState));
+  }, [measureFitRatios, persistScale, scaleState]);
+
+  const adjustScale = useCallback((axis, delta) => {
+    persistScale(adjustManualScale(scaleState, axis, delta));
+  }, [persistScale, scaleState]);
+
+  useEffect(() => {
+    if (!isFullscreen || closed || workingStaff.length === 0) return undefined;
+    if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
+      return undefined;
+    }
+    const id = requestAnimationFrame(() => {
+      const ratios = measureFitRatios();
+      if (!ratios) return;
+      setScaleState((prev) => {
+        const next = applyFitModeToState(prev.fitMode, ratios, prev);
+        if (
+          next.rowHRatio === prev.rowHRatio
+          && next.slotPxRatio === prev.slotPxRatio
+          && next.staffColRatio === prev.staffColRatio
+        ) {
+          return prev;
+        }
+        saveScheduleScaleState(next);
+        return next;
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [
+    isFullscreen,
+    orientation,
+    slotCount,
+    flatStaff.length,
+    date,
+    scaleState.fitMode,
+    closed,
+    workingStaff.length,
+    measureFitRatios,
+  ]);
+
+  useEffect(() => {
+    if (!isFullscreen) return undefined;
+    if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
+      return undefined;
+    }
+    const onResize = () => {
+      const ratios = measureFitRatios();
+      if (!ratios) return;
+      setScaleState((prev) => {
+        const next = applyFitModeToState(prev.fitMode, ratios, prev);
+        if (
+          next.rowHRatio === prev.rowHRatio
+          && next.slotPxRatio === prev.slotPxRatio
+          && next.staffColRatio === prev.staffColRatio
+        ) {
+          return prev;
+        }
+        saveScheduleScaleState(next);
+        return next;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [isFullscreen, scaleState.fitMode, measureFitRatios]);
 
   const unassigned = bookings.filter(
     (b) =>
@@ -1237,9 +1359,9 @@ export default function BookingsScheduleView({
     closeMin: Number(trackEl.getAttribute("data-close-min")),
     interval: Number(trackEl.getAttribute("data-interval")),
     orientation: trackEl.getAttribute("data-orientation") || orientation,
-    slotPx: SLOT_PX,
-    rowH: ROW_H,
-  }), [orientation]);
+    slotPx: Number(trackEl.getAttribute("data-slot-px")) || metrics.slotPx,
+    rowH: Number(trackEl.getAttribute("data-row-h")) || metrics.rowH,
+  }), [orientation, metrics.slotPx, metrics.rowH]);
 
   const updateApptManipPreview = useCallback((clientX, clientY) => {
     const m = apptManipRef.current;
@@ -1264,11 +1386,11 @@ export default function BookingsScheduleView({
       let endMin;
       if (params.orientation === "vertical") {
         const py = clientY - rect.top;
-        const slotEndIndex = Math.max(1, Math.ceil(py / ROW_H));
+        const slotEndIndex = Math.max(1, Math.ceil(py / params.rowH));
         endMin = params.openMin + slotEndIndex * params.interval;
       } else {
         const px = clientX - rect.left;
-        const slotEndIndex = Math.max(1, Math.ceil(px / SLOT_PX));
+        const slotEndIndex = Math.max(1, Math.ceil(px / params.slotPx));
         endMin = params.openMin + slotEndIndex * params.interval;
       }
       endMin = Math.min(params.closeMin, Math.max(endMin, m.origin.startMin + params.interval));
@@ -1485,7 +1607,8 @@ export default function BookingsScheduleView({
   };
 
   const hasWorkingStaff = workingStaff.length > 0;
-  const trackHeight = slotCount * ROW_H;
+  const { staffColW, timeColW, rowH } = metrics;
+  const trackHeight = slotCount * rowH;
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
   const gridScrollClass = isFullscreen ? "h-full" : "max-h-[min(72vh,900px)]";
@@ -1496,10 +1619,14 @@ export default function BookingsScheduleView({
   );
 
   const renderHorizontal = () => (
-    <div className={`overflow-auto ${gridScrollClass}`} data-testid="schedule-horizontal">
-      <div style={{ minWidth: STAFF_COL_W + gridWidth }}>
+    <div
+      ref={isFullscreen ? gridViewportRef : null}
+      className={`overflow-auto ${gridScrollClass}`}
+      data-testid="schedule-horizontal"
+    >
+      <div style={{ minWidth: staffColW + gridWidth }}>
         <div className="flex border-b border-[#EAE6D7] bg-[#F8F5EC] sticky top-0 z-20">
-          <div className="shrink-0 px-3 py-2 text-xs uppercase tracking-widest text-[#5C6C62] sticky left-0 z-30 bg-[#F8F5EC]" style={{ width: STAFF_COL_W }}>
+          <div className="shrink-0 px-3 py-2 text-xs uppercase tracking-widest text-[#5C6C62] sticky left-0 z-30 bg-[#F8F5EC]" style={{ width: staffColW }}>
             Staff
           </div>
           <div className="relative" style={{ width: gridWidth, height: 32 }}>
@@ -1517,7 +1644,7 @@ export default function BookingsScheduleView({
 
         <div className="relative">
           {showNow && (
-            <div className="absolute top-8 bottom-0 z-[5] pointer-events-none" style={{ left: STAFF_COL_W }}>
+            <div className="absolute top-8 bottom-0 z-[5] pointer-events-none" style={{ left: staffColW }}>
               <NowIndicator orientation="horizontal" openMin={openMin} interval={interval} nowMin={clinicNow.minutes} />
             </div>
           )}
@@ -1562,13 +1689,17 @@ export default function BookingsScheduleView({
   );
 
   const renderVertical = () => (
-    <div className={`overflow-auto ${gridScrollClass}`} data-testid="schedule-vertical">
-      <div style={{ minWidth: TIME_COL_W + flatStaff.length * STAFF_COL_W }}>
+    <div
+      ref={isFullscreen ? gridViewportRef : null}
+      className={`overflow-auto ${gridScrollClass}`}
+      data-testid="schedule-vertical"
+    >
+      <div style={{ minWidth: timeColW + flatStaff.length * staffColW }}>
         {/* Sticky header: time corner + staff names */}
         <div className="flex sticky top-0 z-30 border-b border-[#EAE6D7] bg-[#F8F5EC]">
           <div
             className="sticky left-0 z-40 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
-            style={{ width: TIME_COL_W }}
+            style={{ width: timeColW }}
           >
             <div className="h-6 border-b border-[#EAE6D7]/80" />
             <div className="h-[56px] px-2 flex items-end pb-2 text-[10px] uppercase tracking-widest text-[#5C6C62]">
@@ -1581,7 +1712,7 @@ export default function BookingsScheduleView({
                 <div
                   key={group.label}
                   className="shrink-0 px-1 text-[9px] uppercase tracking-widest text-[#5C6C62] flex items-center justify-center border-r border-[#EAE6D7] bg-[#F8F5EC]"
-                  style={{ width: STAFF_COL_W * group.members.length }}
+                  style={{ width: staffColW * group.members.length }}
                 >
                   {group.label}
                 </div>
@@ -1592,7 +1723,7 @@ export default function BookingsScheduleView({
                 <div
                   key={s.id}
                   className="shrink-0 px-2 py-2 border-r border-[#EAE6D7] bg-[#FAFAF7] flex flex-col justify-center"
-                  style={{ width: STAFF_COL_W }}
+                  style={{ width: staffColW }}
                 >
                   <div className="text-xs font-semibold text-[#2D3A33] truncate">{s.name}</div>
                   <div className="text-[9px] uppercase tracking-wide text-[#A89F8B]">{formatStaffRole(s.role)}</div>
@@ -1606,7 +1737,7 @@ export default function BookingsScheduleView({
         <div className="flex relative">
           <div
             className="sticky left-0 z-20 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
-            style={{ width: TIME_COL_W }}
+            style={{ width: timeColW }}
           >
             {Array.from({ length: slotCount }, (_, i) => {
               const slotMin = openMin + i * interval;
@@ -1614,7 +1745,7 @@ export default function BookingsScheduleView({
                 <div
                   key={slotMin}
                   className="px-2 text-[10px] text-[#5C6C62] border-b border-[#F0EDE4] flex items-center"
-                  style={{ height: ROW_H }}
+                  style={{ height: rowH }}
                 >
                   {minutesToTimeLabel(slotMin)}
                 </div>
@@ -1670,6 +1801,7 @@ export default function BookingsScheduleView({
 
   return (
     <TooltipProvider delayDuration={280} skipDelayDuration={80}>
+    <ScheduleMetricsProvider value={metrics}>
     <div
       ref={shellRef}
       className={shellClass}
@@ -1743,6 +1875,20 @@ export default function BookingsScheduleView({
               Vertical
             </button>
           </div>
+
+          {isFullscreen && (
+            <ScheduleFitControls
+              fitMode={scaleState.fitMode}
+              orientation={orientation}
+              onFitHeight={() => applyFitMode(SCHEDULE_FIT_MODES.fitHeight)}
+              onFitWidth={() => applyFitMode(SCHEDULE_FIT_MODES.fitWidth)}
+              onFitScreen={() => applyFitMode(SCHEDULE_FIT_MODES.fitScreen)}
+              onReset={() => applyFitMode(SCHEDULE_FIT_MODES.default)}
+              onAdjustRowH={(delta) => adjustScale("rowH", delta)}
+              onAdjustSlotPx={(delta) => adjustScale("slotPx", delta)}
+              onAdjustStaffCol={(delta) => adjustScale("staffCol", delta)}
+            />
+          )}
 
           <button
             type="button"
@@ -1906,6 +2052,7 @@ export default function BookingsScheduleView({
         }}
       />
     </div>
+    </ScheduleMetricsProvider>
     </TooltipProvider>
   );
 }
