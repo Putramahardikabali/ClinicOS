@@ -18,7 +18,17 @@ import { useClinic } from "@/lib/clinic";
 import { useSettings } from "@/lib/settings";
 import { openWhatsgoChatSafe } from "@/lib/whatsgo";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import ManagePatientLabelsModal from "@/components/patient/ManagePatientLabelsModal";
 import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
+import BookingMessagingMenu from "@/components/bookings/BookingMessagingMenu";
+import {
+  APPOINTMENT_STATUS_OPTIONS,
+  REASON_STATUSES,
+  SENSITIVE_STATUSES,
+  paymentStatusLabel,
+  resolveBookingDetailActions,
+  statusLabel,
+} from "@/lib/bookingDetailStatuses";
 import { isBlacklisted, blacklistReason } from "@/lib/patientLabelDisplay";
 import {
   DropdownMenu,
@@ -1504,11 +1514,37 @@ function bookingToForm(booking, treatments = [], packages = []) {
   };
 }
 
-function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, onWa, onSaved, onStartVisit, startVisitBusy, onEditBlock, startInEditMode = false, onHighlightPatient }) {
-  const block = isTimeBlock(booking);
+function BookingDetailPanel({
+  booking: initialBooking,
+  onClose,
+  canManage,
+  user,
+  onAdvance,
+  onCancel,
+  onSaved,
+  onStartVisit,
+  startVisitBusy,
+  onEditBlock,
+  startInEditMode = false,
+  onHighlightPatient,
+  onRebook,
+  automationActive = false,
+  canSendViaProvider = false,
+  canWhatsgoSend = false,
+}) {
+  const navigate = useNavigate();
+  const block = isTimeBlock(initialBooking);
+  const [booking, setBooking] = useState(initialBooking);
   const editable = canManage && !["cancelled", "completed", "no_show"].includes(booking?.status);
+  const canEditStatus = canManage && (hasPermission(user, "appointments.edit") || ["super_admin", "fo", "manager"].includes(user?.role));
+  const canManageLabels = hasPermission(user, "patient_labels.assign") || hasPermission(user, "patient_labels.manage");
+  const canCreateInvoice = hasPermission(user, "billing.create");
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(() => bookingToForm(booking));
+  const [form, setForm] = useState(() => bookingToForm(initialBooking));
+  const [noteDraft, setNoteDraft] = useState(initialBooking?.notes || "");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const [treatments, setTreatments] = useState([]);
   const [packages, setPackages] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -1519,6 +1555,69 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
   const [pendingEditPayload, setPendingEditPayload] = useState(null);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [consentForms, setConsentForms] = useState([]);
+  const noteInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!initialBooking?.id) return;
+    api.get(`/bookings/${initialBooking.id}`)
+      .then((r) => {
+        setBooking(r.data);
+        setNoteDraft(r.data.notes || "");
+      })
+      .catch(() => setBooking(initialBooking));
+  }, [initialBooking?.id]);
+
+  const refreshBooking = async () => {
+    if (!booking?.id) return;
+    const r = await api.get(`/bookings/${booking.id}`);
+    setBooking(r.data);
+    setNoteDraft(r.data.notes || "");
+    onSaved?.(r.data);
+  };
+
+  const saveNote = async () => {
+    setNoteBusy(true);
+    try {
+      const r = await api.put(`/bookings/${booking.id}`, { notes: noteDraft });
+      setBooking((b) => ({ ...b, notes: r.data.notes }));
+      toast.success("Booking note saved");
+      onSaved?.(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not save note");
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+
+  const changeStatus = async (newStatus) => {
+    if (!canEditStatus || newStatus === (booking.display_status || booking.status)) return;
+    let reason = "";
+    if (REASON_STATUSES.has(newStatus)) {
+      const ok = window.confirm(`Mark this appointment as ${statusLabel(newStatus)}?`);
+      if (!ok) return;
+      reason = window.prompt(`Reason for ${statusLabel(newStatus)} (required):`) || "";
+      if (!reason.trim()) {
+        toast.error("Reason is required");
+        return;
+      }
+    } else if (SENSITIVE_STATUSES.has(newStatus)) {
+      if (!window.confirm(`Change status to ${statusLabel(newStatus)}?`)) return;
+      if (newStatus === "closed") {
+        reason = window.prompt("Note for closing (optional):") || "";
+      }
+    }
+    setStatusBusy(true);
+    try {
+      const r = await api.put(`/bookings/${booking.id}/status`, { status: newStatus, reason: reason || undefined });
+      setBooking(r.data);
+      toast.success("Status updated");
+      onSaved?.(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not update status");
+    } finally {
+      setStatusBusy(false);
+    }
+  };
 
   useEffect(() => {
     const next = bookingToForm(booking, treatments, packages);
@@ -1595,15 +1694,15 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
 
   if (!booking) return null;
   const dt = new Date(booking.scheduled_at);
-  const sc = STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
-  const next = block ? null : NEXT_STATUS[booking.status];
+  const displayStatus = booking.display_status || booking.status;
+  const sc = STATUS_COLORS[displayStatus] || STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
+  const actions = resolveBookingDetailActions(booking, {
+    block,
+    canManage,
+    canCreateInvoice,
+    editing,
+  });
   const blockLabel = booking.block_reason || booking.patient_name;
-  const showStartVisitHint =
-    canManage
-    && !block
-    && !booking.visit_id
-    && ["booked", "confirmed", "checked_in"].includes(booking.status)
-    && !editing;
 
   const selectTreatment = (name) => {
     const t = treatments.find(x => x.name === name);
@@ -1730,7 +1829,10 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="label-eyebrow">{block ? "Blocked time" : "Appointment"}</div>
-            <h3 className="font-display text-xl text-[#2D3A33] mt-1">{editing && !block ? "Edit appointment" : (block ? blockLabel : booking.patient_name)}</h3>
+            <h3 className="font-display text-xl text-[#2D3A33] mt-1 flex flex-wrap items-center gap-2">
+              {editing && !block ? "Edit appointment" : (block ? blockLabel : booking.patient_name)}
+              {!editing && !block && <PatientLabelsRow labels={booking.patient_labels} size="sm" />}
+            </h3>
             {!editing && (
               <div className="text-sm text-[#5C6C62] mt-1">
                 {block ? (
@@ -1889,6 +1991,50 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
           </div>
         ) : (
           <>
+            {!block && booking.is_blacklisted && (
+              <PatientBlacklistBanner patient={booking.patient || booking} className="mt-4" />
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className={`bl-chip ${sc.cls}`} data-testid="booking-status-chip">
+                {booking.display_status_label || sc.label}
+              </span>
+              {booking.payment_status && (
+                <span className="bl-chip text-xs" data-testid="booking-payment-status-chip">
+                  Payment: {paymentStatusLabel(booking.payment_status)}
+                </span>
+              )}
+              {booking.invoice?.payment_status && (
+                <span className="bl-chip text-xs">
+                  Invoice: {paymentStatusLabel(booking.invoice.payment_status)}
+                </span>
+              )}
+              {booking.is_overtime && !block && <OvertimeBadge />}
+              {!block && (consentForms.length > 0 || selectedTreatment?.consent_required) && (
+                <ConsentStatusBadge status={consentSummary(consentForms).status} />
+              )}
+              {!block && selectedTreatment?.consent_required && consentForms.length === 0 && (
+                <span className="text-xs text-[#B14A2C]">Consent required</span>
+              )}
+            </div>
+
+            {!block && canEditStatus && (
+              <div className="mt-3">
+                <label className="label-eyebrow block mb-1.5">Appointment status</label>
+                <select
+                  className="bl-input text-sm"
+                  value={displayStatus}
+                  disabled={statusBusy}
+                  onChange={(e) => changeStatus(e.target.value)}
+                  data-testid="booking-status-select"
+                >
+                  {APPOINTMENT_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="mt-4 space-y-2 text-sm text-[#2D3A33]">
               <div className="flex items-center gap-2"><CalendarDays className="w-4 h-4 text-[#5C6C62]" /> {dt.toLocaleDateString()}</div>
               <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-[#5C6C62]" /> {dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {booking.duration_min} min</div>
@@ -1939,101 +2085,165 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 </div>
               )}
             </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className={`bl-chip ${sc.cls}`}>{sc.label}</span>
-              {booking.is_overtime && !block && <OvertimeBadge />}
-              {!block && (consentForms.length > 0 || selectedTreatment?.consent_required) && (
-                <ConsentStatusBadge status={consentSummary(consentForms).status} />
-              )}
-              {!block && selectedTreatment?.consent_required && consentForms.length === 0 && (
-                <span className="text-xs text-[#B14A2C]">Consent required</span>
-              )}
-            </div>
+
+            {!block && (
+              <div className="mt-4 space-y-2" data-testid="booking-note-section">
+                <label className="label-eyebrow block">Booking note</label>
+                <textarea
+                  ref={noteInputRef}
+                  className="bl-input min-h-[72px] text-sm"
+                  placeholder="Operational note for staff (visible in treatment session)"
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  data-testid="booking-note-input"
+                />
+                <button
+                  type="button"
+                  className="bl-btn-ghost text-xs"
+                  disabled={noteBusy || noteDraft === (booking.notes || "")}
+                  onClick={saveNote}
+                  data-testid="booking-note-save"
+                >
+                  {noteBusy ? "Saving…" : "Save note"}
+                </button>
+              </div>
+            )}
+
+            {!block && booking.patient_id && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="label-eyebrow">Patient labels</div>
+                  <PatientLabelsRow labels={booking.patient_labels} className="mt-1" />
+                </div>
+                {canManageLabels && (
+                  <button type="button" className="bl-btn-ghost text-xs" onClick={() => setLabelsOpen(true)} data-testid="manage-labels-from-booking">
+                    Manage labels
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!block && (
+              <div className="mt-4">
+                <div className="label-eyebrow mb-2">Messages</div>
+                <BookingMessagingMenu
+                  booking={booking}
+                  automationActive={automationActive}
+                  canSendViaProvider={canSendViaProvider}
+                  canWhatsgoSend={canWhatsgoSend}
+                  onSent={refreshBooking}
+                  compact
+                />
+              </div>
+            )}
+
           </>
         )}
 
-        {showStartVisitHint && (
-          <div
-            className="mt-5 p-4 rounded-xl border border-[#D4E4DC] bg-[#F5FAF7]"
-            data-testid="booking-start-visit-hint"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex gap-3 min-w-0 flex-1">
-                <Stethoscope className="w-5 h-5 shrink-0 text-[#52796F] mt-0.5" strokeWidth={1.6} />
-                <div className="text-sm text-[#2D3A33] leading-relaxed space-y-1">
-                  <p>Ready for treatment? Start a treatment session to open the patient chart, add treatment details, and prepare billing.</p>
-                  <p className="text-xs text-[#5C6C62]">A treatment session is the clinical record — separate from the appointment on the schedule.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onStartVisit(booking)}
-                disabled={startVisitBusy}
-                className="bl-btn-primary text-sm inline-flex items-center gap-2 shrink-0 disabled:opacity-50"
-                data-testid="start-visit-button"
-              >
+        {!editing && (
+          <div className="mt-5 flex flex-wrap gap-2" data-testid="booking-detail-actions">
+            {actions.showShowInvoice && (
+              <button type="button" onClick={() => navigate(`/invoices/${booking.invoice.id}`)} className="bl-btn-primary text-sm inline-flex items-center gap-2" data-testid="show-invoice-button">
+                <Receipt className="w-4 h-4" /> Show invoice
+              </button>
+            )}
+            {actions.showStartVisit && (
+              <button type="button" onClick={() => onStartVisit(booking)} disabled={startVisitBusy} className="bl-btn-primary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="start-visit-button">
+                <Stethoscope className="w-4 h-4" />
                 {startVisitBusy ? "Starting…" : "Start treatment session"}
               </button>
-            </div>
-          </div>
-        )}
-
-        {!editing && (
-          <div className="mt-5 flex flex-wrap gap-2">
+            )}
+            {actions.showOpenVisit && (
+              <Link to={`/visits/${booking.visit_id}`} className={actions.showShowInvoice ? "bl-btn-secondary text-sm inline-flex items-center gap-2" : "bl-btn-primary text-sm inline-flex items-center gap-2"} data-testid="open-visit-link">
+                <Stethoscope className="w-4 h-4" /> Open treatment session
+              </Link>
+            )}
+            {actions.showCreateInvoice && (
+              <button
+                type="button"
+                className="bl-btn-secondary text-sm inline-flex items-center gap-2"
+                data-testid="create-invoice-button"
+                onClick={async () => {
+                  try {
+                    const r = await api.post(`/invoices/visit/${booking.visit_id}`);
+                    navigate(`/invoices/${r.data.id}`);
+                  } catch (e) {
+                    toast.error(e?.response?.data?.detail || "Could not create invoice");
+                  }
+                }}
+              >
+                <Receipt className="w-4 h-4" /> Create invoice
+              </button>
+            )}
+            {actions.showConfirm && (
+              <button type="button" onClick={() => onAdvance(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="advance-booking-button">
+                Confirm <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+            {actions.showCheckIn && (
+              <button type="button" onClick={() => onAdvance(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="check-in-booking-button">
+                Check in <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
             {editable && block && (
               <button type="button" onClick={() => onEditBlock?.(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="edit-block-button">
                 <Edit2 className="w-4 h-4" /> Edit block
               </button>
             )}
-            {editable && !block && (
+            {actions.showEdit && !block && (
               <button type="button" onClick={() => setEditing(true)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="edit-booking-button">
                 <Edit2 className="w-4 h-4" /> Edit
               </button>
             )}
             {!block && isHighlightableBooking(booking) && onHighlightPatient && (
-              <button
-                type="button"
-                onClick={() => onHighlightPatient(booking)}
-                className="bl-btn-ghost text-sm inline-flex items-center gap-2"
-                data-testid="highlight-patient-button"
-              >
+              <button type="button" onClick={() => onHighlightPatient(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="highlight-patient-button">
                 <Highlighter className="w-4 h-4" /> Highlight Patient
               </button>
             )}
-            {!block && (
-              <button type="button" onClick={() => onWa(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2">
-                <MessageCircle className="w-4 h-4" /> WhatsApp
+            {actions.showAddNote && (
+              <button
+                type="button"
+                className="bl-btn-ghost text-sm"
+                onClick={() => {
+                  noteInputRef.current?.focus();
+                  noteInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+                data-testid="add-note-button"
+              >
+                Add note
+              </button>
+            )}
+            {actions.showRebook && onRebook && (
+              <button type="button" onClick={() => onRebook(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="rebook-button">
+                <CalendarClock className="w-4 h-4" /> Rebook
               </button>
             )}
             {booking.visit_id && (
-              <Link
-                to={`/visits/${booking.visit_id}?tab=consent`}
-                className="bl-btn-ghost text-sm inline-flex items-center gap-2"
-                data-testid="booking-consent-link"
-              >
+              <Link to={`/visits/${booking.visit_id}?tab=consent`} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="booking-consent-link">
                 Consent
               </Link>
             )}
-            {booking.visit_id && (
-              <Link
-                to={`/visits/${booking.visit_id}`}
-                className="bl-btn-primary text-sm inline-flex items-center gap-2"
-                data-testid="open-visit-link"
-              >
-                Open patient chart <ArrowRight className="w-4 h-4" />
-              </Link>
-            )}
-            {canManage && next && booking.status !== "checked_in" && !booking.visit_id && (
-              <button type="button" onClick={() => onAdvance(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2" data-testid="advance-booking-button">
-                {next.label} <ArrowRight className="w-4 h-4" />
+            {actions.showNoShow && (
+              <button type="button" onClick={() => changeStatus("no_show")} className="text-sm text-[#B14A2C] hover:underline" data-testid="no-show-button">
+                Mark no show
               </button>
             )}
-            {canManage && booking.status !== "cancelled" && booking.status !== "completed" && (
+            {actions.showCancel && (
               <button type="button" onClick={() => onCancel(booking)} className="text-sm text-[#B14A2C] hover:underline">
                 {block ? "Remove block" : "Cancel booking"}
               </button>
             )}
           </div>
+        )}
+
+        {booking.patient_id && (
+          <ManagePatientLabelsModal
+            patientId={booking.patient_id}
+            patientName={booking.patient_name}
+            open={labelsOpen}
+            onClose={() => setLabelsOpen(false)}
+            onUpdated={refreshBooking}
+          />
         )}
         {pendingConflict && (
           <ConflictOverrideModal
@@ -2085,6 +2295,7 @@ export default function BookingsPage() {
     ["super_admin", "manager"].includes(user?.role) ||
     hasPermission(user, "bookings.create_overtime");
   const canSendViaProvider = hasPermission(user, "messaging.send") || hasPermission(user, "messaging.manage");
+  const canWhatsgoSend = canSendViaProvider;
 
   useEffect(() => {
     if (viewMode !== "schedule") {
@@ -2434,6 +2645,7 @@ export default function BookingsPage() {
         {detailBooking && (
         <BookingDetailPanel
           booking={detailBooking}
+          user={user}
           startInEditMode={detailStartEdit}
           onClose={() => { setDetailBooking(null); setDetailStartEdit(false); }}
           canManage={canManage}
@@ -2444,12 +2656,27 @@ export default function BookingsPage() {
             await cancel(b);
             setDetailBooking(null);
           }}
-          onWa={(b) => { setDetailBooking(null); setWaBooking(b); }}
           onSaved={(updated) => { setDetailBooking(updated); refresh(); }}
           onStartVisit={startVisit}
           startVisitBusy={startVisitBusy}
           onEditBlock={(b) => { setDetailBooking(null); setBlockEdit(b); setBlockInitial(null); setBlockOpen(true); }}
           onHighlightPatient={viewMode === "schedule" ? handleHighlightPatient : undefined}
+          onRebook={(b) => {
+            setDetailBooking(null);
+            setNewInitial({
+              patient_name: b.patient_name,
+              patient_phone: b.patient_phone,
+              patient_email: b.patient_email,
+              treatment: b.treatment,
+              package_id: b.package_id,
+              booking_kind: b.booking_type === "package" ? "package" : "treatment",
+              performer_id: b.performer_id,
+            });
+            setNewOpen(true);
+          }}
+          automationActive={automationActive}
+          canSendViaProvider={canSendViaProvider}
+          canWhatsgoSend={canWhatsgoSend}
         />
         )}
       </BookingModalPortal>

@@ -194,6 +194,7 @@ def build_schedule_indicators(
         "checked_in_at": checked_in_at,
         "staff_assigned": staff_assigned,
         "note_preview": (booking.get("notes") or "").strip()[:160],
+        "payment_status": (visit or {}).get("payment_status"),
     }
 
 

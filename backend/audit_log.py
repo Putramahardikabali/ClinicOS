@@ -199,6 +199,39 @@ async def log_appointment_cancelled(db, user: dict, booking_id: str, booking: di
     )
 
 
+async def log_appointment_status_changed(
+    db,
+    user: dict,
+    booking_id: str,
+    *,
+    old_status: str,
+    new_status: str,
+    reason: Optional[str] = None,
+) -> None:
+    await write_audit(
+        db, user,
+        action="status_change",
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        old_value={"status": old_status},
+        new_value={"status": new_status},
+        reason=reason or "",
+    )
+
+
+async def log_booking_note_updated(db, user: dict, booking_id: str, *, old_note: str, new_note: str) -> None:
+    if (old_note or "").strip() == (new_note or "").strip():
+        return
+    await write_audit(
+        db, user,
+        action="note_updated",
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        old_value={"notes": (old_note or "")[:500]},
+        new_value={"notes": (new_note or "")[:500]},
+    )
+
+
 async def log_performer_changes(
     db, user: dict, booking_id: str, old_performers: list, new_performers: list,
 ) -> None:

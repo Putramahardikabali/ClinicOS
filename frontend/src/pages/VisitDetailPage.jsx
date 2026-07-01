@@ -258,6 +258,12 @@ export default function VisitDetailPage() {
               )}
               {canViewBilling && <span className={`bl-chip ${billing.chip}`}>{billing.label}</span>}
             </div>
+            {visit.booking?.notes && (
+              <div className="bl-card p-3 bg-[#F8F5EC] text-sm text-[#2D3A33]" data-testid="visit-booking-note">
+                <span className="label-eyebrow">Booking note</span>
+                <p className="mt-1 whitespace-pre-wrap">{visit.booking.notes}</p>
+              </div>
+            )}
             {primary && (
               <div>
                 <span className="text-[#5C6C62]">Assigned staff:</span>{" "}

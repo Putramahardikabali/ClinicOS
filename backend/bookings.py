@@ -118,7 +118,10 @@ def _assert_catalog_view(user: dict, catalog: str) -> None:
 
 
 # ---------------- Models ----------------
-BOOKING_STATUSES = ["booked", "confirmed", "checked_in", "completed", "cancelled", "no_show", "blocked", "pending_payment", "payment_expired", "payment_failed"]
+BOOKING_STATUSES = [
+    "booked", "confirmed", "checked_in", "completed", "cancelled", "no_show", "blocked",
+    "pending_payment", "payment_expired", "payment_failed", "treatment_started", "closed",
+]
 # Statuses that occupy a performer slot (including FO time blocks and payment hold)
 SLOT_OCCUPYING_STATUSES = ["booked", "confirmed", "checked_in", "blocked", "pending_payment"]
 # Real appointments only (excludes time blocks)
@@ -285,6 +288,7 @@ class CouponValidateIn(BaseModel):
 
 class BookingStatusIn(BaseModel):
     status: str
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class WaSentIn(BaseModel):
@@ -1878,7 +1882,8 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             assigned = staff_ids_from_performers(b)
             if uid not in assigned and b.get("performer_id") != uid:
                 raise HTTPException(status_code=404, detail="Booking not found")
-        return b
+        from booking_detail import enrich_booking_detail
+        return await enrich_booking_detail(db, user["clinic_id"], b)
 
     @api.put("/bookings/{bid}")
     async def update_booking(bid: str, payload: BookingUpdateIn, user: dict = Depends(get_current_user)):
@@ -1889,7 +1894,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if not existing:
             raise HTTPException(status_code=404, detail="Booking not found")
         if existing.get("status") in ("cancelled", "completed", "no_show"):
-            raise HTTPException(status_code=400, detail="Cannot edit a cancelled or completed booking")
+            notes_only = set(raw.keys()) <= {"notes"} and "notes" in raw
+            if not notes_only:
+                raise HTTPException(status_code=400, detail="Cannot edit a cancelled or completed booking")
 
         raw = payload.model_dump(exclude_unset=True)
         upd = {k: v for k, v in raw.items() if v is not None}
@@ -2066,6 +2073,13 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Booking not found")
         updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if "notes" in upd:
+            from audit_log import log_booking_note_updated
+            await log_booking_note_updated(
+                db, user, bid,
+                old_note=existing.get("notes") or "",
+                new_note=updated.get("notes") or "",
+            )
         if existing.get("booking_type") != "block" and existing.get("status") != "blocked":
             from audit_log import (
                 log_appointment_rescheduled,
@@ -2128,41 +2142,46 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.put("/bookings/{bid}/status")
     async def transition_status(bid: str, payload: BookingStatusIn, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("super_admin", "fo", "manager"):
+        if not user_has_permission(user, "appointments.edit") and user.get("role") not in ("super_admin", "fo", "manager"):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-        if payload.status not in BOOKING_STATUSES:
-            raise HTTPException(status_code=400, detail="Invalid status")
         await assert_writeable(user)
         existing = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
         if not existing:
             raise HTTPException(status_code=404, detail="Booking not found")
         if existing.get("status") == "blocked" and payload.status != "cancelled":
             raise HTTPException(status_code=400, detail="Time blocks can only be cancelled")
-        upd: Dict[str, Any] = {"status": payload.status, "status_updated_at": iso(now_utc())}
-        r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
-        if r.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Booking not found")
-        if payload.status == "cancelled" and existing.get("booking_type") != "block":
+
+        from booking_detail import apply_booking_status_change, SENSITIVE_STATUS_CHANGES
+
+        new_status = (payload.status or "").strip().lower()
+        if new_status in SENSITIVE_STATUS_CHANGES and new_status not in ("closed",):
+            if new_status == "cancelled" and existing.get("booking_type") != "block":
+                pass  # confirmed via reason in apply or frontend
+
+        updated = await apply_booking_status_change(
+            db, user, existing, new_status, reason=payload.reason,
+        )
+
+        if new_status == "cancelled" and existing.get("booking_type") != "block":
             from gift_cards_booking import release_gift_card_for_cancelled_booking
             await release_gift_card_for_cancelled_booking(db, user, bid)
             from audit_log import log_appointment_cancelled
-            await log_appointment_cancelled(db, user, bid, existing)
-        else:
-            await audit(user, "status_change", "booking", bid, {"to": payload.status})
-        updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
-        if existing.get("booking_type") != "block":
-            try:
-                from messaging import safe_trigger_booking_messaging
-                if payload.status == "confirmed":
-                    safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "confirmed")
-                elif payload.status == "cancelled":
-                    safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "cancelled")
-            except Exception:
-                pass
+            await log_appointment_cancelled(db, user, bid, existing, reason=payload.reason or "")
+
+        try:
+            from messaging import safe_trigger_booking_messaging
+            if new_status == "confirmed":
+                safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "confirmed")
+            elif new_status == "cancelled":
+                safe_trigger_booking_messaging(db, os.environ["JWT_SECRET"], user["clinic_id"], updated, "cancelled")
+        except Exception:
+            pass
+
+        from booking_detail import enrich_booking_detail
         from clinic_realtime import safe_emit_booking_event
-        evt_msg = "Booking cancelled" if payload.status == "cancelled" else f"Booking status: {payload.status}"
+        evt_msg = "Booking cancelled" if new_status == "cancelled" else f"Booking status: {new_status}"
         safe_emit_booking_event(updated, "booking_updated", message=evt_msg)
-        return updated
+        return await enrich_booking_detail(db, user["clinic_id"], updated)
 
     @api.post("/bookings/{bid}/start-visit")
     async def start_visit_from_booking(bid: str, user: dict = Depends(get_current_user)):

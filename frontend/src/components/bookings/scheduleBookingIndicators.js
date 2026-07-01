@@ -172,8 +172,21 @@ export function buildSchedulePreviewLines(booking) {
   if (meta.package_use?.active) {
     lines.push({ label: "Package", value: meta.package_use.label || "Package session" });
   }
-  if (meta.note_preview) {
-    lines.push({ label: "Note", value: meta.note_preview });
+  if (meta.note_preview || booking.notes) {
+    lines.push({ label: "Booking note", value: meta.note_preview || (booking.notes || "").slice(0, 160) });
+  }
+  if (booking.patient_phone) {
+    lines.splice(1, 0, { label: "Phone", value: booking.patient_phone });
+  }
+  const labels = meta.patient_labels || booking.patient_labels || [];
+  if (labels.length) {
+    lines.push({ label: "Labels", value: labels.map((l) => l.name).join(", ") });
+  }
+  if (meta.payment_status || booking.payment_status) {
+    lines.push({ label: "Payment", value: meta.payment_status || booking.payment_status });
+  }
+  if (booking.invoice?.payment_status) {
+    lines.push({ label: "Invoice", value: booking.invoice.payment_status });
   }
 
   const { all, visible, overflow } = selectCardIcons(booking);
