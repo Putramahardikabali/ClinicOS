@@ -133,6 +133,39 @@ async def log_appointment_rescheduled(db, user: dict, booking_id: str, old: dict
     )
 
 
+async def log_appointment_schedule_changed(
+    db,
+    user: dict,
+    booking_id: str,
+    old: dict,
+    new: dict,
+    *,
+    change_source: str = "",
+) -> None:
+    action = "schedule_changed"
+    if change_source == "schedule_resize":
+        action = "duration_changed"
+    elif change_source == "schedule_drag":
+        if old.get("performer_id") != new.get("performer_id"):
+            action = "reassigned"
+        elif old.get("scheduled_at") != new.get("scheduled_at"):
+            action = "moved"
+    await write_audit(
+        db,
+        user,
+        action=action,
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        old_value=_pick(old, "scheduled_at", "duration_min", "performer_id") | {
+            "performers": _performer_summary(old.get("performers")),
+        },
+        new_value=_pick(new, "scheduled_at", "duration_min", "performer_id") | {
+            "performers": _performer_summary(new.get("performers")),
+            "schedule_change_source": change_source,
+        },
+    )
+
+
 async def log_appointment_overlap_override(
     db,
     user: dict,

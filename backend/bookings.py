@@ -246,6 +246,7 @@ class BookingUpdateIn(BaseModel):
     treatment_default_duration_minutes: Optional[int] = None
     overlap_override: Optional[bool] = None
     overlap_override_reason: Optional[str] = None
+    schedule_change_source: Optional[str] = None
 
 
 class CouponIn(BaseModel):
@@ -2066,15 +2067,26 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise HTTPException(status_code=404, detail="Booking not found")
         updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
         if existing.get("booking_type") != "block" and existing.get("status") != "blocked":
-            from audit_log import log_appointment_rescheduled, log_performer_changes, log_appointment_overlap_override
-            await log_performer_changes(
-                db, user, bid, get_performers(existing), get_performers(updated),
+            from audit_log import (
+                log_appointment_rescheduled,
+                log_performer_changes,
+                log_appointment_overlap_override,
+                log_appointment_schedule_changed,
             )
-            if (
-                existing.get("scheduled_at") != updated.get("scheduled_at")
-                or existing.get("duration_min") != updated.get("duration_min")
-            ):
-                await log_appointment_rescheduled(db, user, bid, existing, updated)
+            change_source = upd.get("schedule_change_source") or raw.get("schedule_change_source") or ""
+            if change_source and schedule_changed:
+                await log_appointment_schedule_changed(
+                    db, user, bid, existing, updated, change_source=change_source,
+                )
+            else:
+                await log_performer_changes(
+                    db, user, bid, get_performers(existing), get_performers(updated),
+                )
+                if (
+                    existing.get("scheduled_at") != updated.get("scheduled_at")
+                    or existing.get("duration_min") != updated.get("duration_min")
+                ):
+                    await log_appointment_rescheduled(db, user, bid, existing, updated)
             if updated.get("overlap_override") and schedule_changed:
                 from booking_conflicts import find_staff_slot_conflicts
 

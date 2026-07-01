@@ -35,6 +35,21 @@ import {
   slotInDragPreview,
 } from "@/components/bookings/scheduleDragSelect";
 import { layoutOverlappingBookings } from "@/lib/scheduleOverlapLayout";
+import ScheduleMoveConfirmModal from "@/components/bookings/ScheduleMoveConfirmModal";
+import {
+  APPT_MANIP_THRESHOLD_PX,
+  buildScheduledAtIso,
+  canManipulateAppointment,
+  clampDuration,
+  describeScheduleChange,
+  findLocalScheduleConflicts,
+  pointerToSnappedStartMin,
+  resolveStaffIdFromPointer,
+} from "@/lib/scheduleAppointmentManip";
+import { parseScheduleConflict } from "@/lib/bookingConflicts";
+import { hasPermission } from "@/lib/auth";
+import { DURATION_SOURCES } from "@/lib/bookingDuration";
+import { toast } from "sonner";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
 const SLOT_PX = 32;
@@ -82,19 +97,30 @@ function slotOverlapsBooking(bookings, staffId, slotStart, slotEnd) {
   });
 }
 
-function BookingBlock({ booking, openMin, interval, onSelect, orientation = "horizontal", overlapLayout = null }) {
-  const start = bookingStartMin(booking.scheduled_at);
-  const dur = booking.duration_min || 30;
+function BookingBlock({
+  booking,
+  openMin,
+  interval,
+  onSelect,
+  orientation = "horizontal",
+  overlapLayout = null,
+  canManipulate = false,
+  displayOverride = null,
+  onManipulateStart,
+}) {
+  const start = displayOverride?.startMin ?? bookingStartMin(booking.scheduled_at);
+  const dur = displayOverride?.durationMin ?? (booking.duration_min || 30);
   const block = isTimeBlock(booking);
   const st = resolveScheduleCardColors(booking);
   const timeLabel = new Date(booking.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const label = block ? (booking.block_reason || booking.patient_name) : booking.patient_name;
   const sub = block ? "Blocked" : booking.treatment;
   const overtime = !block && booking.is_overtime;
+  const ghost = Boolean(displayOverride?.ghost);
   const ol = overlapLayout || { column: 0, columns: 1, hasOverlap: false };
   const showOverlapBadge = ol.hasOverlap || booking.overlap_override;
   const { visible: visibleIcons, overflow: iconOverflow } = selectCardIcons(booking);
-  const hoverPreview = supportsHoverPreview();
+  const hoverPreview = supportsHoverPreview() && !ghost;
   const previewLines = useMemo(() => {
     const lines = buildSchedulePreviewLines(booking);
     if (showOverlapBadge) {
@@ -120,10 +146,12 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
           left: colCount > 1 ? `calc(2px + ${col} * (100% - 4px) / ${colCount})` : 2,
           right: colCount > 1 ? undefined : 2,
           width: colCount > 1 ? `calc((100% - 4px) / ${colCount} - 2px)` : undefined,
+          zIndex: ghost ? 25 : 10,
         }
       : {
           left: baseOffset + (col * baseSpan) / colCount,
           width: Math.max(baseSpan / colCount - 2, SLOT_PX / colCount - 2),
+          zIndex: ghost ? 25 : 10,
         };
 
   const cardStyle = {
@@ -133,14 +161,10 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardButton = (
-    <button
-      type="button"
-      onClick={() => onSelect(booking)}
-      className={`w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition cursor-pointer hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] active:scale-[0.99] ${block ? "border-dashed" : "border-solid"}`}
-      style={cardStyle}
-      data-testid={`schedule-block-${booking.id}`}
-    >
+  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+
+  const cardBody = (
+    <>
       <div className="flex items-center gap-1 min-w-0">
         <div className="text-xs font-semibold truncate leading-tight flex-1">{label}</div>
         {!block && visibleIcons.length > 0 && (
@@ -180,14 +204,54 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
       </div>
       <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
       <div className="text-[10px] opacity-70 mt-0.5">{timeLabel} · {dur}m</div>
+      {canManipulate && (
+        <div
+          role="separator"
+          aria-label="Resize appointment"
+          className={`absolute opacity-70 hover:opacity-100 bg-[#2D3A33]/20 ${
+            orientation === "vertical"
+              ? "left-1 right-1 bottom-0 h-2 cursor-ns-resize rounded-b-md"
+              : "top-1 bottom-1 right-0 w-2 cursor-ew-resize rounded-r-md"
+          }`}
+          data-testid={`schedule-resize-handle-${booking.id}`}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onManipulateStart?.(e, booking, "resize");
+          }}
+        />
+      )}
+    </>
+  );
+
+  const interactiveCard = canManipulate ? (
+    <div
+      className={`relative ${cardClasses}`}
+      style={cardStyle}
+      data-testid={`schedule-block-${booking.id}`}
+      onPointerDown={(e) => {
+        if (e.target.closest("[data-testid^='schedule-resize-handle-']")) return;
+        onManipulateStart?.(e, booking, "move");
+      }}
+    >
+      {cardBody}
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={() => onSelect(booking)}
+      className={cardClasses}
+      style={cardStyle}
+      data-testid={`schedule-block-${booking.id}`}
+    >
+      {cardBody}
     </button>
   );
 
   const positionedCard = (
-    <div className="absolute z-10" style={positionStyle}>
+    <div className="absolute" style={positionStyle}>
       {hoverPreview && !block ? (
         <Tooltip delayDuration={280}>
-          <TooltipTrigger asChild>{cardButton}</TooltipTrigger>
+          <TooltipTrigger asChild>{interactiveCard}</TooltipTrigger>
           <TooltipContent
             side="right"
             align="start"
@@ -206,7 +270,7 @@ function BookingBlock({ booking, openMin, interval, onSelect, orientation = "hor
           </TooltipContent>
         </Tooltip>
       ) : (
-        cardButton
+        interactiveCard
       )}
     </div>
   );
@@ -302,6 +366,9 @@ function StaffRow({
   effective,
   canManage,
   canCreateOvertime,
+  canDragResize,
+  apptManip,
+  onManipulateStart,
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
@@ -315,6 +382,53 @@ function StaffRow({
   const overlapLayout = useMemo(() => layoutOverlappingBookings(rowBookings), [rowBookings]);
   const slotCount = (closeMin - openMin) / interval;
 
+  const renderBooking = (b) => {
+    const manipulable = canDragResize && canManipulateAppointment(b, canManage);
+    if (apptManip?.bookingId === b.id) {
+      if (apptManip.preview.staffId !== staff.id) return null;
+      return (
+        <BookingBlock
+          key={`${b.id}-ghost`}
+          booking={b}
+          openMin={openMin}
+          interval={interval}
+          onSelect={onSelectBooking}
+          orientation="horizontal"
+          overlapLayout={overlapLayout.get(b.id)}
+          canManipulate={false}
+          displayOverride={{
+            startMin: apptManip.preview.startMin,
+            durationMin: apptManip.preview.durationMin,
+            ghost: true,
+          }}
+        />
+      );
+    }
+    if (!bookingAssignedToStaff(b, staff.id)) return null;
+    return (
+      <BookingBlock
+        key={b.id}
+        booking={b}
+        openMin={openMin}
+        interval={interval}
+        onSelect={onSelectBooking}
+        orientation="horizontal"
+        overlapLayout={overlapLayout.get(b.id)}
+        canManipulate={manipulable}
+        onManipulateStart={onManipulateStart}
+      />
+    );
+  };
+
+  const visibleBookings = useMemo(() => {
+    const ids = new Set(rowBookings.map((b) => b.id));
+    if (apptManip?.preview?.staffId === staff.id && !ids.has(apptManip.bookingId)) {
+      const dragged = bookings.find((b) => b.id === apptManip.bookingId);
+      return dragged ? [...rowBookings, dragged] : rowBookings;
+    }
+    return rowBookings;
+  }, [rowBookings, bookings, apptManip, staff.id]);
+
   return (
     <div className="flex border-b border-[#EAE6D7]" data-testid={`schedule-row-${staff.id}`}>
       <div
@@ -324,7 +438,16 @@ function StaffRow({
         <div className="text-sm font-semibold text-[#2D3A33] truncate leading-snug">{staff.name}</div>
         <div className="text-[10px] uppercase tracking-wide text-[#A89F8B] mt-0.5">{formatStaffRole(staff.role)}</div>
       </div>
-      <div className="relative flex-1 overflow-hidden" style={{ height: ROW_H, minWidth: gridWidth }}>
+      <div
+        className="relative flex-1 overflow-hidden"
+        style={{ height: ROW_H, minWidth: gridWidth }}
+        data-schedule-track=""
+        data-staff-id={staff.id}
+        data-open-min={openMin}
+        data-close-min={closeMin}
+        data-interval={interval}
+        data-orientation="horizontal"
+      >
         <div
           className="absolute inset-0 grid"
           style={{ gridTemplateColumns: `repeat(${slotCount}, ${SLOT_PX}px)` }}
@@ -370,17 +493,7 @@ function StaffRow({
             );
           })}
         </div>
-        {rowBookings.map((b) => (
-          <BookingBlock
-            key={b.id}
-            booking={b}
-            openMin={openMin}
-            interval={interval}
-            onSelect={onSelectBooking}
-            orientation="horizontal"
-            overlapLayout={overlapLayout.get(b.id)}
-          />
-        ))}
+        {visibleBookings.map((b) => renderBooking(b))}
         {dragPreview?.staffId === staff.id && (
           <div
             className="absolute top-0 bottom-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
@@ -413,6 +526,9 @@ function StaffColumn({
   effective,
   canManage,
   canCreateOvertime,
+  canDragResize,
+  apptManip,
+  onManipulateStart,
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
@@ -427,11 +543,64 @@ function StaffColumn({
   const slotCount = (closeMin - openMin) / interval;
   const trackHeight = slotCount * ROW_H;
 
+  const renderBooking = (b) => {
+    const manipulable = canDragResize && canManipulateAppointment(b, canManage);
+    if (apptManip?.bookingId === b.id) {
+      if (apptManip.preview.staffId !== staff.id) return null;
+      return (
+        <BookingBlock
+          key={`${b.id}-ghost`}
+          booking={b}
+          openMin={openMin}
+          interval={interval}
+          onSelect={onSelectBooking}
+          orientation="vertical"
+          overlapLayout={overlapLayout.get(b.id)}
+          canManipulate={false}
+          displayOverride={{
+            startMin: apptManip.preview.startMin,
+            durationMin: apptManip.preview.durationMin,
+            ghost: true,
+          }}
+        />
+      );
+    }
+    if (!bookingAssignedToStaff(b, staff.id)) return null;
+    return (
+      <BookingBlock
+        key={b.id}
+        booking={b}
+        openMin={openMin}
+        interval={interval}
+        onSelect={onSelectBooking}
+        orientation="vertical"
+        overlapLayout={overlapLayout.get(b.id)}
+        canManipulate={manipulable}
+        onManipulateStart={onManipulateStart}
+      />
+    );
+  };
+
+  const visibleBookings = useMemo(() => {
+    const ids = new Set(rowBookings.map((b) => b.id));
+    if (apptManip?.preview?.staffId === staff.id && !ids.has(apptManip.bookingId)) {
+      const dragged = bookings.find((b) => b.id === apptManip.bookingId);
+      return dragged ? [...rowBookings, dragged] : rowBookings;
+    }
+    return rowBookings;
+  }, [rowBookings, bookings, apptManip, staff.id]);
+
   return (
     <div
       className="shrink-0 border-r border-[#EAE6D7] relative"
       style={{ width: STAFF_COL_W, height: trackHeight }}
       data-testid={`schedule-col-${staff.id}`}
+      data-schedule-track=""
+      data-staff-id={staff.id}
+      data-open-min={openMin}
+      data-close-min={closeMin}
+      data-interval={interval}
+      data-orientation="vertical"
     >
       {Array.from({ length: slotCount }, (_, i) => {
         const slotMin = openMin + i * interval;
@@ -474,17 +643,7 @@ function StaffColumn({
           </div>
         );
       })}
-      {rowBookings.map((b) => (
-        <BookingBlock
-          key={b.id}
-          booking={b}
-          openMin={openMin}
-          interval={interval}
-          onSelect={onSelectBooking}
-          orientation="vertical"
-          overlapLayout={overlapLayout.get(b.id)}
-        />
-      ))}
+      {visibleBookings.map((b) => renderBooking(b))}
       {dragPreview?.staffId === staff.id && (
         <div
           className="absolute left-0 right-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
@@ -586,6 +745,22 @@ export default function BookingsScheduleView({
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
   const [dragPreview, setDragPreview] = useState(null);
+  const apptManipRef = useRef(null);
+  const [apptManip, setApptManip] = useState(null);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+
+  const canDragResize = canManage && hasPermission(user, "appointments.edit");
+  const canOverrideConflict = useMemo(() => {
+    if (!user) return false;
+    if (["super_admin", "manager"].includes(user.role)) return true;
+    return hasPermission(user, "appointments.override_conflict") || hasPermission(user, "appointments.edit");
+  }, [user]);
+
+  const staffById = useMemo(
+    () => Object.fromEntries(staff.map((s) => [s.id, s])),
+    [staff],
+  );
 
   const updateDragPreview = useCallback((preview) => {
     dragPreviewRef.current = preview;
@@ -775,6 +950,7 @@ export default function BookingsScheduleView({
   );
 
   const finishDrag = useCallback(() => {
+    if (apptManipRef.current) return;
     const d = dragRef.current;
     const preview = dragPreviewRef.current;
     dragRef.current = null;
@@ -848,8 +1024,192 @@ export default function BookingsScheduleView({
     };
   }, [finishDrag, expandDragToSlot]);
 
+  const trackParamsFromEl = useCallback((trackEl) => ({
+    openMin: Number(trackEl.getAttribute("data-open-min")),
+    closeMin: Number(trackEl.getAttribute("data-close-min")),
+    interval: Number(trackEl.getAttribute("data-interval")),
+    orientation: trackEl.getAttribute("data-orientation") || orientation,
+    slotPx: SLOT_PX,
+    rowH: ROW_H,
+  }), [orientation]);
+
+  const updateApptManipPreview = useCallback((clientX, clientY) => {
+    const m = apptManipRef.current;
+    if (!m) return;
+    const dist = Math.hypot(clientX - m.startX, clientY - m.startY);
+    if (dist >= APPT_MANIP_THRESHOLD_PX) m.moved = true;
+
+    const staffId = resolveStaffIdFromPointer(clientX, clientY) || m.origin.staffId;
+    const originTrack = document.querySelector(`[data-schedule-track][data-staff-id="${m.mode === "resize" ? m.origin.staffId : staffId}"]`);
+    if (!originTrack) return;
+    const params = trackParamsFromEl(originTrack);
+    if (Number.isNaN(params.openMin) || Number.isNaN(params.closeMin)) return;
+
+    if (m.mode === "move") {
+      const newStart = pointerToSnappedStartMin(originTrack, clientX, clientY, params);
+      if (newStart == null) return;
+      const maxStart = params.closeMin - m.origin.durationMin;
+      const clampedStart = Math.min(Math.max(newStart, params.openMin), Math.max(params.openMin, maxStart));
+      m.preview = { startMin: clampedStart, durationMin: m.origin.durationMin, staffId };
+    } else {
+      const rect = originTrack.getBoundingClientRect();
+      let endMin;
+      if (params.orientation === "vertical") {
+        const py = clientY - rect.top;
+        const slotEndIndex = Math.max(1, Math.ceil(py / ROW_H));
+        endMin = params.openMin + slotEndIndex * params.interval;
+      } else {
+        const px = clientX - rect.left;
+        const slotEndIndex = Math.max(1, Math.ceil(px / SLOT_PX));
+        endMin = params.openMin + slotEndIndex * params.interval;
+      }
+      endMin = Math.min(params.closeMin, Math.max(endMin, m.origin.startMin + params.interval));
+      const durationMin = clampDuration(endMin - m.origin.startMin, params.interval);
+      m.preview = { startMin: m.origin.startMin, durationMin, staffId: m.origin.staffId };
+    }
+    setApptManip({
+      bookingId: m.bookingId,
+      booking: m.booking,
+      mode: m.mode,
+      preview: { ...m.preview },
+    });
+  }, [trackParamsFromEl]);
+
+  const finishApptManip = useCallback(() => {
+    const m = apptManipRef.current;
+    apptManipRef.current = null;
+    setApptManip(null);
+    if (!m) return;
+    if (!m.moved) {
+      onSelectBooking(m.booking);
+      return;
+    }
+    const unchanged =
+      m.origin.startMin === m.preview.startMin
+      && m.origin.durationMin === m.preview.durationMin
+      && m.origin.staffId === m.preview.staffId;
+    if (unchanged) return;
+
+    if (isPastEmptySlot({ scheduleDate: date, slotMin: m.preview.startMin, timezone })) {
+      toast.error("Cannot move appointment to the past");
+      return;
+    }
+    const targetEffective = effectiveByStaff[m.preview.staffId];
+    if (targetEffective && targetEffective.is_working === false) {
+      toast.error("Selected staff is not on duty this day");
+      return;
+    }
+
+    const meta = describeScheduleChange(m.origin, m.preview, staffById);
+    const conflicts = findLocalScheduleConflicts(bookings, {
+      staffId: m.preview.staffId,
+      startMin: m.preview.startMin,
+      durationMin: m.preview.durationMin,
+      excludeBookingId: m.bookingId,
+    });
+    setPendingConfirm({
+      booking: m.booking,
+      bookingId: m.bookingId,
+      mode: m.mode,
+      origin: m.origin,
+      proposed: m.preview,
+      meta,
+      scheduleDate: date,
+      conflicts,
+    });
+  }, [bookings, date, onSelectBooking, staffById, timezone, effectiveByStaff]);
+
+  const onManipulateStart = useCallback((e, booking, mode) => {
+    if (!canDragResize || !canManipulateAppointment(booking, canManage)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const originStaffId = booking.performer_id
+      || (booking.performers || []).find((p) => p.staff_id)?.staff_id
+      || staff.find((s) => bookingAssignedToStaff(booking, s.id))?.id;
+    if (!originStaffId) return;
+    const startMin = bookingStartMin(booking.scheduled_at);
+    const durationMin = booking.duration_min || 30;
+    apptManipRef.current = {
+      booking,
+      bookingId: booking.id,
+      mode,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      origin: { startMin, durationMin, staffId: originStaffId },
+      preview: { startMin, durationMin, staffId: originStaffId },
+    };
+    setApptManip({
+      bookingId: booking.id,
+      booking,
+      mode,
+      preview: { startMin, durationMin, staffId: originStaffId },
+    });
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, [canDragResize, canManage, staff]);
+
+  const confirmScheduleChange = useCallback(async (withOverlapOverride = false) => {
+    if (!pendingConfirm) return;
+    setConfirmBusy(true);
+    try {
+      const { booking, proposed, mode, origin } = pendingConfirm;
+      const scheduled_at = buildScheduledAtIso(date, proposed.startMin);
+      const payload = {
+        scheduled_at,
+        duration_min: proposed.durationMin,
+        performer_id: proposed.staffId,
+        duration_source: DURATION_SOURCES.MANUAL_OVERRIDE,
+        schedule_change_source: mode === "resize" ? "schedule_resize" : "schedule_drag",
+      };
+      if (origin.staffId !== proposed.staffId) {
+        payload.performers = [{ staff_id: proposed.staffId, performer_type: "primary" }];
+      }
+      if (withOverlapOverride) payload.overlap_override = true;
+      await api.put(`/bookings/${booking.id}`, payload);
+      toast.success("Appointment updated");
+      setPendingConfirm(null);
+      load();
+    } catch (e) {
+      const conflict = parseScheduleConflict(e);
+      if (conflict) {
+        setPendingConfirm((p) => (p ? { ...p, conflicts: conflict.conflicts || p.conflicts || [] } : p));
+        if (withOverlapOverride) {
+          toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
+        }
+      } else {
+        const detail = e?.response?.data?.detail;
+        toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
+      }
+    } finally {
+      setConfirmBusy(false);
+    }
+  }, [pendingConfirm, date, load]);
+
+  useEffect(() => {
+    const onApptPointerUp = () => {
+      if (apptManipRef.current) finishApptManip();
+    };
+    const onApptPointerMove = (e) => {
+      if (!apptManipRef.current || (e.buttons & 1) === 0) return;
+      updateApptManipPreview(e.clientX, e.clientY);
+    };
+    window.addEventListener("pointerup", onApptPointerUp);
+    window.addEventListener("pointercancel", onApptPointerUp);
+    window.addEventListener("pointermove", onApptPointerMove);
+    return () => {
+      window.removeEventListener("pointerup", onApptPointerUp);
+      window.removeEventListener("pointercancel", onApptPointerUp);
+      window.removeEventListener("pointermove", onApptPointerMove);
+    };
+  }, [finishApptManip, updateApptManipPreview]);
+
   const onSlotPointerDown = useCallback(
     (e, { staffId, slotMin, slotEnd }) => {
+      if (apptManipRef.current) return;
       if (!canManage) return;
       if (!isSlotValidForDrag(staffId, slotMin, slotEnd)) return;
       if (e.button !== 0) return;
@@ -958,6 +1318,9 @@ export default function BookingsScheduleView({
                   effective={effectiveByStaff[s.id]}
                   canManage={canManage}
                   canCreateOvertime={canCreateOvertime}
+                  canDragResize={canDragResize}
+                  apptManip={apptManip}
+                  onManipulateStart={onManipulateStart}
                   dragPreview={dragPreview}
                   onSlotPointerDown={onSlotPointerDown}
                   onSlotPointerEnter={onSlotPointerEnter}
@@ -1055,6 +1418,9 @@ export default function BookingsScheduleView({
                 effective={effectiveByStaff[s.id]}
                 canManage={canManage}
                 canCreateOvertime={canCreateOvertime}
+                canDragResize={canDragResize}
+                apptManip={apptManip}
+                onManipulateStart={onManipulateStart}
                 dragPreview={dragPreview}
                 onSlotPointerDown={onSlotPointerDown}
                 onSlotPointerEnter={onSlotPointerEnter}
@@ -1207,6 +1573,18 @@ export default function BookingsScheduleView({
         className={isFullscreen ? "fixed inset-0 z-[120] pointer-events-none [&>*]:pointer-events-auto" : "hidden"}
         data-testid="schedule-modal-portal"
         aria-hidden={!isFullscreen}
+      />
+
+      <ScheduleMoveConfirmModal
+        pending={pendingConfirm}
+        conflicts={pendingConfirm?.conflicts || []}
+        canOverrideConflict={canOverrideConflict}
+        busy={confirmBusy}
+        onCancel={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          const hasConflict = (pendingConfirm?.conflicts || []).length > 0;
+          confirmScheduleChange(hasConflict && canOverrideConflict);
+        }}
       />
     </div>
     </TooltipProvider>
