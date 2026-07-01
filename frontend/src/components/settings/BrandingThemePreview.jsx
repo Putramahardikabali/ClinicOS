@@ -1,3 +1,4 @@
+import { Ban } from "lucide-react";
 import { resolveBrandingTheme } from "@/lib/clinicTheme";
 
 /**
@@ -15,32 +16,48 @@ export default function BrandingThemePreview({ branding }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <div className="text-[10px] uppercase tracking-widest text-[var(--bl-muted-text)]">Actions</div>
-          <button type="button" className="bl-btn-primary w-full sm:w-auto" data-testid="branding-preview-primary-btn">
-            Primary button
-          </button>
-          <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bl-primary-soft)] border border-[var(--bl-border)] w-fit">
-            <span className="px-3 py-1.5 text-xs rounded-md bg-[var(--bl-surface)] shadow-sm text-[var(--bl-text)] font-medium">
-              Active tab
-            </span>
-            <span className="px-3 py-1.5 text-xs rounded-md text-[var(--bl-muted-text)]">Tab</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div
+          className="rounded-xl border p-4 space-y-3"
+          style={{ background: "var(--bl-sidebar-bg)", borderColor: "var(--bl-sidebar-border)" }}
+          data-testid="branding-preview-sidebar"
+        >
+          <div className="text-[10px] uppercase tracking-widest text-[var(--bl-sidebar-muted-text)]">Sidebar</div>
+          <div className="bl-sidebar-link max-w-[240px]">
+            <span className="w-2 h-2 rounded-full shrink-0 bg-[var(--bl-sidebar-muted-text)]" />
+            Dashboard
+          </div>
+          <div className="bl-sidebar-link active max-w-[240px]" data-testid="branding-preview-sidebar-active">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--bl-sidebar-active-text)" }} />
+            Active sidebar item
+          </div>
+          <div className="bl-sidebar-link active max-w-[240px]" data-testid="branding-preview-settings-parent">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--bl-sidebar-active-text)" }} />
+            Settings (expanded)
+          </div>
+          <div className="ml-4 bl-sidebar-link active max-w-[220px] text-[13px] !py-2" data-testid="branding-preview-settings-child">
+            General
           </div>
         </div>
 
         <div className="space-y-3">
-          <div className="text-[10px] uppercase tracking-widest text-[var(--bl-muted-text)]">Navigation</div>
-          <div
-            className="bl-sidebar-link active max-w-[220px]"
-            data-testid="branding-preview-sidebar-active"
-          >
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--bl-primary)" }} />
-            Active sidebar item
+          <div className="text-[10px] uppercase tracking-widest text-[var(--bl-muted-text)]">Actions</div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="bl-btn-primary text-sm" data-testid="branding-preview-primary-btn">
+              New appointment
+            </button>
+            <button type="button" className="bl-btn-secondary text-sm inline-flex items-center gap-1.5" data-testid="branding-preview-secondary-btn">
+              <Ban className="w-3.5 h-3.5" /> Block time
+            </button>
           </div>
-          <a href="#preview" className="text-sm font-medium" style={{ color: "var(--bl-link)" }} onClick={(e) => e.preventDefault()}>
-            Active link
-          </a>
+          <div className="bl-segmented w-fit" data-testid="branding-preview-segmented">
+            <button type="button" className="bl-segmented-item active">Schedule</button>
+            <button type="button" className="bl-segmented-item">List</button>
+          </div>
+          <div className="bl-segmented w-fit">
+            <button type="button" className="bl-segmented-item active text-xs">Horizontal</button>
+            <button type="button" className="bl-segmented-item text-xs">Vertical</button>
+          </div>
         </div>
       </div>
 
@@ -64,12 +81,7 @@ export default function BrandingThemePreview({ branding }) {
               Date
             </span>
             <span
-              className="px-3 py-2 rounded-lg border text-sm font-medium shadow-sm"
-              style={{
-                borderColor: "var(--bl-primary)",
-                background: "var(--bl-primary)",
-                color: "var(--bl-primary-contrast)",
-              }}
+              className="px-3 py-2 rounded-lg border text-sm font-medium shadow-sm bl-surface-selected-solid"
               data-testid="branding-preview-slot"
             >
               10:30
@@ -91,10 +103,10 @@ export default function BrandingThemePreview({ branding }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono">
         {[
-          ["Primary soft", theme.primary_soft],
-          ["Border", theme.border_color],
-          ["Muted", theme.muted_text],
-          ["Contrast", theme.primary_contrast],
+          ["Sidebar active", theme.sidebar_active_resolved],
+          ["Sidebar text", theme.sidebar_text],
+          ["Secondary bg", theme.action_secondary_bg],
+          ["Secondary hover", theme.action_secondary_hover_bg],
         ].map(([label, color]) => (
           <div key={label} className="flex items-center gap-1.5 min-w-0">
             <span className="w-4 h-4 rounded border border-[var(--bl-border)] shrink-0" style={{ background: color }} />

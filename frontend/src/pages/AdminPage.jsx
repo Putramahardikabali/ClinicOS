@@ -229,6 +229,11 @@ function BrandingTab() {
     { k: "text_primary", label: "Text", hint: "Primary readable text" },
   ];
 
+  const sidebarColorFields = [
+    { k: "sidebar_background", label: "Sidebar Background", hint: "Main navigation sidebar background" },
+    { k: "sidebar_active", label: "Sidebar Active", hint: "Active item and expanded Settings background" },
+  ];
+
   const derivedPreview = [
     { k: "primary_hover", label: "Primary hover" },
     { k: "primary_soft", label: "Primary soft" },
@@ -236,6 +241,12 @@ function BrandingTab() {
     { k: "border_color", label: "Border" },
     { k: "muted_text", label: "Muted text" },
     { k: "link_color", label: "Link" },
+    { k: "sidebar_text", label: "Sidebar text" },
+    { k: "sidebar_muted_text", label: "Sidebar muted" },
+    { k: "sidebar_active_text", label: "Sidebar active text" },
+    { k: "sidebar_border", label: "Sidebar border" },
+    { k: "sidebar_hover", label: "Sidebar hover" },
+    { k: "action_secondary_bg", label: "Secondary action bg" },
   ];
 
   const save = async () => {
@@ -334,6 +345,34 @@ function BrandingTab() {
               <p className="text-[11px] text-[var(--bl-muted-text)] mt-1.5">{c.hint}</p>
             </div>
           ))}
+        </div>
+
+        <div className="mt-6 pt-5 border-t border-[var(--bl-border)]">
+          <div className="font-display text-base mb-1 text-[var(--bl-text)]">Sidebar</div>
+          <p className="text-sm text-[var(--bl-muted-text)] mb-4">Controls the main navigation sidebar colors.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {sidebarColorFields.map((c) => (
+              <div key={c.k}>
+                <label className="label-eyebrow block mb-2">{c.label}</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    className="w-12 h-10 rounded-lg border border-[var(--bl-border)] cursor-pointer"
+                    value={c.k === "sidebar_background" ? resolvedTheme.sidebar_bg : resolvedTheme.sidebar_active_resolved}
+                    onChange={(e) => setB({ ...b, [c.k]: e.target.value })}
+                  />
+                  <input
+                    className="bl-input flex-1 font-mono text-sm"
+                    value={b[c.k] || ""}
+                    placeholder={c.k === "sidebar_background" ? resolvedTheme.sidebar_bg : resolvedTheme.sidebar_active_resolved}
+                    onChange={(e) => setB({ ...b, [c.k]: e.target.value })}
+                    data-testid={`branding-${c.k}`}
+                  />
+                </div>
+                <p className="text-[11px] text-[var(--bl-muted-text)] mt-1.5">{c.hint}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <button

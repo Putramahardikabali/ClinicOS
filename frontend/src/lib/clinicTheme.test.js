@@ -22,6 +22,34 @@ describe("clinicTheme", () => {
     expect(theme.primary_contrast).toBeTruthy();
   });
 
+  it("derives sidebar and secondary action tokens", () => {
+    const theme = resolveBrandingTheme({
+      primary_color: "#E91E8C",
+      sidebar_background: "#1A1020",
+      sidebar_active: "#3D2040",
+      surface: "#FFFFFF",
+      text_primary: "#222222",
+      background: "#FAFAFA",
+    });
+    expect(theme.sidebar_bg).toBe("#1A1020");
+    expect(theme.sidebar_active_resolved).toBe("#3D2040");
+    expect(theme.sidebar_text).toBeTruthy();
+    expect(theme.sidebar_muted_text).not.toBe(theme.sidebar_text);
+    expect(theme.action_secondary_bg).toBe(theme.surface);
+    expect(theme.action_secondary_border).toBe(theme.border_color);
+  });
+
+  it("falls back sidebar colors when unset", () => {
+    const theme = resolveBrandingTheme({
+      primary_color: "#336699",
+      surface: "#FFFFFF",
+      background: "#FDFBF7",
+      text_primary: "#222222",
+    });
+    expect(theme.sidebar_bg).toBeTruthy();
+    expect(theme.sidebar_active_resolved).toBe(theme.primary_soft);
+  });
+
   it("save payload keeps only base branding fields", () => {
     const saved = brandingBaseForSave({
       primary_color: "#112233",
@@ -31,9 +59,12 @@ describe("clinicTheme", () => {
       surface: "#FFFFFF",
       text_primary: "#111111",
       clinic_name: "Test Clinic",
+      sidebar_background: "#1A1A1A",
     });
     expect(saved.primary_color).toBe("#112233");
     expect(saved.primary_hover).toBeUndefined();
+    expect(saved.sidebar_background).toBe("#1A1A1A");
+    expect(saved.sidebar_active).toBeUndefined();
     expect(Object.keys(saved)).toEqual([
       "clinic_name",
       "tagline",
@@ -43,6 +74,7 @@ describe("clinicTheme", () => {
       "background",
       "surface",
       "text_primary",
+      "sidebar_background",
     ]);
   });
 

@@ -97,7 +97,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
           <button type="button" onClick={onBook} className="bl-btn-primary w-full inline-flex items-center justify-center gap-2" data-testid="slot-action-book">
             <Plus className="w-4 h-4" /> New appointment
           </button>
-          <button type="button" onClick={onBlock} className="bl-btn-ghost w-full inline-flex items-center justify-center gap-2 border border-[#EAE6D7]" data-testid="slot-action-block">
+          <button type="button" onClick={onBlock} className="bl-btn-secondary w-full inline-flex items-center justify-center gap-2" data-testid="slot-action-block">
             <Ban className="w-4 h-4" /> Block time
           </button>
         </div>
@@ -1949,14 +1949,14 @@ export default function BookingsPage() {
                   <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[12rem] bg-white border-[#EAE6D7] text-[#2D3A33] shadow-lg">
-                <DropdownMenuItem onClick={copyLink} className="cursor-pointer focus:bg-[#F8F5EC]" data-testid="copy-public-link">
-                  <Copy className="w-4 h-4 mr-2 text-[#5C6C62]" />
+              <DropdownMenuContent align="end" className="min-w-[12rem] bg-[var(--bl-surface)] border-[var(--bl-border)] text-[var(--bl-text)] shadow-lg">
+                <DropdownMenuItem onClick={copyLink} className="cursor-pointer focus:bg-[var(--clinic-action-secondary-hover-bg)]" data-testid="copy-public-link">
+                  <Copy className="w-4 h-4 mr-2 text-[var(--bl-muted-text)]" />
                   Copy appointment link
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild className="cursor-pointer focus:bg-[#F8F5EC]">
+                <DropdownMenuItem asChild className="cursor-pointer focus:bg-[var(--clinic-action-secondary-hover-bg)]">
                   <a href={`/book/${clinic.slug}`} target="_blank" rel="noreferrer" className="flex items-center w-full" data-testid="open-public-link">
-                    <ExternalLink className="w-4 h-4 mr-2 text-[#5C6C62]" />
+                    <ExternalLink className="w-4 h-4 mr-2 text-[var(--bl-muted-text)]" />
                     View public booking page
                   </a>
                 </DropdownMenuItem>
@@ -1966,8 +1966,8 @@ export default function BookingsPage() {
         </div>
       </div>
 
-      <div className="mt-6 flex items-center justify-between flex-wrap gap-3 rounded-xl border border-[#EAE6D7] bg-[#FAFAF7]/60 px-3 py-2.5">
-        <div className="flex gap-1 bg-[#F3F1EB] rounded-xl p-1" data-testid="view-mode-tabs">
+      <div className="mt-6 flex items-center justify-between flex-wrap gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--bl-border)", background: "color-mix(in srgb, var(--bl-background) 60%, var(--bl-surface))" }}>
+        <div className="bl-segmented" data-testid="view-mode-tabs">
           {VIEW_MODES.map(t => {
             const Icon = t.icon;
             return (
@@ -1975,8 +1975,7 @@ export default function BookingsPage() {
                 key={t.key}
                 type="button"
                 onClick={() => setViewMode(t.key)}
-                className="px-4 py-1.5 rounded-lg text-sm font-medium inline-flex items-center gap-1.5"
-                style={viewMode === t.key ? { background: "white", color: "#2D3A33", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" } : { color: "#5C6C62" }}
+                className={`bl-segmented-item inline-flex items-center gap-1.5 ${viewMode === t.key ? "active" : ""}`}
                 data-testid={`view-${t.key}`}
               >
                 <Icon className="w-3.5 h-3.5" /> {t.label}
@@ -1985,7 +1984,7 @@ export default function BookingsPage() {
           })}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#5C6C62] hidden sm:inline">Status</span>
+          <span className="text-xs text-[var(--bl-muted-text)] hidden sm:inline">Status</span>
           <select
             className="bl-input w-auto min-w-[11.5rem] sm:min-w-[13.5rem] max-w-full py-2.5 pr-9 text-sm leading-normal h-auto align-middle"
             style={{ lineHeight: "1.35" }}

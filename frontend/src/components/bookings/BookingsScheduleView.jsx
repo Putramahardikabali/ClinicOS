@@ -1048,27 +1048,27 @@ export default function BookingsScheduleView({
     >
       <div className={`flex items-center justify-between flex-wrap gap-3 mb-4 ${isFullscreen ? "shrink-0" : ""}`}>
         <div className="flex items-center gap-2 flex-wrap">
-          <button type="button" onClick={() => shiftDay(-1)} className="p-2 rounded-lg border border-[#EAE6D7] hover:bg-[#F3F1EB]" data-testid="schedule-prev-day">
+          <button type="button" onClick={() => shiftDay(-1)} className="bl-icon-btn" data-testid="schedule-prev-day">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <div className="font-display text-lg text-[#2D3A33] min-w-[140px] text-center" data-testid="schedule-date-label">
+          <div className="font-display text-lg text-[var(--bl-text)] min-w-[140px] text-center" data-testid="schedule-date-label">
             {dateLabel}
           </div>
-          <button type="button" onClick={() => shiftDay(1)} className="p-2 rounded-lg border border-[#EAE6D7] hover:bg-[#F3F1EB]" data-testid="schedule-next-day">
+          <button type="button" onClick={() => shiftDay(1)} className="bl-icon-btn" data-testid="schedule-next-day">
             <ChevronRight className="w-4 h-4" />
           </button>
           {!isToday && (
-            <button type="button" onClick={() => onDateChange(clinicNow.dateStr)} className="bl-btn-ghost text-sm" data-testid="schedule-today">
+            <button type="button" onClick={() => onDateChange(clinicNow.dateStr)} className="bl-btn-secondary text-sm" data-testid="schedule-today">
               Today
             </button>
           )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="inline-flex rounded-lg border border-[#EAE6D7] p-0.5 bg-[#F3F1EB]" data-testid="schedule-orientation-toggle">
+          <div className="bl-segmented" data-testid="schedule-orientation-toggle">
             <button
               type="button"
-              className={`px-3 py-1.5 text-xs font-medium rounded-md ${orientation === "horizontal" ? "bg-white text-[#2D3A33] shadow-sm" : "text-[#5C6C62]"}`}
+              className={`bl-segmented-item text-xs ${orientation === "horizontal" ? "active" : ""}`}
               onClick={() => setLayout("horizontal")}
               data-testid="schedule-orientation-horizontal"
             >
@@ -1076,7 +1076,7 @@ export default function BookingsScheduleView({
             </button>
             <button
               type="button"
-              className={`px-3 py-1.5 text-xs font-medium rounded-md ${orientation === "vertical" ? "bg-white text-[#2D3A33] shadow-sm" : "text-[#5C6C62]"}`}
+              className={`bl-segmented-item text-xs ${orientation === "vertical" ? "active" : ""}`}
               onClick={() => setLayout("vertical")}
               data-testid="schedule-orientation-vertical"
             >
@@ -1086,7 +1086,7 @@ export default function BookingsScheduleView({
 
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#EAE6D7] hover:bg-[#F3F1EB] text-[#2D3A33]"
+            className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
             onClick={isFullscreen ? exitFullscreen : enterFullscreen}
             data-testid={isFullscreen ? "schedule-exit-fullscreen" : "schedule-enter-fullscreen"}
             title={isFullscreen ? "Exit full screen" : "View full screen schedule"}

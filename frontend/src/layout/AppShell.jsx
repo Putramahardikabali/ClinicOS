@@ -206,7 +206,7 @@ export default function AppShell({ children }) {
       >
         {!indent && <Icon className="w-4 h-4" strokeWidth={1.6} />}
         <span className="flex-1">{label}</span>
-        {n.locked && <Lock className="w-3 h-3 text-[#5C6C62]" />}
+        {n.locked && <Lock className="w-3 h-3 text-[var(--bl-sidebar-muted-text)]" />}
       </Link>
     );
   };
@@ -228,11 +228,11 @@ export default function AppShell({ children }) {
           <SettingsIcon className="w-4 h-4" strokeWidth={1.6} />
           <span className="flex-1 text-left">Settings</span>
           <ChevronDown
-            className={`w-4 h-4 text-[#5C6C62] transition-transform duration-200 ${settingsExpanded ? "rotate-180" : ""}`}
+            className={`w-4 h-4 text-[var(--bl-sidebar-muted-text)] transition-transform duration-200 ${settingsExpanded ? "rotate-180" : ""}`}
           />
         </button>
         {settingsExpanded && (
-          <div className="mt-0.5 space-y-0.5 border-l border-[#EAE6D7]/80 ml-5">
+          <div className="mt-0.5 space-y-0.5 border-l bl-sidebar-settings-children ml-5">
             {items.map((n) => renderNavLink(n, onNavigate, {
               indent: true,
               labelOverride: OPS_SETTINGS_LABELS[n.to] || navDisplayLabel(n, user?.role, { ops: true }),
@@ -263,7 +263,7 @@ export default function AppShell({ children }) {
       }
       return (
         <div key={section.label || idx} className="pt-3 first:pt-0">
-          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#5C6C62]">
+          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest bl-sidebar-section-label">
             {section.label}
           </div>
           <div className="space-y-1">
@@ -275,23 +275,23 @@ export default function AppShell({ children }) {
   };
 
   const Sidebar = ({ inDrawer = false }) => (
-    <div className={`flex flex-col h-full ${inDrawer ? "" : "w-64 shrink-0 border-r border-[#EAE6D7]"}`} style={{ background: "#F3F1EB" }}>
-      <div className="px-5 lg:px-6 py-5 lg:py-7 border-b border-[#EAE6D7] flex items-center justify-between">
+    <div className={`flex flex-col h-full bl-sidebar-shell ${inDrawer ? "" : "w-64 shrink-0 border-r"}`}>
+      <div className="px-5 lg:px-6 py-5 lg:py-7 border-b bl-sidebar-header flex items-center justify-between">
         <button onClick={() => { nav(useAccountingSidebar ? "/reports" : "/"); setMobileOpen(false); }} className="flex items-center gap-2 text-left">
           {branding?.logo_path ? (
             <img src={logoUrl(branding.logo_path)} alt="logo" className="w-9 h-9 rounded-xl object-cover" />
           ) : (
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
-              <Sparkles className="w-5 h-5 text-white" strokeWidth={1.5} />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--bl-primary)", color: "var(--bl-primary-contrast)" }}>
+              <Sparkles className="w-5 h-5" strokeWidth={1.5} />
             </div>
           )}
           <div>
-            <div className="font-display text-lg leading-tight text-[#2D3A33]">{branding?.clinic_name || clinic?.name || "ClinicOS"}</div>
+            <div className="font-display text-lg leading-tight text-[var(--bl-sidebar-text)]">{branding?.clinic_name || clinic?.name || "ClinicOS"}</div>
             <div className="font-display text-sm -mt-0.5" style={{ color: "var(--bl-accent)" }}>{branding?.tagline || "Clinic management"}</div>
           </div>
         </button>
         {inDrawer && (
-          <button onClick={() => setMobileOpen(false)} className="p-2 rounded-lg hover:bg-[#ECE7D7]">
+          <button onClick={() => setMobileOpen(false)} className="p-2 rounded-lg hover:bg-[var(--bl-sidebar-hover)]">
             <X className="w-5 h-5" />
           </button>
         )}
@@ -301,15 +301,15 @@ export default function AppShell({ children }) {
         {renderSidebarNav(() => setMobileOpen(false))}
       </nav>
 
-      <div className="p-4 border-t border-[#EAE6D7]">
+      <div className="p-4 border-t bl-sidebar-header">
         <div className="bl-card p-4">
           <div className="label-eyebrow text-[10px]">Signed in</div>
-          <div className="mt-1 text-sm font-medium text-[#2D3A33]" data-testid="current-user-name">{user?.name}</div>
-          <div className="text-xs text-[#5C6C62]">{user?.role_name || ROLE_LABEL[user?.role]}</div>
-          <button onClick={logout} className="mt-3 w-full bl-btn-ghost text-sm flex items-center justify-center gap-2" data-testid="logout-button">
+          <div className="mt-1 text-sm font-medium text-[var(--bl-sidebar-text)]" data-testid="current-user-name">{user?.name}</div>
+          <div className="text-xs text-[var(--bl-sidebar-muted-text)]">{user?.role_name || ROLE_LABEL[user?.role]}</div>
+          <button onClick={logout} className="mt-3 w-full bl-btn-secondary text-sm flex items-center justify-center gap-2" data-testid="logout-button">
             <LogOut className="w-4 h-4" strokeWidth={1.6} /> Logout
           </button>
-          <button type="button" onClick={() => { setHelpOpen(true); setMobileOpen(false); }} className="mt-2 w-full bl-btn-ghost text-sm flex items-center justify-center gap-2" data-testid="help-support-btn">
+          <button type="button" onClick={() => { setHelpOpen(true); setMobileOpen(false); }} className="mt-2 w-full bl-btn-secondary text-sm flex items-center justify-center gap-2" data-testid="help-support-btn">
             <LifeBuoy className="w-4 h-4" strokeWidth={1.6} /> Help & Support
           </button>
           <InstallAppPrompt compact />
@@ -352,18 +352,19 @@ export default function AppShell({ children }) {
         <PlatformAnnouncementBanner />
         {/* Mobile top bar — hidden on visit workflow for more vertical space */}
         <header
-          className={`lg:hidden sticky top-0 z-30 bg-[#FDFBF7]/95 backdrop-blur border-b border-[#EAE6D7] px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage ? "hidden" : ""}`}
+          className={`lg:hidden sticky top-0 z-30 backdrop-blur border-b px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage ? "hidden" : ""}`}
+          style={{ background: "color-mix(in srgb, var(--bl-background) 95%, transparent)", borderColor: "var(--bl-border)" }}
           data-testid="mobile-app-header"
         >
-          <button onClick={() => setMobileOpen(true)} className="p-2 -ml-2 rounded-lg active:bg-[#F3F1EB]" data-testid="mobile-menu-button" aria-label="Menu">
+          <button onClick={() => setMobileOpen(true)} className="p-2 -ml-2 rounded-lg active:bg-[var(--bl-primary-soft)]" data-testid="mobile-menu-button" aria-label="Menu">
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
             {branding?.logo_path ? (
               <img src={logoUrl(branding.logo_path)} alt="logo" className="w-8 h-8 rounded-lg object-cover" />
             ) : (
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--bl-primary)" }}>
-                <Sparkles className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--bl-primary)", color: "var(--bl-primary-contrast)" }}>
+                <Sparkles className="w-4 h-4" />
               </div>
             )}
             <div className="font-display text-base text-[#2D3A33]">{branding?.clinic_name || clinic?.name || "ClinicOS"}</div>
