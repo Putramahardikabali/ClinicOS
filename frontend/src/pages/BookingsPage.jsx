@@ -29,9 +29,10 @@ import {
 import {
   CalendarDays, Clock, Phone, MessageCircle, Copy, CheckCircle2, X, Plus,
   ArrowRight, ExternalLink, LayoutList, CalendarRange, Edit2, Ban,
-  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope,
+  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope, Highlighter,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
+import { isHighlightableBooking } from "@/components/bookings/schedulePatientHighlight";
 import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
 import { hhmmToMin } from "@/components/bookings/scheduleUtils";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
@@ -1503,7 +1504,7 @@ function bookingToForm(booking, treatments = [], packages = []) {
   };
 }
 
-function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, onWa, onSaved, onStartVisit, startVisitBusy, onEditBlock, startInEditMode = false }) {
+function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, onWa, onSaved, onStartVisit, startVisitBusy, onEditBlock, startInEditMode = false, onHighlightPatient }) {
   const block = isTimeBlock(booking);
   const editable = canManage && !["cancelled", "completed", "no_show"].includes(booking?.status);
   const [editing, setEditing] = useState(false);
@@ -1989,6 +1990,16 @@ function BookingDetailPanel({ booking, onClose, canManage, onAdvance, onCancel, 
                 <Edit2 className="w-4 h-4" /> Edit
               </button>
             )}
+            {!block && isHighlightableBooking(booking) && onHighlightPatient && (
+              <button
+                type="button"
+                onClick={() => onHighlightPatient(booking)}
+                className="bl-btn-ghost text-sm inline-flex items-center gap-2"
+                data-testid="highlight-patient-button"
+              >
+                <Highlighter className="w-4 h-4" /> Highlight Patient
+              </button>
+            )}
             {!block && (
               <button type="button" onClick={() => onWa(booking)} className="bl-btn-ghost text-sm inline-flex items-center gap-2">
                 <MessageCircle className="w-4 h-4" /> WhatsApp
@@ -2065,6 +2076,7 @@ export default function BookingsPage() {
   const [overtimeMeta, setOvertimeMeta] = useState(null);
   const [automationActive, setAutomationActive] = useState(false);
   const scheduleModalPortalRef = useRef(null);
+  const scheduleHighlightApiRef = useRef(null);
   const [scheduleFullscreen, setScheduleFullscreen] = useState(false);
   const onScheduleFullscreenChange = useCallback((fs) => setScheduleFullscreen(Boolean(fs)), []);
   const useScheduleModalPortal = viewMode === "schedule" && scheduleFullscreen;
@@ -2073,6 +2085,19 @@ export default function BookingsPage() {
     ["super_admin", "manager"].includes(user?.role) ||
     hasPermission(user, "bookings.create_overtime");
   const canSendViaProvider = hasPermission(user, "messaging.send") || hasPermission(user, "messaging.manage");
+
+  useEffect(() => {
+    if (viewMode !== "schedule") {
+      scheduleHighlightApiRef.current?.clearHighlight?.();
+    }
+  }, [viewMode]);
+
+  const handleHighlightPatient = useCallback((booking) => {
+    if (!isHighlightableBooking(booking)) return;
+    scheduleHighlightApiRef.current?.highlightFromBooking?.(booking);
+    setDetailBooking(null);
+    setDetailStartEdit(false);
+  }, []);
 
   const openBookingId = searchParams.get("open");
   useEffect(() => {
@@ -2252,6 +2277,11 @@ export default function BookingsPage() {
             canCreateOvertime={canCreateOvertime}
             modalPortalRef={scheduleModalPortalRef}
             onFullscreenChange={onScheduleFullscreenChange}
+            highlightApiRef={scheduleHighlightApiRef}
+            onHighlightActivated={() => {
+              setDetailBooking(null);
+              setDetailStartEdit(false);
+            }}
             onSelectBooking={setDetailBooking}
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
@@ -2419,6 +2449,7 @@ export default function BookingsPage() {
           onStartVisit={startVisit}
           startVisitBusy={startVisitBusy}
           onEditBlock={(b) => { setDetailBooking(null); setBlockEdit(b); setBlockInitial(null); setBlockOpen(true); }}
+          onHighlightPatient={viewMode === "schedule" ? handleHighlightPatient : undefined}
         />
         )}
       </BookingModalPortal>

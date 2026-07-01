@@ -49,6 +49,12 @@ import {
 import { parseScheduleConflict } from "@/lib/bookingConflicts";
 import { hasPermission } from "@/lib/auth";
 import { DURATION_SOURCES } from "@/lib/bookingDuration";
+import {
+  bookingMatchesPatientHighlight,
+  countVisiblePatientBookings,
+  isHighlightableBooking,
+  patientHighlightBannerText,
+} from "@/components/bookings/schedulePatientHighlight";
 import { toast } from "sonner";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
@@ -107,6 +113,9 @@ function BookingBlock({
   canManipulate = false,
   displayOverride = null,
   onManipulateStart,
+  patientHighlightMatch = false,
+  patientHighlightDimmed = false,
+  onHighlightPatient,
 }) {
   const start = displayOverride?.startMin ?? bookingStartMin(booking.scheduled_at);
   const dur = displayOverride?.durationMin ?? (booking.duration_min || 30);
@@ -161,7 +170,7 @@ function BookingBlock({
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
 
   const cardBody = (
     <>
@@ -248,7 +257,11 @@ function BookingBlock({
   );
 
   const positionedCard = (
-    <div className="absolute" style={positionStyle}>
+    <div
+      className="absolute"
+      style={positionStyle}
+      data-patient-highlight-match={patientHighlightMatch ? "true" : undefined}
+    >
       {hoverPreview && !block ? (
         <Tooltip delayDuration={280}>
           <TooltipTrigger asChild>{interactiveCard}</TooltipTrigger>
@@ -266,6 +279,20 @@ function BookingBlock({
                   <span className={line.strong ? "font-semibold text-[#2D3A33]" : "text-[#5C6C62]"}>{line.value}</span>
                 </div>
               ))}
+              {onHighlightPatient && booking.patient_id && !block && (
+                <button
+                  type="button"
+                  className="mt-2 w-full text-left text-xs font-medium text-[#1D4ED8] hover:underline"
+                  data-testid={`schedule-preview-highlight-${booking.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onHighlightPatient(booking);
+                  }}
+                >
+                  Highlight Patient
+                </button>
+              )}
             </div>
           </TooltipContent>
         </Tooltip>
@@ -372,6 +399,8 @@ function StaffRow({
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
+  patientHighlight,
+  onHighlightPatient,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -384,6 +413,13 @@ function StaffRow({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
+    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, scheduleDate);
+    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+    const blockProps = {
+      patientHighlightMatch: match,
+      patientHighlightDimmed: dimmed,
+      onHighlightPatient,
+    };
     if (apptManip?.bookingId === b.id) {
       if (apptManip.preview.staffId !== staff.id) return null;
       return (
@@ -401,6 +437,7 @@ function StaffRow({
             durationMin: apptManip.preview.durationMin,
             ghost: true,
           }}
+          {...blockProps}
         />
       );
     }
@@ -416,6 +453,7 @@ function StaffRow({
         overlapLayout={overlapLayout.get(b.id)}
         canManipulate={manipulable}
         onManipulateStart={onManipulateStart}
+        {...blockProps}
       />
     );
   };
@@ -532,6 +570,8 @@ function StaffColumn({
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
+  patientHighlight,
+  onHighlightPatient,
 }) {
   const rowBookings = bookings.filter(
     (b) =>
@@ -545,6 +585,13 @@ function StaffColumn({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
+    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, scheduleDate);
+    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+    const blockProps = {
+      patientHighlightMatch: match,
+      patientHighlightDimmed: dimmed,
+      onHighlightPatient,
+    };
     if (apptManip?.bookingId === b.id) {
       if (apptManip.preview.staffId !== staff.id) return null;
       return (
@@ -562,6 +609,7 @@ function StaffColumn({
             durationMin: apptManip.preview.durationMin,
             ghost: true,
           }}
+          {...blockProps}
         />
       );
     }
@@ -577,6 +625,7 @@ function StaffColumn({
         overlapLayout={overlapLayout.get(b.id)}
         canManipulate={manipulable}
         onManipulateStart={onManipulateStart}
+        {...blockProps}
       />
     );
   };
@@ -733,6 +782,8 @@ export default function BookingsScheduleView({
   reloadAt = 0,
   modalPortalRef,
   onFullscreenChange,
+  highlightApiRef,
+  onHighlightActivated,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -741,6 +792,7 @@ export default function BookingsScheduleView({
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeUtility, setActiveUtility] = useState(null);
+  const [patientHighlight, setPatientHighlight] = useState(null);
   const shellRef = useRef(null);
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
@@ -811,6 +863,72 @@ export default function BookingsScheduleView({
   useEffect(() => {
     load();
   }, [load, reloadAt]);
+
+  const clearPatientHighlight = useCallback(() => {
+    setPatientHighlight(null);
+  }, []);
+
+  const activatePatientHighlight = useCallback(async (booking) => {
+    if (!isHighlightableBooking(booking)) {
+      toast.error("This appointment has no linked patient to highlight.");
+      return;
+    }
+    const patientId = booking.patient_id;
+    const patientName = booking.patient_name || "Patient";
+    let totalCount = 0;
+    let hiddenCount = 0;
+    try {
+      const r = await api.get("/bookings", {
+        params: { date, patient_id: patientId, appointments_only: true },
+      });
+      const all = (r.data || []).filter(
+        (b) => isHighlightableBooking(b) && (b.scheduled_at || "").slice(0, 10) === date,
+      );
+      totalCount = all.length;
+      const visibleCount = countVisiblePatientBookings(bookings, patientId, date);
+      hiddenCount = Math.max(0, totalCount - visibleCount);
+    } catch {
+      totalCount = countVisiblePatientBookings(bookings, patientId, date);
+    }
+    const visibleCount = countVisiblePatientBookings(bookings, patientId, date);
+    setPatientHighlight({
+      patientId,
+      patientName,
+      totalCount: totalCount || visibleCount,
+      visibleCount,
+      hiddenCount,
+    });
+    setActiveUtility(null);
+    onHighlightActivated?.();
+  }, [bookings, date, onHighlightActivated]);
+
+  useEffect(() => {
+    if (!highlightApiRef) return undefined;
+    highlightApiRef.current = {
+      highlightFromBooking: activatePatientHighlight,
+      clearHighlight: clearPatientHighlight,
+    };
+    return () => {
+      if (highlightApiRef.current) highlightApiRef.current = null;
+    };
+  }, [highlightApiRef, activatePatientHighlight, clearPatientHighlight]);
+
+  useEffect(() => {
+    clearPatientHighlight();
+  }, [date, statusFilter, clearPatientHighlight]);
+
+  useEffect(() => {
+    if (!patientHighlight) return undefined;
+    const id = requestAnimationFrame(() => {
+      const el = document.querySelector('[data-patient-highlight-match="true"]');
+      el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [patientHighlight, bookings, orientation]);
+
+  const onHighlightPatient = useCallback((booking) => {
+    activatePatientHighlight(booking);
+  }, [activatePatientHighlight]);
 
   useEffect(() => {
     const onFsChange = () => {
@@ -1324,6 +1442,8 @@ export default function BookingsScheduleView({
                   dragPreview={dragPreview}
                   onSlotPointerDown={onSlotPointerDown}
                   onSlotPointerEnter={onSlotPointerEnter}
+                  patientHighlight={patientHighlight}
+                  onHighlightPatient={onHighlightPatient}
                 />
               ))}
             </div>
@@ -1424,6 +1544,8 @@ export default function BookingsScheduleView({
                 dragPreview={dragPreview}
                 onSlotPointerDown={onSlotPointerDown}
                 onSlotPointerEnter={onSlotPointerEnter}
+                patientHighlight={patientHighlight}
+                onHighlightPatient={onHighlightPatient}
               />
             ))}
           </div>
@@ -1495,6 +1617,30 @@ export default function BookingsScheduleView({
         </div>
       </div>
 
+      {patientHighlight && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] ${isFullscreen ? "shrink-0" : ""}`}
+          data-testid="schedule-patient-highlight-banner"
+        >
+          <div className="text-sm text-[#1E3A8A]">
+            <span className="font-medium">{patientHighlightBannerText(patientHighlight)}</span>
+            {patientHighlight.hiddenCount > 0 && (
+              <span className="block text-xs text-[#3B82F6] mt-0.5">
+                Some bookings may be hidden by the current filter.
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="bl-btn-ghost text-xs shrink-0"
+            onClick={clearPatientHighlight}
+            data-testid="schedule-clear-patient-highlight"
+          >
+            Clear highlight
+          </button>
+        </div>
+      )}
+
       <p className={`text-xs text-[#A89F8B] mb-3 ${isFullscreen ? "shrink-0" : ""}`}>
         Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
@@ -1527,21 +1673,26 @@ export default function BookingsScheduleView({
                   Unassigned ({unassigned.length})
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {unassigned.map((b) => (
+                  {unassigned.map((b) => {
+                    const match = patientHighlight && bookingMatchesPatientHighlight(b, patientHighlight, date);
+                    const dimmed = patientHighlight && !match && !isTimeBlock(b);
+                    return (
                     <button
                       key={b.id}
                       type="button"
                       onClick={() => onSelectBooking(b)}
-                      className="text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC]"
-                      style={{ borderColor: "#EAE6D7", background: "#FFF8F5" }}
+                      className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${match ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${dimmed ? "opacity-40 saturate-50" : ""}`}
+                      style={{ borderColor: "#EAE6D7", background: match ? "#EFF6FF" : "#FFF8F5" }}
                       data-testid={`schedule-unassigned-${b.id}`}
+                      data-patient-highlight-match={match ? "true" : undefined}
                     >
                       <div className="font-medium">{b.patient_name}</div>
                       <div className="text-xs text-[#5C6C62]">
                         {new Date(b.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {b.treatment}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
