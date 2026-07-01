@@ -931,6 +931,75 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             items = await enrich_bookings_schedule_meta(db, user.get("clinic_id"), items)
         return items
 
+    @api.get("/bookings/appointment-log")
+    async def appointment_activity_log(
+        date: str = Query(..., description="YYYY-MM-DD"),
+        action: Optional[str] = None,
+        user_id: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = Query(200, ge=1, le=500),
+        user: dict = Depends(get_current_user),
+    ):
+        """Appointment-focused audit log for FO schedule utility."""
+        from permissions import user_has_permission
+        from audit_log import MODULE_APPOINTMENT, MODULE_SCHEDULE
+
+        allowed = (
+            user.get("role") in ("super_admin", "manager", "fo")
+            or user_has_permission(user, "audit.view")
+            or user_has_permission(user, "appointments.view")
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Not allowed to view appointment log")
+        day = (date or "").strip()[:10]
+        if len(day) != 10:
+            raise HTTPException(status_code=400, detail="Invalid date")
+        cid = user.get("clinic_id")
+        day_start = f"{day}T00:00:00"
+        day_end = f"{day}T23:59:59"
+        flt: Dict[str, Any] = {
+            "clinic_id": cid,
+            "created_at": {"$gte": day_start, "$lte": day_end},
+            "module": {"$in": [MODULE_APPOINTMENT, "booking", MODULE_SCHEDULE]},
+        }
+        if action:
+            flt["action"] = action
+        if user_id:
+            flt["user_id"] = user_id
+        rows = await db.audit_logs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(limit)
+        booking_ids = list({r.get("record_id") for r in rows if r.get("record_id")})
+        bookings_by_id: Dict[str, dict] = {}
+        if booking_ids:
+            async for b in db.bookings.find(
+                {"clinic_id": cid, "id": {"$in": booking_ids}},
+                {"_id": 0, "id": 1, "patient_name": 1, "treatment": 1, "scheduled_at": 1},
+            ):
+                bookings_by_id[b["id"]] = b
+        out = []
+        q_lower = (q or "").strip().lower()
+        for row in rows:
+            bid = row.get("record_id") or ""
+            bk = bookings_by_id.get(bid) or {}
+            if bk:
+                row["booking_patient_name"] = bk.get("patient_name")
+                row["booking_treatment"] = bk.get("treatment")
+            if q_lower:
+                hay = " ".join(
+                    str(x or "")
+                    for x in (
+                        row.get("booking_patient_name"),
+                        (row.get("new_value") or {}).get("patient_name"),
+                        (row.get("old_value") or {}).get("patient_name"),
+                        (row.get("new_value") or {}).get("treatment"),
+                        row.get("user_name"),
+                        row.get("user_email"),
+                    )
+                ).lower()
+                if q_lower not in hay:
+                    continue
+            out.append(row)
+        return {"date": day, "items": out[:limit]}
+
     async def _get_treatment_doc(
         cid: str,
         treatment_name: str,

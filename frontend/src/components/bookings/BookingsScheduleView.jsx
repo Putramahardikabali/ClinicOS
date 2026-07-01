@@ -11,6 +11,9 @@ import {
   selectCardIcons,
   supportsHoverPreview,
 } from "@/components/bookings/scheduleBookingIndicators";
+import ScheduleFullscreenUtilityRail from "@/components/bookings/ScheduleFullscreenUtilityRail";
+import ScheduleUtilityDrawer from "@/components/bookings/ScheduleUtilityDrawer";
+import { resolveScheduleUtilityAccess } from "@/components/bookings/scheduleUtilityPermissions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   getClinicNowParts,
@@ -526,6 +529,7 @@ function ScheduleLegend() {
 
 export default function BookingsScheduleView({
   clinic,
+  user,
   date,
   onDateChange,
   statusFilter,
@@ -545,6 +549,7 @@ export default function BookingsScheduleView({
   const [loading, setLoading] = useState(true);
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeUtility, setActiveUtility] = useState(null);
   const shellRef = useRef(null);
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
@@ -613,6 +618,27 @@ export default function BookingsScheduleView({
   useEffect(() => {
     onFullscreenChange?.(isFullscreen);
   }, [isFullscreen, onFullscreenChange]);
+
+  useEffect(() => {
+    if (!isFullscreen) setActiveUtility(null);
+  }, [isFullscreen]);
+
+  const utilityAccess = useMemo(
+    () => resolveScheduleUtilityAccess(user, clinic),
+    [user, clinic],
+  );
+
+  useEffect(() => {
+    if (!isFullscreen || !activeUtility) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setActiveUtility(null);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isFullscreen, activeUtility]);
 
   const { openMin, closeMin, interval, closed, closedReason, gridWidth, hourMarks, slotCount } = useMemo(() => {
     const dk = dayKey(date);
@@ -1009,7 +1035,7 @@ export default function BookingsScheduleView({
   );
 
   const shellClass = isFullscreen
-    ? "fixed inset-0 z-[70] bg-[#FDFBF7] flex flex-col p-3 sm:p-4 overflow-hidden"
+    ? "fixed inset-0 z-[70] bg-[#FDFBF7] flex flex-col p-3 sm:p-4 overflow-hidden relative"
     : "";
 
   return (
@@ -1075,7 +1101,8 @@ export default function BookingsScheduleView({
         Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
 
-      <div className={`${isFullscreen ? "flex-1 min-h-0 overflow-hidden" : ""}`}>
+      <div className={`${isFullscreen ? "flex flex-1 min-h-0 relative" : ""}`}>
+        <div className={`${isFullscreen ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
         {loading ? (
           <div className="bl-card p-10 text-center text-[#5C6C62]">Loading schedule…</div>
         ) : closed ? (
@@ -1091,7 +1118,7 @@ export default function BookingsScheduleView({
             No staff scheduled to work on {dateLabel}. Adjust staff schedules or pick another day.
           </div>
         ) : (
-          <div className={`bl-card overflow-hidden ${isFullscreen ? "h-full flex flex-col" : ""}`}>
+          <div className={`bl-card overflow-hidden ${isFullscreen ? "h-full flex flex-col flex-1 min-h-0" : ""}`}>
             <div className={isFullscreen ? "flex-1 min-h-0 overflow-auto" : ""}>
               {orientation === "vertical" ? renderVertical() : renderHorizontal()}
             </div>
@@ -1121,6 +1148,23 @@ export default function BookingsScheduleView({
               </div>
             )}
           </div>
+        )}
+        </div>
+
+        {isFullscreen && (
+          <>
+            <ScheduleUtilityDrawer
+              open={!!activeUtility}
+              utilityId={activeUtility}
+              onClose={() => setActiveUtility(null)}
+              scheduleDate={date}
+            />
+            <ScheduleFullscreenUtilityRail
+              access={utilityAccess}
+              activeId={activeUtility}
+              onSelect={setActiveUtility}
+            />
+          </>
         )}
       </div>
 

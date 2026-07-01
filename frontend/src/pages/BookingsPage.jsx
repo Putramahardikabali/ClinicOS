@@ -2013,6 +2013,7 @@ export default function BookingsPage() {
         <div className="mt-5">
           <BookingsScheduleView
             clinic={clinic}
+            user={user}
             date={scheduleDate}
             onDateChange={setScheduleDate}
             statusFilter={statusFilter}
