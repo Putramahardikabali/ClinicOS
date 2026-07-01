@@ -196,49 +196,64 @@ function BookingBlock({
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardClasses = `w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${searchHighlightMatch ? "ring-1 ring-[#52796F]/70 z-[12]" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+  const cardClasses = `relative w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${searchHighlightMatch ? "ring-1 ring-[#52796F]/70 z-[12]" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+
+  const hasIndicatorIcons = !block && (visibleIcons.length > 0 || iconOverflow > 0);
+  const hasBottomBadges = hasIndicatorIcons || overtime || showOverlapBadge;
+  const iconStripClass =
+    orientation === "vertical"
+      ? (canManipulate ? "bottom-2 right-0.5" : "bottom-0.5 right-0.5")
+      : (canManipulate ? "bottom-0.5 right-2" : "bottom-0.5 right-0.5");
 
   const cardBody = (
     <>
-      <div className="flex items-center gap-1 min-w-0">
-        <div className="text-xs font-semibold truncate leading-tight flex-1">{label}</div>
-        {!block && visibleIcons.length > 0 && (
-          <div className="flex items-center gap-0.5 shrink-0" data-testid={`schedule-block-icons-${booking.id}`}>
-            {visibleIcons.map((key) => {
-              const def = INDICATOR_DEFS[key];
-              if (!def) return null;
-              const Icon = def.Icon;
-              return (
-                <span
-                  key={key}
-                  className="inline-flex items-center justify-center rounded-sm bg-white/50 p-0.5"
-                  title={def.title}
-                  data-testid={`schedule-icon-${key}-${booking.id}`}
-                >
-                  <Icon className="w-3 h-3" strokeWidth={2.25} aria-hidden />
-                </span>
-              );
-            })}
-            {iconOverflow > 0 && (
-              <span className="text-[9px] font-semibold opacity-80 leading-none" data-testid={`schedule-icon-overflow-${booking.id}`}>
-                +{iconOverflow}
-              </span>
-            )}
-          </div>
-        )}
-        {overtime && <OvertimeBadge className="shrink-0 scale-90" />}
-        {showOverlapBadge && (
-          <span
-            className="inline-flex items-center justify-center rounded-sm bg-amber-100/80 text-amber-800 p-0.5 shrink-0"
-            title="Overlapping appointment"
-            data-testid={`schedule-overlap-${booking.id}`}
-          >
-            <Layers className="w-3 h-3" strokeWidth={2.25} aria-hidden />
-          </span>
-        )}
+      <div className={`min-w-0 overflow-hidden ${hasBottomBadges ? "pb-3.5" : ""}`}>
+        <div className="text-xs font-semibold truncate leading-tight">{label}</div>
+        <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
+        <div className="text-[10px] opacity-70 mt-0.5 leading-tight">{timeLabel} · {dur}m</div>
       </div>
-      <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
-      <div className="text-[10px] opacity-70 mt-0.5">{timeLabel} · {dur}m</div>
+      {hasBottomBadges && (
+        <div
+          className={`absolute flex items-center justify-end gap-0.5 max-w-[72%] pointer-events-none ${iconStripClass}`}
+          data-testid={`schedule-block-icons-${booking.id}`}
+          aria-hidden
+        >
+          {hasIndicatorIcons && visibleIcons.map((key) => {
+            const def = INDICATOR_DEFS[key];
+            if (!def) return null;
+            const Icon = def.Icon;
+            return (
+              <span
+                key={key}
+                className="inline-flex items-center justify-center rounded-sm bg-white/55 p-px"
+                title={def.title}
+                data-testid={`schedule-icon-${key}-${booking.id}`}
+              >
+                <Icon className="w-2.5 h-2.5" strokeWidth={2.25} />
+              </span>
+            );
+          })}
+          {hasIndicatorIcons && iconOverflow > 0 && (
+            <span
+              className="text-[8px] font-semibold opacity-85 leading-none px-0.5"
+              title={`${iconOverflow} more indicator${iconOverflow === 1 ? "" : "s"}`}
+              data-testid={`schedule-icon-overflow-${booking.id}`}
+            >
+              +{iconOverflow}
+            </span>
+          )}
+          {overtime && <OvertimeBadge className="shrink-0 scale-[0.72] origin-bottom-right" />}
+          {showOverlapBadge && (
+            <span
+              className="inline-flex items-center justify-center rounded-sm bg-amber-100/80 text-amber-800 p-px shrink-0"
+              title="Overlapping appointment"
+              data-testid={`schedule-overlap-${booking.id}`}
+            >
+              <Layers className="w-2.5 h-2.5" strokeWidth={2.25} />
+            </span>
+          )}
+        </div>
+      )}
       {canManipulate && (
         <div
           role="separator"
@@ -260,7 +275,7 @@ function BookingBlock({
 
   const interactiveCard = canManipulate ? (
     <div
-      className={`relative ${cardClasses}`}
+      className={cardClasses}
       style={cardStyle}
       data-testid={`schedule-block-${booking.id}`}
       onPointerDown={(e) => {

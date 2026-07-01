@@ -1,5 +1,6 @@
 import {
   collectActiveIndicators,
+  formatCardIndicatorLabels,
   resolveScheduleDisplayStatus,
   selectCardIcons,
   SCHEDULE_STATUS_COLORS,
@@ -69,5 +70,17 @@ describe("scheduleBookingIndicators", () => {
       },
     };
     expect(collectActiveIndicators(booking)).toContain("recurring_patient");
+  });
+
+  it("formats all indicator labels for tooltip", () => {
+    const booking = {
+      ...baseBooking,
+      schedule_meta: {
+        profile_alert: { active: true },
+        loyalty: { active: true },
+        new_patient: true,
+      },
+    };
+    expect(formatCardIndicatorLabels(booking)).toEqual(["Profile alert", "Loyalty", "New patient"]);
   });
 });

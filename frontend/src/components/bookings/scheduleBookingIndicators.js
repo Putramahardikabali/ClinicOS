@@ -97,6 +97,10 @@ export function selectCardIcons(booking) {
   return { visible, overflow, all: active };
 }
 
+export function formatCardIndicatorLabels(booking) {
+  return collectActiveIndicators(booking).map((key) => INDICATOR_DEFS[key]?.title || key);
+}
+
 export function formatStatusLabel(booking) {
   const colors = resolveScheduleCardColors(booking);
   return colors.label;
@@ -189,11 +193,9 @@ export function buildSchedulePreviewLines(booking) {
     lines.push({ label: "Invoice", value: booking.invoice.payment_status });
   }
 
-  const { all, visible, overflow } = selectCardIcons(booking);
-  const hidden = all.filter((k) => !visible.includes(k));
-  if (overflow > 0 && hidden.length) {
-    const extra = hidden.map((k) => INDICATOR_DEFS[k]?.title || k).join(", ");
-    lines.push({ label: "More", value: extra });
+  const indicatorLabels = formatCardIndicatorLabels(booking);
+  if (indicatorLabels.length) {
+    lines.push({ label: "Indicators", value: indicatorLabels.join(" · ") });
   }
 
   return lines;
