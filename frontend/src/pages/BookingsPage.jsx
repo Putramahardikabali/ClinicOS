@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
 import { finishModalSuccess } from "@/lib/modalSubmit";
+import AppModal from "@/components/ui/AppModal";
+import ConfirmActionDialog from "@/components/ui/ConfirmActionDialog";
 import {
   needsStaffRequestOverride,
   parseStaffRequestConflict,
@@ -182,8 +184,8 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
   const fromRange = !!(initial?.fromDragRange && startTime && endTime);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose} data-testid="slot-action-modal">
-      <div className="bl-card max-w-sm w-full p-6 space-y-4" onClick={e => e.stopPropagation()}>
+    <AppModal onClose={onClose} testId="slot-action-modal" align="center">
+      <div className="bl-card max-w-sm w-full p-6 space-y-4">
         <h3 className="font-display text-xl text-[#2D3A33]">{fromRange ? "Selected time range" : "This time slot"}</h3>
         <p className="text-sm text-[#5C6C62]">
           {performer?.name || "Staff"}
@@ -204,7 +206,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
         </div>
         <button type="button" onClick={onClose} className="w-full text-sm text-[#5C6C62] hover:underline">Cancel</button>
       </div>
-    </div>
+    </AppModal>
   );
 }
 
@@ -243,6 +245,12 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
     };
   });
   const [busy, setBusy] = useState(false);
+  const initialSnapshotRef = useRef(null);
+  if (!initialSnapshotRef.current) {
+    initialSnapshotRef.current = { form, preset, customReason };
+  }
+  const hasUnsavedChanges = JSON.stringify({ form, preset, customReason })
+    !== JSON.stringify(initialSnapshotRef.current);
 
   useEffect(() => {
     api.get("/users").then(r => {
@@ -297,7 +305,11 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
   const performerName = staff.find(s => s.id === form.performer_id)?.name;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="block-time-modal">
+    <AppModal
+      onClose={onClose}
+      hasUnsavedChanges={hasUnsavedChanges}
+      testId="block-time-modal"
+    >
       <form onSubmit={save} className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-xl text-[#2D3A33]">{isEdit ? "Edit time block" : "Block time"}</h3>
@@ -434,7 +446,7 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
           <button type="button" onClick={onClose} className="bl-btn-ghost">Cancel</button>
         </div>
       </form>
-    </div>
+    </AppModal>
   );
 }
 
@@ -620,7 +632,7 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="wa-panel">
+    <AppModal onClose={onClose} testId="wa-panel">
       <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div>
@@ -703,7 +715,7 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
           </div>
         )}
       </div>
-    </div>
+    </AppModal>
   );
 }
 
@@ -1128,8 +1140,22 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
 
   const visiblePatients = patients;
 
+  const hasUnsavedChanges = step !== "patient"
+    || !!form.patient_id
+    || !!form.patient_name?.trim()
+    || !!form.treatment
+    || !!form.package_id
+    || !!form.notes?.trim()
+    || !!form.scheduled_date;
+
   return (
-    <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="new-booking-modal">
+    <AppModal
+      onClose={onClose}
+      hasUnsavedChanges={hasUnsavedChanges}
+      allowOverlayClose={!pendingConflict}
+      blockEscape={!!pendingConflict}
+      testId="new-booking-modal"
+    >
       <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-xl text-[#2D3A33]">New appointment</h3>
@@ -1489,7 +1515,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
           />
         )}
       </div>
-    </div>
+    </AppModal>
   );
 }
 
@@ -1536,9 +1562,8 @@ function BookingDetailPanel({
   onClose,
   canManage,
   user,
-  onAdvance,
-  onCancel,
   onSaved,
+  onCancelled,
   onStartVisit,
   startVisitBusy,
   onEditBlock,
@@ -1561,6 +1586,9 @@ function BookingDetailPanel({
   const [noteDraft, setNoteDraft] = useState(initialBooking?.notes || "");
   const [noteBusy, setNoteBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [advanceBusy, setAdvanceBusy] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [treatments, setTreatments] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -1591,6 +1619,48 @@ function BookingDetailPanel({
     setBooking(r.data);
     setNoteDraft(r.data.notes || "");
     onSaved?.(r.data);
+  };
+
+  const handleAdvance = async () => {
+    const step = NEXT_STATUS[booking?.status];
+    const next = step?.next;
+    if (!next || advanceBusy) return;
+    setAdvanceBusy(true);
+    try {
+      const r = await api.put(`/bookings/${booking.id}/status`, { status: next });
+      const successMessages = {
+        confirmed: "Appointment confirmed.",
+        checked_in: "Patient checked in.",
+        completed: "Appointment marked complete.",
+      };
+      finishModalSuccess({
+        message: successMessages[next] || "Status updated.",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not update appointment");
+    } finally {
+      setAdvanceBusy(false);
+    }
+  };
+
+  const confirmCancelBooking = async () => {
+    if (cancelBusy) return;
+    setCancelBusy(true);
+    try {
+      await api.delete(`/bookings/${booking.id}`);
+      setCancelConfirmOpen(false);
+      finishModalSuccess({
+        message: block ? "Blocked time removed." : "Appointment cancelled.",
+        onSuccess: () => onCancelled?.(),
+        onClose,
+      });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not cancel appointment");
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
   const saveNote = async () => {
@@ -1628,8 +1698,14 @@ function BookingDetailPanel({
     try {
       const r = await api.put(`/bookings/${booking.id}/status`, { status: newStatus, reason: reason || undefined });
       setBooking(r.data);
+      const statusMessages = {
+        cancelled: "Appointment cancelled.",
+        no_show: "Marked as no show.",
+        closed: "Appointment closed.",
+        completed: "Appointment completed.",
+      };
       finishModalSuccess({
-        message: "Status updated",
+        message: statusMessages[newStatus] || "Status updated.",
         onSuccess: () => onSaved?.(r.data),
         onClose,
       });
@@ -1714,6 +1790,11 @@ function BookingDetailPanel({
   }, [editing, form.scheduled_date, form.scheduled_time, form.treatment, form.duration_min, form.package_id, form.booking_kind, serviceSelected, isPackage, booking.id]);
 
   if (!booking) return null;
+  const baselineForm = bookingToForm(booking, treatments, packages);
+  const hasUnsavedChanges = editing
+    ? JSON.stringify(form) !== JSON.stringify(baselineForm)
+    : noteDraft !== (booking.notes || "");
+  const blockDismiss = cancelConfirmOpen || labelsOpen || !!pendingConflict || !!pendingStaffRequestOverride;
   const dt = new Date(booking.scheduled_at);
   const displayStatus = booking.display_status || booking.status;
   const sc = STATUS_COLORS[displayStatus] || STATUS_COLORS[booking.status] || { label: booking.status, cls: "" };
@@ -1895,7 +1976,13 @@ function BookingDetailPanel({
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" data-testid="booking-detail-panel">
+    <AppModal
+      onClose={onClose}
+      hasUnsavedChanges={hasUnsavedChanges}
+      allowOverlayClose={!blockDismiss}
+      blockEscape={blockDismiss}
+      testId="booking-detail-panel"
+    >
       <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -2264,13 +2351,13 @@ function BookingDetailPanel({
               </button>
             )}
             {actions.showConfirm && (
-              <button type="button" onClick={() => onAdvance(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="advance-booking-button">
-                Confirm <ArrowRight className="w-4 h-4" />
+              <button type="button" onClick={handleAdvance} disabled={advanceBusy} className="bl-btn-secondary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="advance-booking-button">
+                {advanceBusy ? "Confirming…" : "Confirm"} <ArrowRight className="w-4 h-4" />
               </button>
             )}
             {actions.showCheckIn && (
-              <button type="button" onClick={() => onAdvance(booking)} className="bl-btn-secondary text-sm inline-flex items-center gap-2" data-testid="check-in-booking-button">
-                Check in <ArrowRight className="w-4 h-4" />
+              <button type="button" onClick={handleAdvance} disabled={advanceBusy} className="bl-btn-secondary text-sm inline-flex items-center gap-2 disabled:opacity-50" data-testid="check-in-booking-button">
+                {advanceBusy ? "Checking in…" : "Check in"} <ArrowRight className="w-4 h-4" />
               </button>
             )}
             {editable && block && (
@@ -2317,8 +2404,14 @@ function BookingDetailPanel({
               </button>
             )}
             {actions.showCancel && (
-              <button type="button" onClick={() => onCancel(booking)} className="text-sm text-[#B14A2C] hover:underline">
-                {block ? "Remove block" : "Cancel booking"}
+              <button
+                type="button"
+                onClick={() => setCancelConfirmOpen(true)}
+                disabled={cancelBusy}
+                className="text-sm text-[#B14A2C] hover:underline disabled:opacity-50"
+                data-testid="cancel-booking-button"
+              >
+                {cancelBusy ? "Cancelling…" : (block ? "Remove block" : "Cancel booking")}
               </button>
             )}
           </div>
@@ -2349,8 +2442,22 @@ function BookingDetailPanel({
           onCancel={() => setPendingStaffRequestOverride(null)}
           onContinue={continueStaffRequestOverride}
         />
+        <ConfirmActionDialog
+          open={cancelConfirmOpen}
+          title={block ? "Remove time block?" : "Cancel appointment?"}
+          message={block
+            ? "This will remove the blocked time from the schedule."
+            : "This appointment will be marked as cancelled. You can still find it when filtering by Cancelled status."}
+          confirmLabel={cancelBusy ? "Cancelling" : (block ? "Remove block" : "Cancel booking")}
+          cancelLabel="Keep appointment"
+          onConfirm={confirmCancelBooking}
+          onCancel={() => { if (!cancelBusy) setCancelConfirmOpen(false); }}
+          busy={cancelBusy}
+          destructive
+          testId="cancel-booking-confirm"
+        />
       </div>
-    </div>
+    </AppModal>
   );
 }
 
@@ -2477,16 +2584,24 @@ export default function BookingsPage() {
   const advance = async (b) => {
     const next = NEXT_STATUS[b.status]?.next;
     if (!next) return;
-    await api.put(`/bookings/${b.id}/status`, { status: next });
-    toast.success(`Moved to ${next.replace("_", " ")}`);
-    invalidateBookingsNow();
+    try {
+      await api.put(`/bookings/${b.id}/status`, { status: next });
+      toast.success(`Moved to ${next.replace("_", " ")}`);
+      invalidateBookingsNow();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not update status");
+    }
   };
   const cancel = async (b) => {
     const msg = isTimeBlock(b) ? "Remove this time block?" : "Cancel this booking?";
     if (!window.confirm(msg)) return;
-    await api.delete(`/bookings/${b.id}`);
-    toast.success(isTimeBlock(b) ? "Blocked time removed" : "Cancelled");
-    invalidateBookingsNow();
+    try {
+      await api.delete(`/bookings/${b.id}`);
+      toast.success(isTimeBlock(b) ? "Blocked time removed." : "Appointment cancelled.");
+      invalidateBookingsNow();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not cancel appointment");
+    }
   };
 
   const startVisit = async (b) => {
@@ -2778,14 +2893,12 @@ export default function BookingsPage() {
           startInEditMode={detailStartEdit}
           onClose={() => { setDetailBooking(null); setDetailStartEdit(false); }}
           canManage={canManage}
-          onAdvance={async (b) => { await advance(b); setDetailBooking(null); }}
-          onCancel={async (b) => {
-            const msg = isTimeBlock(b) ? "Remove this time block?" : "Cancel this booking?";
-            if (!window.confirm(msg)) return;
-            await cancel(b);
+          onSaved={() => invalidateBookingsNow()}
+          onCancelled={() => {
             setDetailBooking(null);
+            setDetailStartEdit(false);
+            invalidateBookingsNow();
           }}
-          onSaved={(updated) => { setDetailBooking(updated); invalidateBookingsNow(); }}
           onStartVisit={startVisit}
           startVisitBusy={startVisitBusy}
           onEditBlock={(b) => { setDetailBooking(null); setBlockEdit(b); setBlockInitial(null); setBlockOpen(true); }}

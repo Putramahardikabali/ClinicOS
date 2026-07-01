@@ -9,6 +9,7 @@ export default function ConflictOverrideModal({ conflict, onCancel, onContinue, 
     <div
       className="fixed inset-0 z-[60] bg-[#2D3A33]/50 backdrop-blur-sm flex items-center justify-center p-4"
       data-testid="conflict-override-modal"
+      onClick={onCancel}
     >
       <div className="bl-card max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">

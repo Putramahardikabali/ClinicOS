@@ -9,6 +9,7 @@ import {
   prepaidStatusLabel,
 } from "@/lib/prepaidDisplay";
 import { toast } from "sonner";
+import AppModal from "@/components/ui/AppModal";
 
 export default function PatientPrepaidPanel({ patientId }) {
   const { user } = useAuth();
@@ -146,7 +147,7 @@ export default function PatientPrepaidPanel({ patientId }) {
       )}
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog">
+        <AppModal open onClose={() => setDetail(null)} align="center" testId="prepaid-detail-modal">
           <div className="bl-card p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-start gap-2 mb-4">
               <div>
@@ -191,7 +192,7 @@ export default function PatientPrepaidPanel({ patientId }) {
               </div>
             )}
           </div>
-        </div>
+        </AppModal>
       )}
     </div>
   );

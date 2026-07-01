@@ -13,6 +13,7 @@ import { Plus, X, Download, Upload, FileSpreadsheet, ChevronLeft, ChevronRight, 
 import { SearchFieldBar } from "@/components/ui/SearchInput";
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
+import AppModal from "@/components/ui/AppModal";
 import { API_BASE } from "@/lib/api";
 import {
   DropdownMenu,
@@ -178,6 +179,17 @@ export default function PatientsPage() {
   const [open, setOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [form, setForm] = useState({ full_name:"", gender:"female", date_of_birth:"", phone:"", email:"", address:"", nationality:"", nationality_code:"", patient_source:"", source_detail:"", medical_history:"", allergies:"", notes:"" });
+  const hasUnsavedPatientForm = !!form.full_name?.trim()
+    || !!form.phone?.trim()
+    || !!form.email?.trim()
+    || !!form.date_of_birth
+    || !!form.address?.trim()
+    || !!form.nationality_code
+    || !!form.patient_source
+    || !!form.source_detail?.trim()
+    || !!form.medical_history?.trim()
+    || !!form.allergies?.trim()
+    || !!form.notes?.trim();
   const canEditFullFields = canEditFullPatientFields(user);
   const [busy, setBusy] = useState(false);
   const canExport = can(user, "export_patients");
@@ -462,8 +474,8 @@ export default function PatientsPage() {
       />
 
       {open && (
-        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpen(false)}>
-          <div className="bl-card max-w-2xl w-full p-7 max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
+        <AppModal onClose={() => setOpen(false)} hasUnsavedChanges={hasUnsavedPatientForm} align="center" testId="new-patient-modal">
+          <div className="bl-card max-w-2xl w-full p-7 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl text-[#2D3A33]">New patient</h2>
               <button onClick={()=>setOpen(false)} className="p-2 rounded-lg hover:bg-[#F3F1EB]"><X className="w-4 h-4" /></button>
@@ -541,7 +553,7 @@ export default function PatientsPage() {
               </div>
             </form>
           </div>
-        </div>
+        </AppModal>
       )}
     </div>
   );

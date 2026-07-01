@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth, hasPermission, ROLE_LABEL } from "@/lib/auth";
 import { toast } from "sonner";
+import AppModal from "@/components/ui/AppModal";
 import {
   Users, Calendar, Shield, Plus, Trash2, AlertTriangle,
 } from "lucide-react";
@@ -91,6 +92,7 @@ function StaffDirectoryTab() {
     performer_type: "", active: true, notes: "",
   };
   const [form, setForm] = useState(emptyForm);
+  const formBaselineRef = useRef(null);
 
   const load = async () => {
     const [u, r] = await Promise.all([
@@ -105,12 +107,14 @@ function StaffDirectoryTab() {
 
   const startCreate = () => {
     const defaultRole = roles.find((x) => x.role_key === "doctor") || roles[0];
-    setForm({ ...emptyForm, role_id: defaultRole?.id || "" });
+    const next = { ...emptyForm, role_id: defaultRole?.id || "" };
+    formBaselineRef.current = next;
+    setForm(next);
     setOpen("create");
   };
 
   const startEdit = (u) => {
-    setForm({
+    const next = {
       email: u.email,
       name: u.name,
       phone: u.phone || "",
@@ -120,9 +124,15 @@ function StaffDirectoryTab() {
       performer_type: u.performer_type || "",
       active: u.active !== false,
       notes: u.notes || "",
-    });
+    };
+    formBaselineRef.current = next;
+    setForm(next);
     setOpen(u);
   };
+
+  const hasUnsavedStaffForm = open && formBaselineRef.current
+    ? JSON.stringify(form) !== JSON.stringify(formBaselineRef.current)
+    : false;
 
   const save = async (e) => {
     e.preventDefault();
@@ -223,8 +233,14 @@ function StaffDirectoryTab() {
       </div>
 
       {open && canManage && (
-        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={() => setOpen(null)}>
-          <form onClick={(e) => e.stopPropagation()} onSubmit={save} className="bl-card max-w-lg w-full p-6 space-y-4 my-8" data-testid="staff-form">
+        <AppModal
+          open
+          onClose={() => setOpen(null)}
+          hasUnsavedChanges={hasUnsavedStaffForm}
+          align="center"
+          testId="staff-form-modal"
+        >
+          <form onSubmit={save} className="bl-card max-w-lg w-full p-6 space-y-4 my-8" data-testid="staff-form">
             <h2 className="font-display text-2xl">{open === "create" ? "Add staff" : "Edit staff"}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
@@ -278,7 +294,7 @@ function StaffDirectoryTab() {
               <button type="button" onClick={() => setOpen(null)} className="bl-btn-ghost">Cancel</button>
             </div>
           </form>
-        </div>
+        </AppModal>
       )}
     </div>
   );

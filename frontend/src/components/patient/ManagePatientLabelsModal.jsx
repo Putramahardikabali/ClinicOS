@@ -3,6 +3,7 @@ import api from "@/lib/api";
 import { useAuth, hasPermission } from "@/lib/auth";
 import { toast } from "sonner";
 import { finishModalSuccess } from "@/lib/modalSubmit";
+import AppModal from "@/components/ui/AppModal";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 
 export default function ManagePatientLabelsModal({ patientId, patientName, open, onClose, onUpdated }) {
@@ -94,9 +95,16 @@ export default function ManagePatientLabelsModal({ patientId, patientName, open,
   };
 
   const assignedIds = new Set(assignments.map((a) => a.label_id));
+  const hasUnsavedChanges = !!selectedLabelId || !!notes.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog">
+    <AppModal
+      open={open}
+      onClose={onClose}
+      hasUnsavedChanges={hasUnsavedChanges}
+      align="center"
+      testId="manage-patient-labels-modal-overlay"
+    >
       <div className="bl-card p-5 max-w-lg w-full max-h-[85vh] overflow-y-auto" data-testid="manage-patient-labels-modal">
         <div className="flex justify-between items-start gap-2 mb-4">
           <div>
@@ -164,6 +172,6 @@ export default function ManagePatientLabelsModal({ patientId, patientName, open,
           </div>
         )}
       </div>
-    </div>
+    </AppModal>
   );
 }

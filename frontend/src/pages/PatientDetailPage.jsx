@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { fileUrl } from "@/lib/api";
 import { useAuth, can, hasPermission } from "@/lib/auth";
@@ -40,6 +40,7 @@ import PatientSpendingHistoryPanel from "@/components/patient/PatientSpendingHis
 import LoyaltyBadge from "@/components/patient/LoyaltyBadge";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 import ManagePatientLabelsModal from "@/components/patient/ManagePatientLabelsModal";
+import AppModal from "@/components/ui/AppModal";
 import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import ConsentStatusBadge from "@/components/consent/ConsentStatusBadge";
 import NationalityCombobox from "@/components/patient/NationalityCombobox";
@@ -88,6 +89,8 @@ export default function PatientDetailPage() {
 
   const [openEdit, setOpenEdit] = useState(false);
   const [editForm, setEditForm] = useState(emptyBasicPatientForm());
+  const editBaselineRef = useRef(null);
+  const visitBaselineRef = useRef(null);
   const [editBusy, setEditBusy] = useState(false);
 
   const [openVisit, setOpenVisit] = useState(false);
@@ -235,9 +238,18 @@ export default function PatientDetailPage() {
     || user?.role === "manager";
 
   const openEditModal = () => {
-    setEditForm(emptyBasicPatientForm(patient));
+    const baseline = emptyBasicPatientForm(patient);
+    editBaselineRef.current = baseline;
+    setEditForm(baseline);
     setOpenEdit(true);
   };
+
+  const hasUnsavedEdit = openEdit && editBaselineRef.current
+    ? JSON.stringify(editForm) !== JSON.stringify(editBaselineRef.current)
+    : false;
+  const hasUnsavedVisit = openVisit && visitBaselineRef.current
+    ? JSON.stringify(vForm) !== JSON.stringify(visitBaselineRef.current)
+    : false;
 
   const savePatientInfo = async (e) => {
     e.preventDefault();
@@ -647,7 +659,7 @@ export default function PatientDetailPage() {
             </button>
           )}
           {can(user, "create_visit") && (
-            <button onClick={() => setOpenVisit(true)} className="bl-btn-primary inline-flex items-center gap-2" data-testid="new-visit-button">
+            <button onClick={() => { visitBaselineRef.current = { ...vForm }; setOpenVisit(true); }} className="bl-btn-primary inline-flex items-center gap-2" data-testid="new-visit-button">
               <Plus className="w-4 h-4" /> New treatment session
             </button>
           )}
@@ -678,8 +690,14 @@ export default function PatientDetailPage() {
       />
 
       {openEdit && (
-        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenEdit(false)}>
-          <div className="bl-card max-w-2xl w-full p-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} data-testid="edit-patient-modal">
+        <AppModal
+          open
+          onClose={() => setOpenEdit(false)}
+          hasUnsavedChanges={hasUnsavedEdit}
+          align="center"
+          testId="edit-patient-modal-overlay"
+        >
+          <div className="bl-card max-w-2xl w-full p-7 max-h-[90vh] overflow-y-auto" data-testid="edit-patient-modal">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl text-[#2D3A33]">Edit patient info</h2>
               <button type="button" onClick={() => setOpenEdit(false)} className="p-2 rounded-lg hover:bg-[#F3F1EB]" aria-label="Close"><X className="w-4 h-4" /></button>
@@ -764,12 +782,18 @@ export default function PatientDetailPage() {
               </div>
             </form>
           </div>
-        </div>
+        </AppModal>
       )}
 
       {openVisit && (
-        <div className="fixed inset-0 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setOpenVisit(false)}>
-          <div className="bl-card max-w-md w-full p-7" onClick={(e) => e.stopPropagation()}>
+        <AppModal
+          open
+          onClose={() => setOpenVisit(false)}
+          hasUnsavedChanges={hasUnsavedVisit}
+          align="center"
+          testId="new-visit-modal-overlay"
+        >
+          <div className="bl-card max-w-md w-full p-7">
             <h2 className="font-display text-2xl text-[#2D3A33]">New treatment session</h2>
             <p className="text-sm text-[#5C6C62] mt-1">For {patient.full_name}</p>
             <form onSubmit={createVisit} className="mt-5 space-y-4" data-testid="new-visit-form">
@@ -797,7 +821,7 @@ export default function PatientDetailPage() {
               </div>
             </form>
           </div>
-        </div>
+        </AppModal>
       )}
     </div>
   );

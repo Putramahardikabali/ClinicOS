@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X, Clock, User } from "lucide-react";
+import AppModal from "@/components/ui/AppModal";
 import { formatWorkWindows, OVERTIME_REASONS } from "@/components/bookings/scheduleUtils";
 
 function formatEstimatedDuration(estimatedDurationMin) {
@@ -27,6 +28,7 @@ export default function OutsideWorkingHoursModal({
   const startTime = slot?.scheduled_time || "—";
   const durationText = formatEstimatedDuration(estimatedDurationMin);
   const finalReason = reason === "Other" ? customReason.trim() : reason;
+  const hasUnsavedChanges = !!note.trim() || reason !== OVERTIME_REASONS[0] || !!customReason.trim();
 
   const handleContinue = (e) => {
     e.preventDefault();
@@ -39,15 +41,15 @@ export default function OutsideWorkingHoursModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-[#2D3A33]/40 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
-      data-testid="outside-hours-modal"
+    <AppModal
+      onClose={onClose}
+      hasUnsavedChanges={hasUnsavedChanges}
+      align="center"
+      testId="outside-hours-modal"
     >
       <form
         onSubmit={handleContinue}
         className="bl-card max-w-md w-full p-6 space-y-4"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -145,6 +147,6 @@ export default function OutsideWorkingHoursModal({
           <button type="button" onClick={onClose} className="bl-btn-ghost">Cancel</button>
         </div>
       </form>
-    </div>
+    </AppModal>
   );
 }
