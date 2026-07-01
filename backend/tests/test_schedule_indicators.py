@@ -61,6 +61,25 @@ def test_new_vs_recurring_patient():
     assert recur_meta["recurring_patient"] is True
 
 
+def test_no_staff_request_without_explicit_flag():
+    meta = build_schedule_indicators(
+        {
+            "id": "b1",
+            "status": "booked",
+            "performer_id": "s1",
+            "requested_performer_id": "s1",
+            "specific_staff_requested": False,
+        },
+        patient={},
+        completed_visits=1,
+        loyalty_tier=None,
+        booking_history={},
+        visit=None,
+        staff_names={"s1": "Dr. Smith"},
+    )
+    assert meta["specific_staff_request"]["active"] is False
+
+
 def test_specific_staff_request_flag():
     meta = build_schedule_indicators(
         {

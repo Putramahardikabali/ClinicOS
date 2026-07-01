@@ -219,6 +219,34 @@ async def log_appointment_status_changed(
     )
 
 
+async def log_staff_request_override(
+    db,
+    user: dict,
+    booking_id: str,
+    *,
+    old_staff_id: str,
+    new_staff_id: str,
+    requested_staff_id: str,
+    requested_staff_name: str = "",
+    reason: Optional[str] = None,
+) -> None:
+    await write_audit(
+        db,
+        user,
+        action="staff_request_override",
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        old_value={
+            "performer_id": old_staff_id,
+            "requested_performer_id": requested_staff_id,
+            "requested_staff_name": requested_staff_name,
+        },
+        new_value={"performer_id": new_staff_id},
+        reason=reason or "",
+        meta={"override_type": "staff_request"},
+    )
+
+
 async def log_booking_note_updated(db, user: dict, booking_id: str, *, old_note: str, new_note: str) -> None:
     if (old_note or "").strip() == (new_note or "").strip():
         return

@@ -176,6 +176,7 @@ class BookingIn(BaseModel):
     overtime_note: Optional[str] = None
     specific_staff_requested: Optional[bool] = False
     requested_performer_id: Optional[str] = None
+    requested_staff_name_snapshot: Optional[str] = None
     duration_source: Optional[str] = None
     duration_override_reason: Optional[str] = None
     treatment_default_duration_minutes: Optional[int] = None
@@ -197,6 +198,65 @@ def _apply_duration_metadata(doc: dict, data: dict) -> None:
         val = data.get(key)
         if val is not None and val != "":
             doc[key] = val
+
+
+async def _staff_display_name(db, clinic_id: str, staff_id: Optional[str]) -> str:
+    if not staff_id:
+        return ""
+    u = await db.users.find_one({"id": staff_id, "clinic_id": clinic_id}, {"_id": 0, "name": 1})
+    return (u.get("name") or "").strip() if u else ""
+
+
+def _primary_performer_id_from_booking(booking: dict) -> Optional[str]:
+    from performers import primary_performer_id
+
+    return primary_performer_id(booking) or booking.get("performer_id")
+
+
+async def _apply_staff_request_fields(
+    doc: dict,
+    *,
+    db,
+    clinic_id: str,
+    specific_staff_requested: bool,
+    performer_id: Optional[str],
+    requested_performer_id: Optional[str] = None,
+    requested_staff_name_snapshot: Optional[str] = None,
+) -> None:
+    """Normalize explicit patient-requested staff flags on a booking document."""
+    if not specific_staff_requested:
+        doc["specific_staff_requested"] = False
+        doc["requested_performer_id"] = None
+        doc["requested_staff_name_snapshot"] = None
+        return
+    rid = (requested_performer_id or performer_id or "").strip() or None
+    if not rid:
+        raise HTTPException(status_code=400, detail="Select assigned staff before marking a patient staff request")
+    doc["specific_staff_requested"] = True
+    doc["requested_performer_id"] = rid
+    snapshot = (requested_staff_name_snapshot or "").strip()
+    if not snapshot:
+        snapshot = await _staff_display_name(db, clinic_id, rid)
+    doc["requested_staff_name_snapshot"] = snapshot or None
+
+
+def _staff_request_reassign_conflict(existing: dict, merged: dict) -> Optional[dict]:
+    """Return conflict detail when reassigning away from a patient-requested provider."""
+    if not existing.get("specific_staff_requested"):
+        return None
+    requested = (existing.get("requested_performer_id") or "").strip()
+    if not requested:
+        return None
+    new_primary = _primary_performer_id_from_booking(merged)
+    if not new_primary or new_primary == requested:
+        return None
+    name = (existing.get("requested_staff_name_snapshot") or "").strip() or "this staff member"
+    return {
+        "code": "staff_request_conflict",
+        "message": f"This patient requested {name}. Are you sure you want to move this appointment to another staff?",
+        "requested_staff_id": requested,
+        "requested_staff_name": name,
+    }
 
 
 async def _enforce_booking_staff_conflicts(
@@ -244,12 +304,15 @@ class BookingUpdateIn(BaseModel):
     coupon_code: Optional[str] = None
     specific_staff_requested: Optional[bool] = None
     requested_performer_id: Optional[str] = None
+    requested_staff_name_snapshot: Optional[str] = None
     duration_source: Optional[str] = None
     duration_override_reason: Optional[str] = None
     treatment_default_duration_minutes: Optional[int] = None
     overlap_override: Optional[bool] = None
     overlap_override_reason: Optional[str] = None
     schedule_change_source: Optional[str] = None
+    staff_request_override: Optional[bool] = False
+    staff_request_override_reason: Optional[str] = None
 
 
 class CouponIn(BaseModel):
@@ -1823,6 +1886,15 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         b["coupon_id"] = None
         b["performers"] = performers
         sync_legacy_performer_fields(b)
+        await _apply_staff_request_fields(
+            b,
+            db=db,
+            clinic_id=cid,
+            specific_staff_requested=bool(payload.specific_staff_requested),
+            performer_id=_primary_performer_id_from_booking(b),
+            requested_performer_id=payload.requested_performer_id,
+            requested_staff_name_snapshot=payload.requested_staff_name_snapshot,
+        )
         b["id"] = str(uuid.uuid4())
         b["clinic_id"] = cid
         b["status"] = "booked"
@@ -2069,10 +2141,39 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             upd["coupon_code"] = None
             upd["coupon_id"] = None
 
+        staff_request_override_logged = None
+        if "specific_staff_requested" in raw:
+            await _apply_staff_request_fields(
+                upd,
+                db=db,
+                clinic_id=cid,
+                specific_staff_requested=bool(raw.get("specific_staff_requested")),
+                performer_id=_primary_performer_id_from_booking({**merged, **upd}),
+                requested_performer_id=raw.get("requested_performer_id") or upd.get("requested_performer_id"),
+                requested_staff_name_snapshot=raw.get("requested_staff_name_snapshot"),
+            )
+        elif performers_in_payload or "performer_id" in upd:
+            merged_for_check = {**merged, **upd}
+            staff_request_override_logged = _staff_request_reassign_conflict(existing, merged_for_check)
+            if staff_request_override_logged and not bool(raw.get("staff_request_override")):
+                raise HTTPException(status_code=409, detail=staff_request_override_logged)
+
         r = await db.bookings.update_one(scope(user, {"id": bid}), {"$set": upd})
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Booking not found")
         updated = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
+        if staff_request_override_logged and bool(raw.get("staff_request_override")):
+            from audit_log import log_staff_request_override
+            await log_staff_request_override(
+                db,
+                user,
+                bid,
+                old_staff_id=existing.get("performer_id") or "",
+                new_staff_id=updated.get("performer_id") or "",
+                requested_staff_id=staff_request_override_logged["requested_staff_id"],
+                requested_staff_name=staff_request_override_logged["requested_staff_name"],
+                reason=raw.get("staff_request_override_reason"),
+            )
         if "notes" in upd:
             from audit_log import log_booking_note_updated
             await log_booking_note_updated(

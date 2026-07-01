@@ -3,6 +3,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ConsentStatusBadge, { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import api from "@/lib/api";
 import { finishModalSuccess } from "@/lib/modalSubmit";
+import {
+  needsStaffRequestOverride,
+  parseStaffRequestConflict,
+  requestedStaffName,
+  staffRequestPayload,
+  staffRequestWarningMessage,
+} from "@/lib/staffRequest";
 import { REALTIME_TOPICS } from "@/lib/realtimeEvents";
 import { debounce } from "@/lib/realtimeEvents";
 import { useRealtimeInvalidation, useVisibilityPolling } from "@/lib/realtimeEventsContext";
@@ -44,7 +51,7 @@ import {
 import {
   CalendarDays, Clock, Phone, MessageCircle, Copy, CheckCircle2, X, Plus,
   ArrowRight, ExternalLink, LayoutList, CalendarRange, Edit2, Ban,
-  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope, Highlighter,
+  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Stethoscope, Highlighter, Heart,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
 import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
@@ -65,6 +72,7 @@ import {
 } from "@/lib/bookingGiftCard";
 import AppointmentDurationFields from "@/components/bookings/AppointmentDurationFields";
 import ConflictOverrideModal from "@/components/bookings/ConflictOverrideModal";
+import StaffRequestOverrideModal from "@/components/bookings/StaffRequestOverrideModal";
 import {
   DURATION_SOURCES,
   durationFromStartEnd,
@@ -142,6 +150,27 @@ function blockDurationFromTimes(start, end, fallback = 30) {
 
 function isTimeBlock(b) {
   return b?.status === "blocked" || b?.booking_type === "block";
+}
+
+function StaffRequestCheckbox({ checked, onChange, disabled = false, testId = "staff-request-checkbox" }) {
+  return (
+    <label className={`flex items-start gap-2.5 mt-3 cursor-pointer ${disabled ? "opacity-60 pointer-events-none" : ""}`}>
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={!!checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        data-testid={testId}
+      />
+      <span className="text-sm">
+        <span className="font-medium text-[#2D3A33]">Patient requested this staff</span>
+        <span className="block text-xs text-[#5C6C62] mt-0.5">
+          Use this when the patient specifically asked for this provider. This helps FO avoid moving the appointment to another staff.
+        </span>
+      </span>
+    </label>
+  );
 }
 
 function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
@@ -700,6 +729,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     scheduled_date: "", scheduled_time: "",
     performer_id: "",
     assistant_performers: [],
+    specific_staff_requested: false,
     notes: "",
     ...newBookingDurationDefaults(initial),
   }));
@@ -997,6 +1027,10 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       toast.error("Select an available provider");
       return;
     }
+    if (form.specific_staff_requested && !form.performer_id) {
+      toast.error("Select assigned staff before marking a patient staff request");
+      return;
+    }
     setBusy(true);
     try {
       const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
@@ -1017,6 +1051,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       };
       appendBookingDurationMetadata(body, form);
       if (overlapOverride) body.overlap_override = true;
+      Object.assign(body, staffRequestPayload(form, staff));
       if (overtimeMeta) {
         body.is_overtime = true;
         body.overtime_reason = overtimeMeta.reason;
@@ -1059,6 +1094,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
           ...(giftCardLocksService && appliedGiftCard?.gift_card_id
             ? { gift_card_id: appliedGiftCard.gift_card_id }
             : {}),
+          ...staffRequestPayload(form, staff),
         });
         return;
       }
@@ -1073,6 +1109,7 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
     try {
       const body = { ...pendingSubmitBody, overlap_override: true };
       appendBookingDurationMetadata(body, form);
+      Object.assign(body, staffRequestPayload(form, staff));
       await api.post("/bookings", body);
       setPendingConflict(null);
       setPendingSubmitBody(null);
@@ -1375,6 +1412,12 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
                   </>
                 );
               })()}
+              <StaffRequestCheckbox
+                checked={form.specific_staff_requested}
+                onChange={(specific_staff_requested) => setForm((f) => ({ ...f, specific_staff_requested }))}
+                disabled={!form.performer_id}
+                testId="nb-staff-request"
+              />
             </div>
 
             {allowMultiple && serviceSelected && (
@@ -1483,6 +1526,7 @@ function bookingToForm(booking, treatments = [], packages = []) {
       || booking.duration_source === DURATION_SOURCES.DRAG_SELECTION,
     performer_id: booking.performer_id || "",
     assistant_performers: additionalRowsFromBooking(booking),
+    specific_staff_requested: !!booking.specific_staff_requested,
     notes: booking.notes || "",
   };
 }
@@ -1526,6 +1570,7 @@ function BookingDetailPanel({
   const [busy, setBusy] = useState(false);
   const [pendingConflict, setPendingConflict] = useState(null);
   const [pendingEditPayload, setPendingEditPayload] = useState(null);
+  const [pendingStaffRequestOverride, setPendingStaffRequestOverride] = useState(null);
   const [additionalAvailByRole, setAdditionalAvailByRole] = useState({});
   const [consentForms, setConsentForms] = useState([]);
   const noteInputRef = useRef(null);
@@ -1740,11 +1785,16 @@ function BookingDetailPanel({
       additionalAvailByRole,
     );
     if (availErr) { toast.error(availErr); return; }
+    if (form.specific_staff_requested && !form.performer_id) {
+      toast.error("Select assigned staff before marking a patient staff request");
+      return;
+    }
     setBusy(true);
+    let payload;
     try {
       const scheduled_at = `${form.scheduled_date}T${form.scheduled_time}:00`;
       const performers = buildBookingPerformers(form.performer_id, form.assistant_performers, staff);
-      const payload = {
+      payload = {
         patient_name: form.patient_name.trim(),
         patient_phone: form.patient_phone.trim(),
         patient_email: form.patient_email?.trim() || "",
@@ -1756,6 +1806,7 @@ function BookingDetailPanel({
         notes: form.notes || "",
         booking_type: isPackage ? "package" : "treatment",
         package_id: isPackage ? form.package_id : null,
+        ...staffRequestPayload(form, staff),
       };
       appendBookingDurationMetadata(payload, form);
       const r = await putBookingWithConflict(api, booking.id, payload);
@@ -1766,12 +1817,45 @@ function BookingDetailPanel({
       });
       setEditing(false);
       setPendingConflict(null);
+      setPendingStaffRequestOverride(null);
     } catch (e) {
       if (e.scheduleConflict) {
         setPendingConflict(e.scheduleConflict);
         setPendingEditPayload(payload);
         return;
       }
+      const staffConflict = parseStaffRequestConflict(e);
+      if (staffConflict) {
+        setPendingStaffRequestOverride({ payload, conflict: staffConflict });
+        return;
+      }
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === "object" ? (detail.message || "Failed to update appointment") : (detail || "Failed to update appointment"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const continueStaffRequestOverride = async () => {
+    if (!pendingStaffRequestOverride?.payload || busy) return;
+    setBusy(true);
+    try {
+      const payload = {
+        ...pendingStaffRequestOverride.payload,
+        staff_request_override: true,
+      };
+      appendBookingDurationMetadata(payload, form);
+      const r = await api.put(`/bookings/${booking.id}`, payload);
+      finishModalSuccess({
+        message: "Appointment updated",
+        onSuccess: () => onSaved?.(r.data),
+        onClose,
+      });
+      setEditing(false);
+      setPendingStaffRequestOverride(null);
+      setPendingConflict(null);
+      setPendingEditPayload(null);
+    } catch (e) {
       const detail = e?.response?.data?.detail;
       toast.error(typeof detail === "object" ? (detail.message || "Failed to update appointment") : (detail || "Failed to update appointment"));
     } finally {
@@ -1783,7 +1867,11 @@ function BookingDetailPanel({
     if (!pendingEditPayload || busy) return;
     setBusy(true);
     try {
-      const payload = { ...pendingEditPayload, overlap_override: true };
+      const payload = {
+        ...pendingEditPayload,
+        overlap_override: true,
+        ...staffRequestPayload(form, staff),
+      };
       appendBookingDurationMetadata(payload, form);
       const r = await api.put(`/bookings/${booking.id}`, payload);
       finishModalSuccess({
@@ -1931,6 +2019,12 @@ function BookingDetailPanel({
                 ))}
               </select>
               {loadingPerformers && <div className="text-xs text-[#5C6C62] mt-1">Checking availability…</div>}
+              <StaffRequestCheckbox
+                checked={form.specific_staff_requested}
+                onChange={(specific_staff_requested) => setForm((f) => ({ ...f, specific_staff_requested }))}
+                disabled={!form.performer_id}
+                testId="edit-staff-request"
+              />
             </div>
             {allowMultiple && serviceSelected && (
               <AdditionalPerformersEditor
@@ -1976,6 +2070,17 @@ function BookingDetailPanel({
           <>
             {!block && booking.is_blacklisted && (
               <PatientBlacklistBanner patient={booking.patient || booking} className="mt-4" />
+            )}
+            {!block && booking.specific_staff_requested && (
+              <div className="mt-4 flex items-start gap-2 text-sm text-rose-800 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2" data-testid="booking-staff-request-banner">
+                <Heart className="w-4 h-4 shrink-0 mt-0.5 fill-current" aria-hidden />
+                <div>
+                  <div className="font-medium">Patient requested this staff</div>
+                  <div className="text-xs text-rose-900/80 mt-0.5">
+                    Requested staff: {requestedStaffName(booking, staff)}
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -2236,6 +2341,14 @@ function BookingDetailPanel({
             onContinue={continueEditAfterConflict}
           />
         )}
+        <StaffRequestOverrideModal
+          open={!!pendingStaffRequestOverride}
+          staffName={pendingStaffRequestOverride?.conflict?.requested_staff_name || requestedStaffName(booking, staff)}
+          message={pendingStaffRequestOverride?.conflict ? staffRequestWarningMessage(pendingStaffRequestOverride.conflict, booking, staff) : ""}
+          busy={busy}
+          onCancel={() => setPendingStaffRequestOverride(null)}
+          onContinue={continueStaffRequestOverride}
+        />
       </div>
     </div>
   );

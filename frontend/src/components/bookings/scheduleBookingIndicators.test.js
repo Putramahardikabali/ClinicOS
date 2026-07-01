@@ -34,6 +34,7 @@ describe("scheduleBookingIndicators", () => {
   it("limits visible card icons to three by priority", () => {
     const booking = {
       ...baseBooking,
+      specific_staff_requested: true,
       schedule_meta: {
         profile_alert: { active: true, label: "Alert" },
         specific_staff_request: { active: true, label: "Dr A" },
@@ -75,12 +76,37 @@ describe("scheduleBookingIndicators", () => {
   it("formats all indicator labels for tooltip", () => {
     const booking = {
       ...baseBooking,
+      specific_staff_requested: true,
+      requested_staff_name_snapshot: "Dr. A",
       schedule_meta: {
         profile_alert: { active: true },
         loyalty: { active: true },
         new_patient: true,
       },
     };
-    expect(formatCardIndicatorLabels(booking)).toEqual(["Profile alert", "Loyalty", "New patient"]);
+    expect(formatCardIndicatorLabels(booking)).toEqual([
+      "Profile alert",
+      "Patient requested this staff",
+      "Loyalty",
+      "New patient",
+    ]);
+  });
+
+  it("does not show staff request icon without explicit flag", () => {
+    const booking = {
+      ...baseBooking,
+      performer_id: "s1",
+      requested_performer_id: "s1",
+      specific_staff_requested: false,
+      schedule_meta: {
+        profile_alert: { active: false },
+        specific_staff_request: { active: false, label: "" },
+        package_use: { active: false },
+        loyalty: { active: false },
+        new_patient: false,
+        recurring_patient: false,
+      },
+    };
+    expect(collectActiveIndicators(booking)).not.toContain("specific_staff_request");
   });
 });

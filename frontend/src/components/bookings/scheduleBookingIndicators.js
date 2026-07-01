@@ -1,10 +1,10 @@
 import {
   AlertTriangle,
   Award,
+  Heart,
   Package,
   Repeat,
   Sparkles,
-  UserCheck,
 } from "lucide-react";
 
 /** Soft schedule card colors — keys match backend display_status. */
@@ -32,7 +32,7 @@ export const INDICATOR_PRIORITY = [
 
 export const INDICATOR_DEFS = {
   profile_alert: { key: "profile_alert", Icon: AlertTriangle, title: "Profile alert" },
-  specific_staff_request: { key: "specific_staff_request", Icon: UserCheck, title: "Staff request" },
+  specific_staff_request: { key: "specific_staff_request", Icon: Heart, title: "Patient requested this staff" },
   package_use: { key: "package_use", Icon: Package, title: "Package" },
   loyalty: { key: "loyalty", Icon: Award, title: "Loyalty" },
   new_patient: { key: "new_patient", Icon: Sparkles, title: "New patient" },
@@ -64,13 +64,13 @@ export function resolveScheduleCardColors(booking) {
   return SCHEDULE_STATUS_COLORS[key] || SCHEDULE_STATUS_COLORS.booked;
 }
 
-function indicatorActive(meta, key) {
+function indicatorActive(booking, meta, key) {
   if (!meta) return false;
   switch (key) {
     case "profile_alert":
       return !!meta.profile_alert?.active;
     case "specific_staff_request":
-      return !!meta.specific_staff_request?.active;
+      return !!booking?.specific_staff_requested;
     case "package_use":
       return !!meta.package_use?.active;
     case "loyalty":
@@ -87,7 +87,7 @@ function indicatorActive(meta, key) {
 export function collectActiveIndicators(booking) {
   const meta = booking?.schedule_meta;
   if (!meta || isTimeBlockBooking(booking)) return [];
-  return INDICATOR_PRIORITY.filter((key) => indicatorActive(meta, key));
+  return INDICATOR_PRIORITY.filter((key) => indicatorActive(booking, meta, key));
 }
 
 export function selectCardIcons(booking) {
@@ -148,10 +148,11 @@ export function buildSchedulePreviewLines(booking) {
   const checkIn = formatCheckIn(meta);
   if (checkIn) lines.push({ label: "Checked in", value: checkIn });
 
-  if (meta.specific_staff_request?.active) {
+  if (booking.specific_staff_requested) {
+    const requestedName = (booking.requested_staff_name_snapshot || meta.specific_staff_request?.label || "").trim();
     lines.push({
-      label: "Staff request",
-      value: meta.specific_staff_request.label || "Specific provider requested",
+      label: "Patient requested this staff",
+      value: requestedName ? `Requested staff: ${requestedName}` : "Yes",
     });
   }
   if (meta.profile_alert?.active) {

@@ -36,6 +36,13 @@ import {
 } from "@/components/bookings/scheduleDragSelect";
 import { layoutOverlappingBookings } from "@/lib/scheduleOverlapLayout";
 import ScheduleMoveConfirmModal from "@/components/bookings/ScheduleMoveConfirmModal";
+import StaffRequestOverrideModal from "@/components/bookings/StaffRequestOverrideModal";
+import {
+  needsStaffRequestOverride,
+  parseStaffRequestConflict,
+  requestedStaffName,
+  staffRequestWarningMessage,
+} from "@/lib/staffRequest";
 import {
   APPT_MANIP_THRESHOLD_PX,
   buildScheduledAtIso,
@@ -852,6 +859,7 @@ export default function BookingsScheduleView({
   const apptManipRef = useRef(null);
   const [apptManip, setApptManip] = useState(null);
   const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [pendingStaffRequestOverride, setPendingStaffRequestOverride] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
   const canDragResize = canManage && hasPermission(user, "appointments.edit");
@@ -1352,7 +1360,7 @@ export default function BookingsScheduleView({
     }
   }, [canDragResize, canManage, staff]);
 
-  const confirmScheduleChange = useCallback(async (withOverlapOverride = false) => {
+  const confirmScheduleChange = useCallback(async (withOverlapOverride = false, staffRequestOverride = false) => {
     if (!pendingConfirm) return;
     setConfirmBusy(true);
     try {
@@ -1369,9 +1377,11 @@ export default function BookingsScheduleView({
         payload.performers = [{ staff_id: proposed.staffId, performer_type: "primary" }];
       }
       if (withOverlapOverride) payload.overlap_override = true;
+      if (staffRequestOverride) payload.staff_request_override = true;
       await api.put(`/bookings/${booking.id}`, payload);
       toast.success("Appointment updated");
       setPendingConfirm(null);
+      setPendingStaffRequestOverride(null);
       load();
     } catch (e) {
       const conflict = parseScheduleConflict(e);
@@ -1382,8 +1392,16 @@ export default function BookingsScheduleView({
           toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
         }
       } else {
-        const detail = e?.response?.data?.detail;
-        toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
+        const staffConflict = parseStaffRequestConflict(e);
+        if (staffConflict) {
+          setPendingStaffRequestOverride({
+            conflict: staffConflict,
+            withOverlapOverride,
+          });
+        } else {
+          const detail = e?.response?.data?.detail;
+          toast.error(typeof detail === "object" ? (detail.message || "Could not save") : (detail || "Could not save"));
+        }
       }
     } finally {
       setConfirmBusy(false);
@@ -1861,7 +1879,30 @@ export default function BookingsScheduleView({
         onCancel={() => setPendingConfirm(null)}
         onConfirm={() => {
           const hasConflict = (pendingConfirm?.conflicts || []).length > 0;
-          confirmScheduleChange(hasConflict && canOverrideConflict);
+          const withOverlap = hasConflict && canOverrideConflict;
+          const staffChanging = pendingConfirm?.origin?.staffId !== pendingConfirm?.proposed?.staffId;
+          if (staffChanging && needsStaffRequestOverride(pendingConfirm.booking, pendingConfirm.proposed.staffId)) {
+            setPendingStaffRequestOverride({ withOverlapOverride: withOverlap });
+            return;
+          }
+          confirmScheduleChange(withOverlap, false);
+        }}
+      />
+      <StaffRequestOverrideModal
+        open={!!pendingStaffRequestOverride}
+        staffName={
+          pendingStaffRequestOverride?.conflict?.requested_staff_name
+          || requestedStaffName(pendingConfirm?.booking, staff)
+        }
+        message={
+          pendingStaffRequestOverride?.conflict
+            ? staffRequestWarningMessage(pendingStaffRequestOverride.conflict, pendingConfirm?.booking, staff)
+            : ""
+        }
+        busy={confirmBusy}
+        onCancel={() => setPendingStaffRequestOverride(null)}
+        onContinue={() => {
+          confirmScheduleChange(!!pendingStaffRequestOverride?.withOverlapOverride, true);
         }}
       />
     </div>

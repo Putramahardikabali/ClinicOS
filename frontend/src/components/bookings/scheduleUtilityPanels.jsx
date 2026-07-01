@@ -13,12 +13,12 @@ import {
   Package,
   Repeat,
   Sparkles,
-  UserCheck,
+  Heart,
 } from "lucide-react";
 
 const ICON_MAP = {
   profile_alert: AlertTriangle,
-  specific_staff_request: UserCheck,
+  specific_staff_request: Heart,
   package_use: Package,
   loyalty: Award,
   new_patient: Sparkles,

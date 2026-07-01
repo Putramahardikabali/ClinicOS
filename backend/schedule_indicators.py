@@ -91,29 +91,18 @@ def _profile_alert_from_history(
 
 
 def _has_specific_staff_request(booking: dict) -> bool:
-    if booking.get("specific_staff_requested"):
-        return True
-    requested = (booking.get("requested_performer_id") or "").strip()
-    if not requested:
-        return False
-    if booking.get("performer_id") == requested:
-        return True
-    performers = booking.get("performers") or []
-    return any(p.get("staff_id") == requested for p in performers)
+    """True only when FO explicitly marked a patient-requested provider (not normal assignment)."""
+    return bool(booking.get("specific_staff_requested"))
 
 
 def _requested_staff_label(booking: dict, staff_names: Dict[str, str]) -> str:
+    snapshot = (booking.get("requested_staff_name_snapshot") or "").strip()
+    if snapshot:
+        return snapshot
     requested = (booking.get("requested_performer_id") or "").strip()
     if requested and staff_names.get(requested):
         return staff_names[requested]
-    performers = booking.get("performers") or []
-    primary = next((p for p in performers if p.get("performer_type") == "primary"), performers[0] if performers else None)
-    if primary:
-        name = primary.get("staff_name_snapshot") or staff_names.get(primary.get("staff_id") or "", "")
-        if name:
-            return name
-    pid = booking.get("performer_id")
-    return staff_names.get(pid or "", "") or "Requested staff"
+    return "Requested staff"
 
 
 def _uses_package(booking: dict) -> bool:
