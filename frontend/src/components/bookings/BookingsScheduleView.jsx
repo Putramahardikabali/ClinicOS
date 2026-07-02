@@ -799,6 +799,8 @@ export default function BookingsScheduleView({
   onCopyPublicLink,
   clinicSlug,
   canBookSlots,
+  appointmentContext = null,
+  onInvoicePaymentSuccess,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -819,6 +821,7 @@ export default function BookingsScheduleView({
   const [scaleState, setScaleState] = useState(() => loadScheduleScaleState());
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
+  const [invoiceDrawerInit, setInvoiceDrawerInit] = useState(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
   const shellRef = useRef(null);
   const dragRef = useRef(null);
@@ -998,8 +1001,36 @@ export default function BookingsScheduleView({
   }, [activatePatientHighlight]);
 
   useEffect(() => {
-    if (!isAppointmentWorkspace) setActiveUtility(null);
+    if (!isAppointmentWorkspace) {
+      setActiveUtility(null);
+      setInvoiceDrawerInit(null);
+    }
   }, [isAppointmentWorkspace]);
+
+  const handleUtilitySelect = useCallback((id) => {
+    setActiveUtility((prev) => {
+      const next = prev === id ? null : id;
+      if (next === "invoices" && appointmentContext) {
+        setInvoiceDrawerInit({
+          invoiceId: appointmentContext.invoice?.id || null,
+          visitId: appointmentContext.visit_id || null,
+        });
+      } else if (next !== "invoices") {
+        setInvoiceDrawerInit(null);
+      }
+      return next;
+    });
+  }, [appointmentContext]);
+
+  const closeUtilityDrawer = useCallback(() => {
+    setActiveUtility(null);
+    setInvoiceDrawerInit(null);
+  }, []);
+
+  const handleInvoicePaymentSuccess = useCallback(() => {
+    onInvoicePaymentSuccess?.();
+    load({ silent: true });
+  }, [onInvoicePaymentSuccess, load]);
 
   const utilityAccess = useMemo(
     () => resolveScheduleUtilityAccess(user, clinic),
@@ -2020,15 +2051,17 @@ export default function BookingsScheduleView({
         <ScheduleUtilityDrawer
           open={!!activeUtility}
           utilityId={activeUtility}
-          onClose={() => setActiveUtility(null)}
+          onClose={closeUtilityDrawer}
           scheduleDate={date}
+          invoiceInit={activeUtility === "invoices" ? invoiceDrawerInit : null}
+          onPaymentSuccess={handleInvoicePaymentSuccess}
         />
         </div>
 
         <ScheduleFullscreenUtilityRail
           access={utilityAccess}
           activeId={activeUtility}
-          onSelect={(id) => setActiveUtility((prev) => (prev === id ? null : id))}
+          onSelect={handleUtilitySelect}
         />
       </div>
 

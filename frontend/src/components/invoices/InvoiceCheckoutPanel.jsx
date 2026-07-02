@@ -75,6 +75,7 @@ export default function InvoiceCheckoutPanel({
   onVoidPayment,
   onRecordRefund,
   onCloseVisit,
+  compact = false,
 }) {
   const hasCampaignDiscount = Boolean(invoice?.campaign_id && preview.discountAmount > 0);
   const hasManualDiscount = discountType !== "none" && preview.discountAmount > 0 && !invoice?.campaign_id;
@@ -90,6 +91,7 @@ export default function InvoiceCheckoutPanel({
 
   return (
     <div className="space-y-4" data-testid="invoice-checkout-panel">
+      {!compact && (
       <div className="bl-card p-5 space-y-3">
         <div className="font-display text-lg text-[#2D3A33]">Summary</div>
         <div className="space-y-2 text-sm">
@@ -146,8 +148,9 @@ export default function InvoiceCheckoutPanel({
           </div>
         )}
       </div>
+      )}
 
-      {!readOnly && (
+      {!readOnly && !compact && (
         <div className="bl-card p-5 space-y-4">
           <div>
             <div className="font-display text-lg text-[#2D3A33]">Promotions & discount</div>
@@ -236,8 +239,8 @@ export default function InvoiceCheckoutPanel({
         </div>
       )}
 
-      <div className="bl-card p-5 space-y-4">
-        <div className="font-display text-lg text-[#2D3A33]">Payment</div>
+      <div className={`bl-card p-5 space-y-4 ${compact ? "shadow-none border border-[#EAE6D7]" : ""}`}>
+        {!compact && <div className="font-display text-lg text-[#2D3A33]">Payment</div>}
 
         {closingLocked && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
@@ -438,16 +441,29 @@ export default function InvoiceCheckoutPanel({
                 className="bl-btn-primary w-full disabled:opacity-50"
                 data-testid="invoice-collect-payment"
               >
-                Collect payment
+                {compact ? "Update payment" : "Collect payment"}
               </button>
-              <button
-                type="button"
-                disabled={busy || readOnlyPayment}
-                onClick={onSaveInvoice}
-                className="bl-btn-ghost w-full disabled:opacity-50"
-              >
-                Save changes
-              </button>
+              {compact && !closingLocked && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onMarkPaid}
+                  className="bl-btn-ghost w-full inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                  data-testid="mark-paid-button"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Mark as paid
+                </button>
+              )}
+              {!compact && (
+                <button
+                  type="button"
+                  disabled={busy || readOnlyPayment}
+                  onClick={onSaveInvoice}
+                  className="bl-btn-ghost w-full disabled:opacity-50"
+                >
+                  Save changes
+                </button>
+              )}
             </>
           )}
 
@@ -472,18 +488,20 @@ export default function InvoiceCheckoutPanel({
                   <CheckCircle2 className="w-4 h-4" /> Mark as paid
                 </button>
               )}
-              <button
-                type="button"
-                disabled={busy || readOnlyPayment}
-                onClick={onSaveInvoice}
-                className="bl-btn-ghost w-full text-sm disabled:opacity-50"
-              >
-                Save changes
-              </button>
+              {!compact && (
+                <button
+                  type="button"
+                  disabled={busy || readOnlyPayment}
+                  onClick={onSaveInvoice}
+                  className="bl-btn-ghost w-full text-sm disabled:opacity-50"
+                >
+                  Save changes
+                </button>
+              )}
             </>
           )}
 
-          {isPaid && (
+          {isPaid && !compact && (
             <>
               <Link
                 to={`/print/invoice/${invoice.id}`}

@@ -2854,6 +2854,8 @@ export default function BookingsPage() {
             onBlockTime={canManage ? openBlockTime : undefined}
             onShowListView={() => setViewModeWithUrl("list")}
             onCopyPublicLink={copyLink}
+            appointmentContext={detailBooking}
+            onInvoicePaymentSuccess={() => setReloadAt(Date.now())}
           />
         </div>
       ) : (

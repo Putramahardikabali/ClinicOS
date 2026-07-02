@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import api from "@/lib/api";
 import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
+import { ScheduleInvoiceDrawerDetail } from "@/components/bookings/ScheduleInvoiceDrawerDetail";
 import PosNewSaleTab from "@/components/pos/PosNewSaleTab";
 import {
   INDICATOR_DEFS,
@@ -192,11 +193,33 @@ const PAYMENT_FILTERS = [
   { key: "paid", label: "Paid" },
 ];
 
-export function InvoicesPanel({ scheduleDate }) {
+export function InvoicesPanel({
+  scheduleDate,
+  invoiceInit,
+  onPaymentSuccess,
+}) {
+  const { user } = useAuth();
+  const canCreateInvoice = hasPermission(user, "billing.create") || hasPermission(user, "billing.edit");
+  const [mode, setMode] = useState("list");
+  const [selectedId, setSelectedId] = useState(null);
+  const [listRefreshKey, setListRefreshKey] = useState(0);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!invoiceInit) return;
+    if (invoiceInit.invoiceId) {
+      setSelectedId(invoiceInit.invoiceId);
+      setMode("detail");
+      return;
+    }
+    if (invoiceInit.visitId && !invoiceInit.invoiceId) {
+      setSelectedId(null);
+      setMode("detail");
+    }
+  }, [invoiceInit]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -213,7 +236,35 @@ export function InvoicesPanel({ scheduleDate }) {
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [load, q]);
+  }, [load, q, listRefreshKey]);
+
+  const handlePaymentSuccess = () => {
+    setListRefreshKey((k) => k + 1);
+    onPaymentSuccess?.();
+  };
+
+  const openDetail = (invoiceId) => {
+    setSelectedId(invoiceId);
+    setMode("detail");
+  };
+
+  const backToList = () => {
+    setMode("list");
+    setSelectedId(null);
+    setListRefreshKey((k) => k + 1);
+  };
+
+  if (mode === "detail") {
+    return (
+      <ScheduleInvoiceDrawerDetail
+        invoiceId={selectedId}
+        visitId={selectedId ? undefined : invoiceInit?.visitId}
+        canCreateInvoice={canCreateInvoice}
+        onBack={backToList}
+        onPaymentSuccess={handlePaymentSuccess}
+      />
+    );
+  }
 
   return (
     <PanelShell title="Invoices" footer={<OpenPageLink to="/invoices" label="Open Invoices page" />}>
@@ -238,13 +289,14 @@ export function InvoicesPanel({ scheduleDate }) {
       {!loading && rows.length === 0 && (
         <p className="text-sm text-[#5C6C62]">No invoices for this date.</p>
       )}
-      <div className="space-y-2">
+      <div className="space-y-2" data-testid="schedule-invoice-list">
         {rows.map((inv) => (
           <button
             key={inv.id}
             type="button"
-            onClick={() => window.open(`/invoices/${inv.id}`, "_blank", "noopener,noreferrer")}
+            onClick={() => openDetail(inv.id)}
             className="w-full text-left rounded-lg border border-[#EAE6D7] px-3 py-2 hover:bg-[#F8F5EC] transition"
+            data-testid={`schedule-invoice-card-${inv.id}`}
           >
             <div className="flex justify-between gap-2 text-sm">
               <span className="font-medium text-[#2D3A33] truncate">
@@ -684,12 +736,18 @@ export function LegendPanel() {
   );
 }
 
-export function ScheduleUtilityPanel({ utilityId, scheduleDate }) {
+export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onPaymentSuccess }) {
   switch (utilityId) {
     case "price_checker":
       return <PriceCheckerPanel />;
     case "invoices":
-      return <InvoicesPanel scheduleDate={scheduleDate} />;
+      return (
+        <InvoicesPanel
+          scheduleDate={scheduleDate}
+          invoiceInit={invoiceInit}
+          onPaymentSuccess={onPaymentSuccess}
+        />
+      );
     case "pos":
       return <PosPanel />;
     case "daily_closing":

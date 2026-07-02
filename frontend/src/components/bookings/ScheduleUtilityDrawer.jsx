@@ -2,7 +2,14 @@ import { X } from "lucide-react";
 import { ScheduleUtilityPanel } from "@/components/bookings/scheduleUtilityPanels";
 import { UTILITY_ITEMS } from "@/components/bookings/scheduleUtilityPermissions";
 
-export default function ScheduleUtilityDrawer({ open, utilityId, onClose, scheduleDate }) {
+export default function ScheduleUtilityDrawer({
+  open,
+  utilityId,
+  onClose,
+  scheduleDate,
+  invoiceInit,
+  onPaymentSuccess,
+}) {
   if (!open || !utilityId) return null;
 
   const label = UTILITY_ITEMS.find((u) => u.id === utilityId)?.label || "Utility";
@@ -36,7 +43,12 @@ export default function ScheduleUtilityDrawer({ open, utilityId, onClose, schedu
           <X className="w-4 h-4" />
         </button>
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ScheduleUtilityPanel utilityId={utilityId} scheduleDate={scheduleDate} />
+          <ScheduleUtilityPanel
+            utilityId={utilityId}
+            scheduleDate={scheduleDate}
+            invoiceInit={invoiceInit}
+            onPaymentSuccess={onPaymentSuccess}
+          />
         </div>
       </div>
     </div>
