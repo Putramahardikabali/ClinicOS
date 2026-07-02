@@ -20,6 +20,7 @@ import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
   Settings as SettingsIcon, Menu, X, User as UserIcon, ChevronRight, ChevronDown, CreditCard, Lock,
   CalendarCheck, Pill, TrendingUp, BarChart3, Package, Boxes, Receipt, UserCog, LifeBuoy, ShoppingCart,
+  Hourglass,
   Landmark,
   Gift,
   MessageSquare,
@@ -33,6 +34,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view", roles: ["super_admin","doctor","therapist","nurse","fo","manager"] },
   { to: "/schedule", label: "Schedule", icon: CalendarCheck, permission: "schedule.view_own", roles: ["doctor","therapist","nurse"], shortLabel: "Schedule" },
   { to: "/bookings", label: "Appointments", foShortLabel: "Appts", icon: CalendarCheck, permission: "appointments.view", roles: ["super_admin","fo","manager"], feature: "online_booking" },
+  { to: "/waiting-list", label: "Waiting List", foShortLabel: "Waitlist", shortLabel: "Waitlist", icon: Hourglass, permission: "waiting_list.view", roles: ["super_admin","fo","manager"], feature: "online_booking" },
   { to: "/invoices", label: "Invoices", icon: Receipt, anyPermission: ["billing.view", "invoices.view"], roles: ["super_admin","fo","manager","accounting"], feature: "billing", shortLabel: "Invoices" },
   { to: "/daily-closing", label: "Daily Closing", icon: Landmark, anyPermission: ["closing.view", "closing.create", "accounting.view"], roles: ["super_admin","fo","manager","accounting"], feature: "products", shortLabel: "Closing" },
   { to: "/gift-cards", label: "Gift cards", icon: Gift, anyPermission: ["gift_cards.view", "accounting.view"], roles: ["super_admin","fo","manager","accounting"], feature: "products", shortLabel: "Gifts" },
@@ -83,7 +85,7 @@ const SETTINGS_EXPANDED_STORAGE_KEY = "clinicos.sidebar.settingsExpanded";
 
 const OPS_SIDEBAR = [
   { type: "link", paths: ["/"] },
-  { type: "group", label: "Clinic Operations", paths: ["/bookings", "/patients", "/visits"] },
+  { type: "group", label: "Clinic Operations", paths: ["/bookings", "/waiting-list", "/patients", "/visits"] },
   { type: "group", label: "Catalog", paths: ["/treatments", "/packages", "/products", "/gift-cards"] },
   { type: "link", paths: ["/pos"] },
   { type: "group", label: "Finance & Reports", paths: ["/invoices", "/daily-closing", "/analytics", "/reports"] },
@@ -95,6 +97,7 @@ const OPS_SIDEBAR = [
 const FO_SIDEBAR = [
   { type: "link", paths: ["/"] },
   { type: "link", paths: ["/bookings"] },
+  { type: "link", paths: ["/waiting-list"] },
   { type: "group", label: "Front Desk", paths: ["/patients", "/visits", "/invoices", "/pos"] },
   { type: "group", label: "Daily Finance", paths: ["/daily-closing", "/gift-cards"] },
   { type: "group", label: "Catalog", paths: ["/treatments", "/packages", "/products"] },

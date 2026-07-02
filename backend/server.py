@@ -130,6 +130,7 @@ from refunds import register_refunds
 from patient_wallets import register_patient_wallets
 from prepaid import register_prepaid
 from patient_labels import register_patient_labels
+from waiting_list import register_waiting_list
 from patient_spending_history import register_patient_spending_history
 import totp_2fa as t2fa
 from platform_ops import create_platform_notification, seed_clinic_settings, invalidate_user_sessions
@@ -2808,6 +2809,14 @@ register_patient_labels(
     assert_patient_access=assert_patient_access,
 )
 
+register_waiting_list(
+    api=api,
+    db=db,
+    get_current_user=get_operational_user,
+    assert_writeable=assert_writeable,
+    scope=scope,
+)
+
 register_clinic_account(
     api=api,
     db=db,
@@ -3010,6 +3019,8 @@ async def startup():
     await db.audit_logs.create_index([("clinic_id", 1), ("created_at", -1)])
     await db.bookings.create_index([("clinic_id", 1), ("scheduled_at", 1)])
     await db.bookings.create_index([("clinic_id", 1), ("status", 1)])
+    await db.waiting_list_entries.create_index([("clinic_id", 1), ("desired_date", 1), ("status", 1)])
+    await db.waiting_list_entries.create_index([("clinic_id", 1), ("created_at", -1)])
     await db.coupons.create_index([("clinic_id", 1), ("code", 1)], unique=True)
     await db.campaigns.create_index([("clinic_id", 1), ("code", 1)], unique=True, sparse=True)
     await db.campaigns.create_index([("clinic_id", 1), ("active", 1)])

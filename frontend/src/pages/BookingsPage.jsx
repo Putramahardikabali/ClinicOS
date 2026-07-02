@@ -57,6 +57,7 @@ import {
   MoreHorizontal, Receipt, CalendarClock, Heart,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
+import { buildWaitlistBookingPrefill } from "@/lib/waitingList";
 import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
 import { isHighlightableBooking } from "@/components/bookings/schedulePatientHighlight";
 import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
@@ -822,6 +823,23 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         scheduled_date: initial.scheduled_date || f.scheduled_date,
         scheduled_time: initial.scheduled_time || f.scheduled_time,
         performer_id: initial.performer_id || f.performer_id,
+        treatment: initial.treatment || f.treatment,
+        notes: initial.notes || f.notes,
+      }));
+      if (initial.scheduled_time) setCustomTime(true);
+      setStep("details");
+    } else if (initial?.is_new_patient) {
+      setNewPatient(true);
+      setForm((f) => ({
+        ...f,
+        patient_name: initial.patient_name || "",
+        patient_phone: initial.patient_phone || "",
+        patient_email: initial.patient_email || "",
+        scheduled_date: initial.scheduled_date || f.scheduled_date,
+        scheduled_time: initial.scheduled_time || f.scheduled_time,
+        performer_id: initial.performer_id || f.performer_id,
+        treatment: initial.treatment || f.treatment,
+        notes: initial.notes || f.notes,
       }));
       if (initial.scheduled_time) setCustomTime(true);
       setStep("details");
@@ -1131,10 +1149,12 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       if (outcome?.cancelled) return;
       setPendingConflict(null);
       setPendingSubmitBody(null);
+      const booking = outcome?.result?.data;
       finishModalSuccess({
         message: overtimeMeta ? "Overtime appointment created" : "Appointment created.",
         onSuccess: onCreated,
         onClose,
+        result: booking,
       });
     } catch (e) {
       if (e.scheduleConflict) {
@@ -1178,13 +1198,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       const body = { ...pendingSubmitBody, overlap_override: true };
       appendBookingDurationMetadata(body, form);
       Object.assign(body, staffRequestPayload(form, staff));
-      await api.post("/bookings", body);
+      const r = await api.post("/bookings", body);
       setPendingConflict(null);
       setPendingSubmitBody(null);
       finishModalSuccess({
         message: overtimeMeta ? "Overtime appointment created" : "Appointment created.",
         onSuccess: onCreated,
         onClose,
+        result: r.data,
       });
     } catch (e) {
       const detail = e?.response?.data?.detail;
@@ -2625,6 +2646,7 @@ export default function BookingsPage() {
   const [detailStartEdit, setDetailStartEdit] = useState(false);
   const [overtimeSlot, setOvertimeSlot] = useState(null);
   const [overtimeMeta, setOvertimeMeta] = useState(null);
+  const [pendingWaitlistId, setPendingWaitlistId] = useState(null);
   const [automationActive, setAutomationActive] = useState(false);
   const scheduleModalPortalRef = useRef(null);
   const scheduleHighlightApiRef = useRef(null);
@@ -2677,6 +2699,28 @@ export default function BookingsPage() {
     setNewInitial(null);
     setNewOpen(true);
   }, []);
+
+  const handleCreateAppointmentFromWaitlist = useCallback((entry) => {
+    setPendingWaitlistId(entry?.id || null);
+    setNewInitial(buildWaitlistBookingPrefill(entry, scheduleDate));
+    setNewOpen(true);
+  }, [scheduleDate]);
+
+  const handleBookingCreated = useCallback(async (booking) => {
+    if (pendingWaitlistId && booking?.id) {
+      try {
+        await api.post(`/waiting-list/${pendingWaitlistId}/convert`, { appointment_id: booking.id });
+        toast.success("Appointment created and waiting list updated");
+      } catch {
+        toast.error("Appointment created but waiting list link failed");
+      }
+    }
+    setPendingWaitlistId(null);
+    setNewOpen(false);
+    setNewInitial(null);
+    setOvertimeMeta(null);
+    invalidateBookingsNow();
+  }, [pendingWaitlistId]);
 
   const openBlockTime = useCallback(() => {
     setBlockInitial({ scheduled_date: scheduleDate });
@@ -2856,6 +2900,7 @@ export default function BookingsPage() {
             onCopyPublicLink={copyLink}
             appointmentContext={detailBooking}
             onInvoicePaymentSuccess={() => setReloadAt(Date.now())}
+            onCreateAppointmentFromWaitlist={handleCreateAppointmentFromWaitlist}
           />
         </div>
       ) : (
@@ -3152,8 +3197,8 @@ export default function BookingsPage() {
           initial={newInitial}
           overtimeMeta={overtimeMeta}
           timezone={timezone}
-          onClose={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); }}
-          onCreated={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); invalidateBookingsNow(); }}
+          onClose={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); setPendingWaitlistId(null); }}
+          onCreated={handleBookingCreated}
         />
         )}
       </BookingModalPortal>

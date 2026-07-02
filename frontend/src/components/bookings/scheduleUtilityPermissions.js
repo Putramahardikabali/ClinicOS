@@ -8,6 +8,7 @@ export function resolveScheduleUtilityAccess(user, clinic) {
       invoices: false,
       pos: false,
       sessions: false,
+      waitingList: false,
       dailyClosing: false,
       appointmentLog: false,
       legend: false,
@@ -43,6 +44,10 @@ export function resolveScheduleUtilityAccess(user, clinic) {
       || hasPermission(user, "visits.view_own"))
     && hasFeature(clinic, "emr");
 
+  const waitingList =
+    (platform || role === "super_admin" || hasPermission(user, "waiting_list.view"))
+    && hasFeature(clinic, "online_booking");
+
   const dailyClosing =
     (platform || role === "super_admin" || hasPermission(user, "closing.view") || hasPermission(user, "closing.create"))
     && hasFeature(clinic, "products");
@@ -66,6 +71,7 @@ export function resolveScheduleUtilityAccess(user, clinic) {
     invoices,
     pos,
     sessions,
+    waitingList,
     dailyClosing,
     appointmentLog,
     legend,
@@ -77,6 +83,7 @@ export const UTILITY_ITEMS = [
   { id: "invoices", label: "Invoices", permissionKey: "invoices" },
   { id: "pos", label: "POS", permissionKey: "pos" },
   { id: "sessions", label: "Sessions", permissionKey: "sessions" },
+  { id: "waiting_list", label: "Waitlist", permissionKey: "waitingList" },
   { id: "daily_closing", label: "Closing", permissionKey: "dailyClosing" },
   { id: "appointment_log", label: "Log", permissionKey: "appointmentLog" },
   { id: "legend", label: "Legend", permissionKey: "legend" },

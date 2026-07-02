@@ -801,6 +801,7 @@ export default function BookingsScheduleView({
   canBookSlots,
   appointmentContext = null,
   onInvoicePaymentSuccess,
+  onCreateAppointmentFromWaitlist,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -2070,6 +2071,7 @@ export default function BookingsScheduleView({
           invoiceInit={activeUtility === "invoices" ? invoiceDrawerInit : null}
           sessionsInit={activeUtility === "sessions" ? sessionsDrawerInit : null}
           onPaymentSuccess={handleInvoicePaymentSuccess}
+          onCreateAppointmentFromWaitlist={onCreateAppointmentFromWaitlist}
           closeGuardRef={utilityCloseGuardRef}
         />
         </div>

@@ -4,6 +4,7 @@ import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
 import { ScheduleInvoiceDrawerDetail } from "@/components/bookings/ScheduleInvoiceDrawerDetail";
 import { ScheduleSessionDrawerDetail } from "@/components/bookings/ScheduleSessionDrawerDetail";
+import WaitingListPanel from "@/components/bookings/WaitingListPanel";
 import {
   DATE_PRESETS,
   SESSION_STATUS_FILTERS,
@@ -968,7 +969,15 @@ export function LegendPanel() {
   );
 }
 
-export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, sessionsInit, onPaymentSuccess, closeGuardRef }) {
+export function ScheduleUtilityPanel({
+  utilityId,
+  scheduleDate,
+  invoiceInit,
+  sessionsInit,
+  onPaymentSuccess,
+  onCreateAppointmentFromWaitlist,
+  closeGuardRef,
+}) {
   const invoiceDirtyRef = useRef(false);
 
   useEffect(() => {
@@ -1005,6 +1014,13 @@ export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, ses
         <SessionsPanel
           scheduleDate={scheduleDate}
           sessionsInit={sessionsInit}
+        />
+      );
+    case "waiting_list":
+      return (
+        <WaitingListPanel
+          scheduleDate={scheduleDate}
+          onCreateAppointment={onCreateAppointmentFromWaitlist}
         />
       );
     case "daily_closing":

@@ -48,13 +48,22 @@ describe("scheduleUtilityPermissions", () => {
     expect(access.sessions).toBe(false);
   });
 
-  it("defines seven utility items", () => {
-    expect(UTILITY_ITEMS).toHaveLength(7);
+  it("shows waiting list for FO with permission", () => {
+    const access = resolveScheduleUtilityAccess(
+      { role: "fo", permissions: ["waiting_list.view", "appointments.view"] },
+      { features: ["online_booking", "billing"] },
+    );
+    expect(access.waitingList).toBe(true);
+  });
+
+  it("defines eight utility items", () => {
+    expect(UTILITY_ITEMS).toHaveLength(8);
     expect(UTILITY_ITEMS.map((i) => i.id)).toEqual([
       "price_checker",
       "invoices",
       "pos",
       "sessions",
+      "waiting_list",
       "daily_closing",
       "appointment_log",
       "legend",

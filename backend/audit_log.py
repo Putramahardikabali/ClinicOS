@@ -14,6 +14,7 @@ MODULE_STAFF = "staff"
 MODULE_SCHEDULE = "schedule"
 MODULE_CLINICAL_NOTE = "clinical_note"
 MODULE_CONSENT = "consent"
+MODULE_WAITING_LIST = "waiting_list"
 
 _SENSITIVE_KEYS = frozenset({
     "password", "password_hash", "signature", "image_data", "raw_json",
@@ -439,4 +440,36 @@ async def log_consent(
         old_value=old_value,
         new_value=new_value,
         reason=reason,
+    )
+
+
+def _waiting_list_snapshot(entry: dict) -> dict:
+    return _pick(
+        entry,
+        "id", "patient_id", "is_new_patient", "new_patient_name", "new_patient_phone",
+        "treatment_name_snapshot", "desired_date", "preferred_time_type", "preferred_time",
+        "preferred_staff_id", "priority", "source", "status", "linked_appointment_id",
+    )
+
+
+async def log_waiting_list(
+    db,
+    user: dict,
+    action: str,
+    entry: dict,
+    *,
+    old_value: Optional[dict] = None,
+    reason: Optional[str] = None,
+    meta: Optional[dict] = None,
+) -> None:
+    await write_audit(
+        db,
+        user,
+        action=action,
+        module=MODULE_WAITING_LIST,
+        record_id=entry.get("id", ""),
+        old_value=old_value,
+        new_value=_waiting_list_snapshot(entry),
+        reason=reason,
+        meta=meta,
     )

@@ -10,6 +10,7 @@ export default function ScheduleUtilityDrawer({
   invoiceInit,
   sessionsInit,
   onPaymentSuccess,
+  onCreateAppointmentFromWaitlist,
   closeGuardRef,
 }) {
   if (!open || !utilityId) return null;
@@ -56,6 +57,7 @@ export default function ScheduleUtilityDrawer({
             invoiceInit={invoiceInit}
             sessionsInit={sessionsInit}
             onPaymentSuccess={onPaymentSuccess}
+            onCreateAppointmentFromWaitlist={onCreateAppointmentFromWaitlist}
             closeGuardRef={closeGuardRef}
           />
         </div>

@@ -37,6 +37,7 @@ import BillingPlansPage from "@/pages/BillingPlansPage";
 import BillingCheckoutPage from "@/pages/BillingCheckoutPage";
 import HelpPage from "@/pages/HelpPage";
 import BookingsPage from "@/pages/BookingsPage";
+import WaitingListPage from "@/pages/WaitingListPage";
 import PublicBookingPage from "@/pages/PublicBookingPage";
 import PublicConsentPage from "@/pages/PublicConsentPage";
 import TreatmentsPage from "@/pages/TreatmentsPage";
@@ -148,6 +149,7 @@ export default function App() {
               <Route path="/invoices/visit/:visitId" element={<Protected anyPermission={["billing.view", "invoices.view"]}><OnboardingRedirect><Shell><FeatureRoute feature="billing"><InvoicesOpenVisitPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/invoices/:id" element={<Protected anyPermission={["billing.view", "invoices.view"]}><OnboardingRedirect><Shell><FeatureRoute feature="billing"><InvoiceDetailPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/bookings" element={<Protected permission="appointments.view"><OnboardingRedirect><Shell><FeatureRoute feature="online_booking"><BookingsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
+              <Route path="/waiting-list" element={<Protected permission="waiting_list.view"><OnboardingRedirect><Shell><FeatureRoute feature="online_booking"><WaitingListPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/treatments" element={<Protected permission="treatments.manage"><OnboardingRedirect><Shell><FeatureRoute feature="treatments"><TreatmentsPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/consent-templates" element={<Protected permission="consent.manage" roles={["super_admin", "manager"]}><OnboardingRedirect><Shell><FeatureRoute feature="consent"><ConsentTemplatesPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
               <Route path="/packages" element={<Protected anyPermission={["packages_catalog.manage", "packages.view"]}><OnboardingRedirect><Shell><FeatureRoute feature="packages"><PackagesPage /></FeatureRoute></Shell></OnboardingRedirect></Protected>} />
