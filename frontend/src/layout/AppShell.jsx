@@ -14,7 +14,7 @@ import ImpersonationBanner from "@/components/ImpersonationBanner";
 import FrontDeskReminderLayer from "@/components/frontdesk/FrontDeskReminderLayer";
 import { FrontDeskReminderProvider } from "@/lib/frontDeskReminderContext";
 import { RealtimeEventsProvider } from "@/lib/realtimeEventsContext";
-import { useScheduleFocusMode } from "@/lib/scheduleFocusModeContext";
+import { useAppointmentWorkspace } from "@/lib/appointmentWorkspaceContext";
 import { HelpDrawer } from "@/pages/HelpPage";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
@@ -193,9 +193,8 @@ export default function AppShell({ children }) {
   const useAccountingSidebar = isAccountingUser(user);
   const useFOSidebar = user?.role === "fo";
   const useGroupedSidebar = isOpsSidebarRole(user?.role) || useAccountingSidebar || useFOSidebar;
-  const { isScheduleFocusMode } = useScheduleFocusMode();
-  const scheduleFocusActive = isScheduleFocusMode
-    && (loc.pathname === "/bookings" || loc.pathname.startsWith("/bookings/"));
+  const { isAppointmentWorkspace, isNavigationDrawerOpen, closeNavigationDrawer } = useAppointmentWorkspace();
+  const appointmentWorkspaceActive = isAppointmentWorkspace;
   const bottomKeys = BOTTOM_NAV_BY_ROLE[user?.role] || ["/", "/patients", "/visits"];
   const bottomItems = bottomKeys.map((k) => visibleNav.find((n) => n.to === k)).filter(Boolean);
 
@@ -282,10 +281,16 @@ export default function AppShell({ children }) {
     });
   };
 
-  const Sidebar = ({ inDrawer = false }) => (
+  const Sidebar = ({ inDrawer = false, onClose }) => {
+    const closeNav = () => {
+      onClose?.();
+      setMobileOpen(false);
+    };
+
+    return (
     <div className={`flex flex-col h-full bl-sidebar-shell ${inDrawer ? "" : "w-64 shrink-0 border-r"}`}>
       <div className="px-5 lg:px-6 py-5 lg:py-7 border-b bl-sidebar-header flex items-center justify-between">
-        <button onClick={() => { nav(useAccountingSidebar ? "/reports" : "/"); setMobileOpen(false); }} className="flex items-center gap-2 text-left">
+        <button onClick={() => { nav(useAccountingSidebar ? "/reports" : "/"); closeNav(); }} className="flex items-center gap-2 text-left">
           {branding?.logo_path ? (
             <img src={logoUrl(branding.logo_path)} alt="logo" className="w-9 h-9 rounded-xl object-cover" />
           ) : (
@@ -299,14 +304,14 @@ export default function AppShell({ children }) {
           </div>
         </button>
         {inDrawer && (
-          <button onClick={() => setMobileOpen(false)} className="p-2 rounded-lg hover:bg-[var(--bl-sidebar-hover)]">
+          <button onClick={closeNav} className="p-2 rounded-lg hover:bg-[var(--bl-sidebar-hover)]" aria-label="Close navigation">
             <X className="w-5 h-5" />
           </button>
         )}
       </div>
 
       <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-        {renderSidebarNav(() => setMobileOpen(false))}
+        {renderSidebarNav(closeNav)}
       </nav>
 
       <div className="p-4 border-t bl-sidebar-header">
@@ -317,29 +322,47 @@ export default function AppShell({ children }) {
           <button onClick={logout} className="mt-3 w-full bl-btn-secondary text-sm flex items-center justify-center gap-2" data-testid="logout-button">
             <LogOut className="w-4 h-4" strokeWidth={1.6} /> Logout
           </button>
-          <button type="button" onClick={() => { setHelpOpen(true); setMobileOpen(false); }} className="mt-2 w-full bl-btn-secondary text-sm flex items-center justify-center gap-2" data-testid="help-support-btn">
+          <button type="button" onClick={() => { setHelpOpen(true); closeNav(); }} className="mt-2 w-full bl-btn-secondary text-sm flex items-center justify-center gap-2" data-testid="help-support-btn">
             <LifeBuoy className="w-4 h-4" strokeWidth={1.6} /> Help & Support
           </button>
           <InstallAppPrompt compact />
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <RealtimeEventsProvider>
     <FrontDeskReminderProvider>
     <div
-      className={`flex ${scheduleFocusActive ? "h-screen overflow-hidden" : "min-h-screen"}`}
+      className={`flex ${appointmentWorkspaceActive ? "h-screen overflow-hidden" : "min-h-screen"}`}
       style={{ background: "var(--bl-background)" }}
-      data-schedule-focus-mode={scheduleFocusActive ? "true" : "false"}
+      data-appointment-workspace={appointmentWorkspaceActive ? "true" : "false"}
     >
       <ExpiryGate />
       {/* Desktop sidebar */}
-      {!scheduleFocusActive && (
+      {!appointmentWorkspaceActive && (
       <aside className="hidden lg:flex" data-testid="app-sidebar">
         <Sidebar />
       </aside>
+      )}
+
+      {appointmentWorkspaceActive && isNavigationDrawerOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-[80] bg-[#2D3A33]/40"
+            onClick={closeNavigationDrawer}
+            data-testid="appointment-nav-drawer-overlay"
+            aria-hidden
+          />
+          <aside
+            className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] z-[90] shadow-2xl"
+            data-testid="appointment-nav-drawer"
+          >
+            <Sidebar inDrawer onClose={closeNavigationDrawer} />
+          </aside>
+        </>
       )}
 
       {/* Mobile drawer (overflow nav) */}
@@ -347,26 +370,26 @@ export default function AppShell({ children }) {
         <>
           <div className="bl-mobile-overlay lg:hidden" onClick={() => setMobileOpen(false)} />
           <aside className="fixed top-0 left-0 bottom-0 w-72 z-50 lg:hidden">
-            <Sidebar inDrawer />
+            <Sidebar inDrawer onClose={() => setMobileOpen(false)} />
           </aside>
         </>
       )}
 
       {/* Main */}
-      <main className={`flex-1 min-w-0 flex flex-col ${scheduleFocusActive ? "min-h-0 overflow-hidden" : ""}`}>
-        {showBetaBadge && !scheduleFocusActive && (
+      <main className={`flex-1 min-w-0 flex flex-col ${appointmentWorkspaceActive ? "min-h-0 overflow-hidden" : ""}`}>
+        {showBetaBadge && !appointmentWorkspaceActive && (
           <div className="px-4 py-2 text-xs font-semibold text-amber-900 bg-amber-100 border-b border-amber-200 text-center tracking-wide">
             ClinicOS Beta Environment
           </div>
         )}
         <ImpersonationBanner />
-        {!scheduleFocusActive && <BillingNotificationBanner />}
-        {!scheduleFocusActive && <UsageWarningBanner />}
-        {!scheduleFocusActive && <SubscriptionBanner />}
-        {!scheduleFocusActive && <PlatformAnnouncementBanner />}
+        {!appointmentWorkspaceActive && <BillingNotificationBanner />}
+        {!appointmentWorkspaceActive && <UsageWarningBanner />}
+        {!appointmentWorkspaceActive && <SubscriptionBanner />}
+        {!appointmentWorkspaceActive && <PlatformAnnouncementBanner />}
         {/* Mobile top bar — hidden on visit workflow for more vertical space */}
         <header
-          className={`lg:hidden sticky top-0 z-30 backdrop-blur border-b px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage || scheduleFocusActive ? "hidden" : ""}`}
+          className={`lg:hidden sticky top-0 z-30 backdrop-blur border-b px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage || appointmentWorkspaceActive ? "hidden" : ""}`}
           style={{ background: "color-mix(in srgb, var(--bl-background) 95%, transparent)", borderColor: "var(--bl-border)" }}
           data-testid="mobile-app-header"
         >
@@ -391,14 +414,14 @@ export default function AppShell({ children }) {
         </header>
 
         <div
-          className={`flex-1 ${scheduleFocusActive ? "min-h-0 overflow-hidden flex flex-col" : `lg:pb-0 ${isVisitWorkflowPage ? "pb-[12.5rem]" : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"}`}`}
+          className={`flex-1 ${appointmentWorkspaceActive ? "min-h-0 overflow-hidden flex flex-col" : `lg:pb-0 ${isVisitWorkflowPage ? "pb-[12.5rem]" : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"}`}`}
           data-visit-workflow={isVisitWorkflowPage ? "true" : undefined}
         >
           {children}
         </div>
 
         {/* Mobile bottom navigation */}
-        {!scheduleFocusActive && (
+        {!appointmentWorkspaceActive && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#EAE6D7] safe-area-pb" data-testid="bottom-nav">
           <div className="flex items-stretch justify-around">
             {bottomItems.map((n) => {

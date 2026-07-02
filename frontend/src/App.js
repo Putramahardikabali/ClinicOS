@@ -10,7 +10,7 @@ import DemoPage from "@/pages/DemoPage";
 import RegisterPage from "@/pages/RegisterPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import AppShell from "@/layout/AppShell";
-import { ScheduleFocusModeProvider } from "@/lib/scheduleFocusModeContext";
+import { AppointmentWorkspaceProvider } from "@/lib/appointmentWorkspaceContext";
 import DashboardPage from "@/pages/DashboardPage";
 import FrontDeskDashboardPage from "@/pages/FrontDeskDashboardPage";
 import PatientsPage from "@/pages/PatientsPage";
@@ -109,9 +109,9 @@ function OnboardingRedirect({ children }) {
 
 function Shell({ children }) {
   return (
-    <ScheduleFocusModeProvider>
+    <AppointmentWorkspaceProvider>
       <AppShell>{children}</AppShell>
-    </ScheduleFocusModeProvider>
+    </AppointmentWorkspaceProvider>
   );
 }
 

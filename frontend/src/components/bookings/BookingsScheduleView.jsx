@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
-import { ChevronLeft, ChevronRight, ChevronDown, Layers, Maximize2, PanelLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu } from "lucide-react";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import {
   buildSchedulePreviewLines,
@@ -15,13 +15,8 @@ import ScheduleFullscreenUtilityRail from "@/components/bookings/ScheduleFullscr
 import ScheduleUtilityDrawer from "@/components/bookings/ScheduleUtilityDrawer";
 import { resolveScheduleUtilityAccess } from "@/components/bookings/scheduleUtilityPermissions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useScheduleFocusMode } from "@/lib/scheduleFocusModeContext";
+import { useAppointmentWorkspace } from "@/lib/appointmentWorkspaceContext";
+import WorkspaceMoreMenu from "@/components/bookings/WorkspaceMoreMenu";
 import {
   getClinicNowParts,
   hhmmToMin,
@@ -801,40 +796,6 @@ function NowIndicator({ orientation, openMin, interval, nowMin }) {
   );
 }
 
-function ScheduleLegend() {
-  const legendKeys = [
-    "booked",
-    "confirmed",
-    "checked_in",
-    "treatment_started",
-    "closed",
-    "completed",
-    "block_out",
-    "unavailable",
-  ];
-  return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-[#A89F8B]" data-testid="schedule-legend">
-      {legendKeys.map((k) => {
-        const v = SCHEDULE_STATUS_COLORS[k];
-        if (!v) return null;
-        return (
-          <span key={k} className="inline-flex items-center gap-1">
-            <span
-              className={`w-2.5 h-2.5 rounded-sm border ${k === "block_out" ? "border-dashed" : ""}`}
-              style={{ background: v.bg, borderColor: v.border }}
-            />
-            {v.label}
-          </span>
-        );
-      })}
-      <span className="inline-flex items-center gap-1">
-        <span className="w-2.5 h-2.5 rounded-sm bg-[#EDE8DC]/70 border border-[#D8D0C0]" />
-        Past time
-      </span>
-    </div>
-  );
-}
-
 export default function BookingsScheduleView({
   clinic,
   user,
@@ -858,6 +819,11 @@ export default function BookingsScheduleView({
   onModifyBooking,
   onOpenPatientProfile,
   onCreatePatient,
+  onNewAppointment,
+  onBlockTime,
+  onShowListView,
+  onCopyPublicLink,
+  clinicSlug,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -870,12 +836,11 @@ export default function BookingsScheduleView({
   const lastRefreshErrorAtRef = useRef(0);
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
   const {
-    isScheduleFocusMode,
+    isAppointmentWorkspace,
     isBrowserFullscreen,
-    enterFocusMode,
-    exitFocusMode,
+    toggleNavigationDrawer,
     toggleBrowserFullscreen,
-  } = useScheduleFocusMode();
+  } = useAppointmentWorkspace();
   const [scaleState, setScaleState] = useState(() => loadScheduleScaleState());
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
@@ -1056,8 +1021,8 @@ export default function BookingsScheduleView({
   }, [activatePatientHighlight]);
 
   useEffect(() => {
-    if (!isScheduleFocusMode) setActiveUtility(null);
-  }, [isScheduleFocusMode]);
+    if (!isAppointmentWorkspace) setActiveUtility(null);
+  }, [isAppointmentWorkspace]);
 
   const utilityAccess = useMemo(
     () => resolveScheduleUtilityAccess(user, clinic),
@@ -1065,7 +1030,7 @@ export default function BookingsScheduleView({
   );
 
   useEffect(() => {
-    if (!isScheduleFocusMode || !activeUtility) return undefined;
+    if (!isAppointmentWorkspace || !activeUtility) return undefined;
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -1074,7 +1039,7 @@ export default function BookingsScheduleView({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [isScheduleFocusMode, activeUtility]);
+  }, [isAppointmentWorkspace, activeUtility]);
 
   const { openMin, closeMin, interval, closed, closedReason, slotCount } = useMemo(() => {
     const dk = dayKey(date);
@@ -1102,8 +1067,8 @@ export default function BookingsScheduleView({
   }, [clinic, date]);
 
   const metrics = useMemo(
-    () => buildScheduleMetrics(scaleState, isScheduleFocusMode),
-    [scaleState, isScheduleFocusMode],
+    () => buildScheduleMetrics(scaleState, isAppointmentWorkspace),
+    [scaleState, isAppointmentWorkspace],
   );
 
   const gridWidth = useMemo(() => slotCount * metrics.slotPx, [slotCount, metrics.slotPx]);
@@ -1176,7 +1141,7 @@ export default function BookingsScheduleView({
   }, [persistScale, scaleState]);
 
   useEffect(() => {
-    if (!isScheduleFocusMode || closed || workingStaff.length === 0) return undefined;
+    if (!isAppointmentWorkspace || closed || workingStaff.length === 0) return undefined;
     if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
       return undefined;
     }
@@ -1198,7 +1163,7 @@ export default function BookingsScheduleView({
     });
     return () => cancelAnimationFrame(id);
   }, [
-    isScheduleFocusMode,
+    isAppointmentWorkspace,
     orientation,
     slotCount,
     flatStaff.length,
@@ -1210,7 +1175,7 @@ export default function BookingsScheduleView({
   ]);
 
   useEffect(() => {
-    if (!isScheduleFocusMode) return undefined;
+    if (!isAppointmentWorkspace) return undefined;
     if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
       return undefined;
     }
@@ -1232,7 +1197,7 @@ export default function BookingsScheduleView({
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [isScheduleFocusMode, scaleState.fitMode, measureFitRatios]);
+  }, [isAppointmentWorkspace, scaleState.fitMode, measureFitRatios]);
 
   const unassigned = bookings.filter(
     (b) =>
@@ -1594,26 +1559,16 @@ export default function BookingsScheduleView({
     saveScheduleOrientation(next);
   };
 
-  const enterFocusModeLayout = () => {
-    enterFocusMode();
-  };
-
-  const showNavigation = () => {
-    exitFocusMode();
-  };
-
   const hasWorkingStaff = workingStaff.length > 0;
   const { staffColW, timeColW, rowH } = metrics;
   const trackHeight = slotCount * rowH;
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
-  const gridScrollClass = isScheduleFocusMode
-    ? "flex-1 min-h-0 overflow-y-auto overflow-x-auto"
-    : "max-h-[min(72vh,900px)] overflow-auto";
-  const tooltipContainer = isBrowserFullscreen ? shellRef.current : undefined;
+  const gridScrollClass = "flex-1 min-h-0 overflow-y-auto overflow-x-auto";
+  const tooltipContainer = shellRef.current;
   const overlayPortalContainer = isBrowserFullscreen
     ? (document.fullscreenElement || shellRef.current)
-    : (isScheduleFocusMode ? shellRef.current : undefined);
+    : shellRef.current;
 
   const handleSearchBookPatient = useCallback((patient) => {
     onBookPatient?.(patient, date);
@@ -1629,7 +1584,7 @@ export default function BookingsScheduleView({
 
   const renderHorizontal = () => (
     <div
-      ref={isScheduleFocusMode ? gridViewportRef : null}
+      ref={gridViewportRef}
       className={gridScrollClass}
       data-testid="schedule-horizontal"
     >
@@ -1698,7 +1653,7 @@ export default function BookingsScheduleView({
 
   const renderVertical = () => (
     <div
-      ref={isScheduleFocusMode ? gridViewportRef : null}
+      ref={gridViewportRef}
       className={gridScrollClass}
       data-testid="schedule-vertical"
     >
@@ -1803,9 +1758,7 @@ export default function BookingsScheduleView({
     </div>
   );
 
-  const shellClass = isScheduleFocusMode
-    ? "flex flex-col flex-1 min-h-0 h-full bg-[#FDFBF7] relative p-3 sm:p-4"
-    : "";
+  const shellClass = "flex flex-col flex-1 min-h-0 h-full bg-[#FDFBF7] relative p-3 sm:p-4";
 
   return (
     <TooltipProvider delayDuration={280} skipDelayDuration={80}>
@@ -1814,9 +1767,18 @@ export default function BookingsScheduleView({
       ref={shellRef}
       className={shellClass}
       data-testid="bookings-schedule-view"
-      data-schedule-focus-mode={isScheduleFocusMode ? "true" : "false"}
+      data-appointment-workspace="true"
     >
-      <div className={`flex flex-wrap items-center gap-2 sm:gap-3 mb-4 ${isScheduleFocusMode ? "shrink-0" : ""}`}>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4 shrink-0">
+        <button
+          type="button"
+          className="bl-icon-btn"
+          onClick={toggleNavigationDrawer}
+          aria-label="Open navigation menu"
+          data-testid="appointment-nav-menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
         <div className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => shiftDay(-1)} className="bl-icon-btn" data-testid="schedule-prev-day">
             <ChevronLeft className="w-4 h-4" />
@@ -1839,34 +1801,32 @@ export default function BookingsScheduleView({
           )}
         </div>
 
-        {isScheduleFocusMode && (
-          <div className="flex items-center gap-2 flex-1 min-w-[12rem] flex-wrap w-full sm:w-auto sm:flex-initial">
-            <SchedulePatientSearch
-              date={date}
-              canManage={canManage}
-              canWhatsgo={canWhatsgo}
-              canCreatePatient={canCreatePatient}
-              portalContainer={overlayPortalContainer}
-              onHighlightPatient={handleSearchHighlightPatient}
-              onBookPatient={handleSearchBookPatient}
-              onModifyBooking={handleSearchModifyBooking}
-              onOpenPatientProfile={onOpenPatientProfile}
-              onCreatePatient={onCreatePatient}
-            />
-            {onStatusFilterChange && (
-              <select
-                className="bl-input text-sm w-auto min-w-[9.5rem] max-w-[13rem] py-2 h-auto"
-                value={statusFilter || ""}
-                onChange={(e) => onStatusFilterChange(e.target.value)}
-                data-testid="schedule-status-filter"
-              >
-                {SCHEDULE_STATUS_FILTER_OPTIONS.map((o) => (
-                  <option key={o.value || "all"} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-1 min-w-[12rem] flex-wrap w-full sm:w-auto sm:flex-initial">
+          <SchedulePatientSearch
+            date={date}
+            canManage={canManage}
+            canWhatsgo={canWhatsgo}
+            canCreatePatient={canCreatePatient}
+            portalContainer={overlayPortalContainer}
+            onHighlightPatient={handleSearchHighlightPatient}
+            onBookPatient={handleSearchBookPatient}
+            onModifyBooking={handleSearchModifyBooking}
+            onOpenPatientProfile={onOpenPatientProfile}
+            onCreatePatient={onCreatePatient}
+          />
+          {onStatusFilterChange && (
+            <select
+              className="bl-input text-sm w-auto min-w-[9.5rem] max-w-[13rem] py-2 h-auto"
+              value={statusFilter || ""}
+              onChange={(e) => onStatusFilterChange(e.target.value)}
+              data-testid="schedule-status-filter"
+            >
+              {SCHEDULE_STATUS_FILTER_OPTIONS.map((o) => (
+                <option key={o.value || "all"} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          )}
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap ml-auto">
           <div className="bl-segmented" data-testid="schedule-orientation-toggle">
@@ -1888,78 +1848,37 @@ export default function BookingsScheduleView({
             </button>
           </div>
 
-          {isScheduleFocusMode && (
-            <ScheduleFitControls
-              fitMode={scaleState.fitMode}
-              orientation={orientation}
-              menuContainer={overlayPortalContainer}
-              onFitHeight={() => applyFitMode(SCHEDULE_FIT_MODES.fitHeight)}
-              onFitWidth={() => applyFitMode(SCHEDULE_FIT_MODES.fitWidth)}
-              onFitScreen={() => applyFitMode(SCHEDULE_FIT_MODES.fitScreen)}
-              onReset={() => applyFitMode(SCHEDULE_FIT_MODES.default)}
-              onAdjustRowH={(delta) => adjustScale("rowH", delta)}
-              onAdjustSlotPx={(delta) => adjustScale("slotPx", delta)}
-              onAdjustStaffCol={(delta) => adjustScale("staffCol", delta)}
-            />
-          )}
+          <ScheduleFitControls
+            fitMode={scaleState.fitMode}
+            orientation={orientation}
+            menuContainer={overlayPortalContainer}
+            onFitHeight={() => applyFitMode(SCHEDULE_FIT_MODES.fitHeight)}
+            onFitWidth={() => applyFitMode(SCHEDULE_FIT_MODES.fitWidth)}
+            onFitScreen={() => applyFitMode(SCHEDULE_FIT_MODES.fitScreen)}
+            onReset={() => applyFitMode(SCHEDULE_FIT_MODES.default)}
+            onAdjustRowH={(delta) => adjustScale("rowH", delta)}
+            onAdjustSlotPx={(delta) => adjustScale("slotPx", delta)}
+            onAdjustStaffCol={(delta) => adjustScale("staffCol", delta)}
+          />
 
-          {isScheduleFocusMode ? (
-            <button
-              type="button"
-              className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
-              onClick={showNavigation}
-              data-testid="schedule-show-navigation"
-              title="Show navigation and exit focus mode"
-            >
-              <PanelLeft className="w-4 h-4" />
-              Show navigation
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
-              onClick={enterFocusModeLayout}
-              data-testid="schedule-enter-focus-mode"
-              title="Expand schedule into focus mode"
-            >
-              <Maximize2 className="w-4 h-4" />
-              Focus mode
-            </button>
-          )}
-
-          {isScheduleFocusMode && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="bl-btn-secondary text-xs inline-flex items-center gap-1"
-                  data-testid="schedule-focus-more-menu"
-                >
-                  More
-                  <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                container={overlayPortalContainer}
-                className="min-w-[11rem] z-[130] bg-[var(--bl-surface)] border-[var(--bl-border)] text-[var(--bl-text)] shadow-lg"
-              >
-                <DropdownMenuItem
-                  className="cursor-pointer"
-                  onClick={() => toggleBrowserFullscreen(shellRef.current)}
-                  data-testid="schedule-browser-fullscreen"
-                >
-                  {isBrowserFullscreen ? "Exit browser full screen" : "Browser full screen"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <WorkspaceMoreMenu
+            canManage={canManage}
+            clinicSlug={clinicSlug}
+            viewMode="schedule"
+            onNewAppointment={onNewAppointment}
+            onBlockTime={onBlockTime}
+            onShowListView={onShowListView}
+            onCopyPublicLink={onCopyPublicLink}
+            onBrowserFullscreen={() => toggleBrowserFullscreen(shellRef.current)}
+            isBrowserFullscreen={isBrowserFullscreen}
+            container={overlayPortalContainer}
+          />
         </div>
       </div>
 
       {patientHighlight && (
         <div
-          className={`flex flex-wrap items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] ${isScheduleFocusMode ? "shrink-0" : ""}`}
+          className="flex flex-wrap items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] shrink-0"
           data-testid="schedule-patient-highlight-banner"
         >
           <div className="text-sm text-[#1E3A8A]">
@@ -1981,14 +1900,8 @@ export default function BookingsScheduleView({
         </div>
       )}
 
-      {!isScheduleFocusMode && (
-      <p className="text-xs text-[#A89F8B] mb-3">
-        Click an open slot to book · drag across slots to block a range · click a block for details
-      </p>
-      )}
-
-      <div className={`${isScheduleFocusMode ? "flex flex-1 min-h-0 relative" : ""}`}>
-        <div className={`${isScheduleFocusMode ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
+      <div className="flex flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         {initialLoading && bookings.length === 0 && staff.length === 0 ? (
           <div className="bl-card p-10 text-center text-[#5C6C62]">Loading schedule…</div>
         ) : closed ? (
@@ -2004,7 +1917,7 @@ export default function BookingsScheduleView({
             No staff scheduled to work on {dateLabel}. Adjust staff schedules or pick another day.
           </div>
         ) : (
-          <div className={`bl-card overflow-hidden ${isScheduleFocusMode ? "h-full flex flex-col flex-1 min-h-0" : ""}`}>
+          <div className="bl-card overflow-hidden h-full flex flex-col flex-1 min-h-0">
               {orientation === "vertical" ? renderVertical() : renderHorizontal()}
 
             {unassigned.length > 0 && (
@@ -2039,24 +1952,18 @@ export default function BookingsScheduleView({
         )}
         </div>
 
-        {isScheduleFocusMode && (
-          <>
-            <ScheduleUtilityDrawer
-              open={!!activeUtility}
-              utilityId={activeUtility}
-              onClose={() => setActiveUtility(null)}
-              scheduleDate={date}
-            />
-            <ScheduleFullscreenUtilityRail
-              access={utilityAccess}
-              activeId={activeUtility}
-              onSelect={setActiveUtility}
-            />
-          </>
-        )}
+        <ScheduleUtilityDrawer
+          open={!!activeUtility}
+          utilityId={activeUtility}
+          onClose={() => setActiveUtility(null)}
+          scheduleDate={date}
+        />
+        <ScheduleFullscreenUtilityRail
+          access={utilityAccess}
+          activeId={activeUtility}
+          onSelect={setActiveUtility}
+        />
       </div>
-
-      {!isScheduleFocusMode && <ScheduleLegend />}
 
       <div
         ref={modalPortalRef}

@@ -53,8 +53,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   CalendarDays, Clock, Phone, MessageCircle, Copy, CheckCircle2, X, Plus,
-  ArrowRight, ExternalLink, LayoutList, CalendarRange, Ban,
-  ChevronDown, MoreHorizontal, Receipt, CalendarClock, Heart,
+  ArrowRight, Ban,
+  MoreHorizontal, Receipt, CalendarClock, Heart,
 } from "lucide-react";
 import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/BookingsScheduleView";
 import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
@@ -65,7 +65,8 @@ import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursM
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
 import { useAuth, hasPermission, can } from "@/lib/auth";
-import { useScheduleFocusMode, readScheduleFocusModePreference } from "@/lib/scheduleFocusModeContext";
+import AppointmentListWorkspace from "@/components/bookings/AppointmentListWorkspace";
+import { useAppointmentWorkspace } from "@/lib/appointmentWorkspaceContext";
 import { evaluateNewBookingSubmit } from "@/lib/bookingSubmitValidation";
 import BookingGiftCardSection from "@/components/bookings/BookingGiftCardSection";
 import {
@@ -1543,11 +1544,6 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
   );
 }
 
-const VIEW_MODES = [
-  { key: "schedule", label: "Schedule", icon: CalendarRange },
-  { key: "list", label: "List", icon: LayoutList },
-];
-
 function bookingToForm(booking, treatments = [], packages = []) {
   const dt = new Date(booking.scheduled_at);
   const pad = (n) => String(n).padStart(2, "0");
@@ -2554,7 +2550,9 @@ export default function BookingsPage() {
   const { branding } = useSettings();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [viewMode, setViewMode] = useState("schedule");
+  const [viewMode, setViewMode] = useState(() => (
+    searchParams.get("view") === "list" ? "list" : "schedule"
+  ));
   const [scheduleDate, setScheduleDate] = useState(() => scheduleDateStr(new Date()));
   const [scope, setScopeKey] = useState("today");
   const [statusFilter, setStatusFilter] = useState("");
@@ -2577,14 +2575,24 @@ export default function BookingsPage() {
   const [automationActive, setAutomationActive] = useState(false);
   const scheduleModalPortalRef = useRef(null);
   const scheduleHighlightApiRef = useRef(null);
-  const {
-    isScheduleFocusMode,
-    isBrowserFullscreen,
-    enterFocusMode,
-  } = useScheduleFocusMode();
-  const restoredFocusRef = useRef(false);
-  const scheduleFocusLayout = isScheduleFocusMode && viewMode === "schedule";
-  const useScheduleModalPortal = scheduleFocusLayout && isBrowserFullscreen;
+  const { isBrowserFullscreen } = useAppointmentWorkspace();
+
+  const setViewModeWithUrl = useCallback((mode) => {
+    setViewMode(mode);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (mode === "list") next.set("view", "list");
+      else next.delete("view");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    const mode = searchParams.get("view") === "list" ? "list" : "schedule";
+    setViewMode(mode);
+  }, [searchParams]);
+
+  const useScheduleModalPortal = viewMode === "schedule" && isBrowserFullscreen;
   const clinicName = branding?.clinic_name || clinic?.name || "our clinic";
   const canCreateOvertime =
     ["super_admin", "manager"].includes(user?.role) ||
@@ -2612,13 +2620,16 @@ export default function BookingsPage() {
     navigate("/patients");
   }, [navigate]);
 
-  useEffect(() => {
-    if (viewMode !== "schedule" || restoredFocusRef.current) return;
-    restoredFocusRef.current = true;
-    if (readScheduleFocusModePreference()) {
-      enterFocusMode();
-    }
-  }, [viewMode, enterFocusMode]);
+  const openNewAppointment = useCallback(() => {
+    setNewInitial(null);
+    setNewOpen(true);
+  }, []);
+
+  const openBlockTime = useCallback(() => {
+    setBlockInitial({ scheduled_date: scheduleDate });
+    setBlockEdit(null);
+    setBlockOpen(true);
+  }, [scheduleDate]);
 
   useEffect(() => {
     if (viewMode !== "schedule") {
@@ -2748,108 +2759,12 @@ export default function BookingsPage() {
 
   return (
     <div
-      className={scheduleFocusLayout
-        ? "flex flex-col flex-1 min-h-0 h-full"
-        : "p-6 md:p-8 lg:p-10 max-w-7xl mx-auto"}
+      className="flex flex-col flex-1 min-h-0 h-full"
       data-testid="bookings-page"
-      data-schedule-focus-layout={scheduleFocusLayout ? "true" : "false"}
+      data-appointment-workspace="true"
     >
-      {!scheduleFocusLayout && (
-      <>
-      <div className="flex items-end justify-between flex-wrap gap-4">
-        <div>
-          <div className="label-eyebrow">Front desk</div>
-          <h1 className="font-display text-3xl sm:text-4xl tracking-tight font-light mt-2 text-[#2D3A33]">Appointments</h1>
-          <p className="mt-2 text-[#5C6C62] max-w-xl">Schedule patients, assign staff, and start a treatment session when they arrive.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canManage && (
-            <>
-              <button onClick={() => { setNewInitial(null); setNewOpen(true); }} className="bl-btn-primary inline-flex items-center gap-2 text-sm" data-testid="new-booking-button">
-                <Plus className="w-4 h-4" /> New appointment
-              </button>
-              <button
-                onClick={() => { setBlockInitial({ scheduled_date: scheduleDate }); setBlockEdit(null); setBlockOpen(true); }}
-                className="bl-btn-secondary inline-flex items-center gap-2 text-sm"
-                data-testid="block-time-button"
-              >
-                <Ban className="w-4 h-4" /> Block time
-              </button>
-            </>
-          )}
-          {clinic?.slug && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="bl-btn-secondary text-sm inline-flex items-center gap-1.5" data-testid="bookings-more-menu">
-                  More
-                  <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[12rem] bg-[var(--bl-surface)] border-[var(--bl-border)] text-[var(--bl-text)] shadow-lg">
-                <DropdownMenuItem onClick={copyLink} className="cursor-pointer focus:bg-[var(--clinic-action-secondary-hover-bg)]" data-testid="copy-public-link">
-                  <Copy className="w-4 h-4 mr-2 text-[var(--bl-muted-text)]" />
-                  Copy appointment link
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild className="cursor-pointer focus:bg-[var(--clinic-action-secondary-hover-bg)]">
-                  <a href={`/book/${clinic.slug}`} target="_blank" rel="noreferrer" className="flex items-center w-full" data-testid="open-public-link">
-                    <ExternalLink className="w-4 h-4 mr-2 text-[var(--bl-muted-text)]" />
-                    View public booking page
-                  </a>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 flex items-center justify-between flex-wrap gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--bl-border)", background: "color-mix(in srgb, var(--bl-background) 60%, var(--bl-surface))" }}>
-        <div className="bl-segmented" data-testid="view-mode-tabs">
-          {VIEW_MODES.map(t => {
-            const Icon = t.icon;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setViewMode(t.key)}
-                className={`bl-segmented-item inline-flex items-center gap-1.5 ${viewMode === t.key ? "active" : ""}`}
-                data-testid={`view-${t.key}`}
-              >
-                <Icon className="w-3.5 h-3.5" /> {t.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--bl-muted-text)] hidden sm:inline">Status</span>
-          <select
-            className="bl-input w-auto min-w-[11.5rem] sm:min-w-[13.5rem] max-w-full py-2.5 pr-9 text-sm leading-normal h-auto align-middle"
-            style={{ lineHeight: "1.35" }}
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            data-testid="status-filter"
-          >
-            <option value="">All statuses</option>
-            {SCHEDULE_STATUS_FILTER_OPTIONS.filter((o) => o.value).map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      </>
-      )}
-
-      {viewMode === "list" && (
-        <div className="mt-4 flex gap-1 bg-[#F3F1EB] rounded-xl p-1 w-fit" data-testid="scope-tabs">
-          {SCOPE_TABS.map(t => (
-            <button key={t.key} onClick={() => setScopeKey(t.key)} className="px-4 py-1.5 rounded-lg text-sm font-medium" style={scope === t.key ? { background: "white", color: "#2D3A33", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" } : { color: "#5C6C62" }} data-testid={`scope-${t.key}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       {viewMode === "schedule" ? (
-        <div className={scheduleFocusLayout ? "flex flex-col flex-1 min-h-0" : "mt-5"}>
+        <div className="flex flex-col flex-1 min-h-0">
           <BookingsScheduleView
             clinic={clinic}
             user={user}
@@ -2876,25 +2791,70 @@ export default function BookingsPage() {
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
             onRangeSelect={(payload) => setSlotAction(payload)}
+            clinicSlug={clinic?.slug}
+            onNewAppointment={canManage ? openNewAppointment : undefined}
+            onBlockTime={canManage ? openBlockTime : undefined}
+            onShowListView={() => setViewModeWithUrl("list")}
+            onCopyPublicLink={copyLink}
           />
         </div>
       ) : (
-      <>
-      <div className="mt-5 space-y-3 lg:hidden" data-testid="bookings-cards">
-        {bookings.length === 0 && (
-          <div className="bl-card p-8 text-center text-[#5C6C62]" data-testid="bookings-empty">No appointments in this view.</div>
-        )}
-        {bookings.map((b) => (
-          <BookingListCard
-            key={b.id}
-            booking={b}
-            onOpen={(bk) => { setDetailStartEdit(false); setDetailBooking(bk); }}
-            onWa={setWaBooking}
-          />
-        ))}
-      </div>
+        <AppointmentListWorkspace
+          canManage={canManage}
+          clinicSlug={clinic?.slug}
+          onNewAppointment={canManage ? openNewAppointment : undefined}
+          onBlockTime={canManage ? openBlockTime : undefined}
+          onShowScheduleView={() => setViewModeWithUrl("schedule")}
+          onCopyPublicLink={copyLink}
+          scopeTabs={(
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 shrink-0">
+              <div className="flex gap-1 bg-[#F3F1EB] rounded-xl p-1 w-fit" data-testid="scope-tabs">
+                {SCOPE_TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setScopeKey(t.key)}
+                    className="px-4 py-1.5 rounded-lg text-sm font-medium"
+                    style={scope === t.key ? { background: "white", color: "#2D3A33", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" } : { color: "#5C6C62" }}
+                    data-testid={`scope-${t.key}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--bl-muted-text)] hidden sm:inline">Status</span>
+                <select
+                  className="bl-input w-auto min-w-[11.5rem] sm:min-w-[13.5rem] max-w-full py-2.5 pr-9 text-sm leading-normal h-auto align-middle"
+                  style={{ lineHeight: "1.35" }}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  data-testid="status-filter"
+                >
+                  <option value="">All statuses</option>
+                  {SCHEDULE_STATUS_FILTER_OPTIONS.filter((o) => o.value).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+        >
+          <div className="space-y-3 lg:hidden" data-testid="bookings-cards">
+            {bookings.length === 0 && (
+              <div className="bl-card p-8 text-center text-[#5C6C62]" data-testid="bookings-empty">No appointments in this view.</div>
+            )}
+            {bookings.map((b) => (
+              <BookingListCard
+                key={b.id}
+                booking={b}
+                onOpen={(bk) => { setDetailStartEdit(false); setDetailBooking(bk); }}
+                onWa={setWaBooking}
+              />
+            ))}
+          </div>
 
-      <div className="mt-5 bl-card table-card overflow-hidden hidden lg:block" data-testid="bookings-table">
+          <div className="bl-card table-card overflow-hidden hidden lg:block" data-testid="bookings-table">
         <div className="overflow-x-auto">
           <table className="bl-data-table w-full min-w-[720px]">
             <thead className="bl-data-table-head">
@@ -3017,7 +2977,7 @@ export default function BookingsPage() {
           </table>
         </div>
       </div>
-      </>
+        </AppointmentListWorkspace>
       )}
 
       <BookingModalPortal active={!!detailBooking} fullscreen={useScheduleModalPortal} portalRef={scheduleModalPortalRef}>
