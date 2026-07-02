@@ -90,6 +90,8 @@ import {
 } from "@/lib/scheduleScale";
 import { toast } from "sonner";
 import { confirmPastBookingProceed } from "@/lib/pastBookingPolicy";
+import ScheduleTrackInteractionLayer from "@/components/bookings/ScheduleTrackInteractionLayer";
+import { logScheduleInteractionDebug } from "@/components/bookings/scheduleInteraction";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
 
@@ -318,9 +320,10 @@ function BookingBlock({
 
   const positionedCard = (
     <div
-      className="absolute"
+      className="absolute z-10 pointer-events-auto"
       style={positionStyle}
       data-patient-highlight-match={patientHighlightMatch ? "true" : undefined}
+      data-schedule-block-wrap=""
     >
       {hoverPreview && !block ? (
         <Tooltip delayDuration={280}>
@@ -369,13 +372,6 @@ function BookingBlock({
 
 function ScheduleSlotCell({
   state,
-  timeStr,
-  staffId,
-  slotMin,
-  slotEnd,
-  onSlotPointerDown,
-  onSlotPointerEnter,
-  onSlotClick,
   orientation,
   highlighted,
 }) {
@@ -385,93 +381,22 @@ function ScheduleSlotCell({
     orientation === "vertical"
       ? "border-b border-[#F0EDE4] w-full h-full"
       : "border-r border-[#F0EDE4] h-full w-full min-h-0";
-  const testSuffix = `${staffId}-${timeStr}`;
   const highlightCls = highlighted ? "bg-[#D4E8E0]/60 ring-1 ring-inset ring-[#52796F]/35" : "";
-  const activate = (e) => {
-    e.stopPropagation();
-    onSlotClick?.({ staffId, slotMin, slotEnd, timeStr, state });
-  };
+  const base = `pointer-events-none select-none ${edge}`;
 
   if (state.kind === "available") {
-    return (
-      <button
-        type="button"
-        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[2] ${highlightCls}`}
-        style={slotStyle}
-        data-schedule-slot=""
-        data-staff-id={staffId}
-        data-slot-min={slotMin}
-        data-slot-end={slotEnd}
-        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
-        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
-        onClick={activate}
-        aria-label={state.title}
-        title={state.title}
-        data-testid={`schedule-slot-available-${testSuffix}`}
-      />
-    );
+    return <div className={`${base} bg-transparent ${highlightCls}`} style={slotStyle} aria-hidden />;
   }
-
   if (state.kind === "overtime") {
-    return (
-      <button
-        type="button"
-        className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 relative z-[2]`}
-        style={slotStyle}
-        data-schedule-slot=""
-        data-staff-id={staffId}
-        data-slot-min={slotMin}
-        data-slot-end={slotEnd}
-        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
-        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
-        onClick={activate}
-        aria-label={state.title}
-        title={state.title}
-        data-testid={`schedule-slot-overtime-${testSuffix}`}
-      />
-    );
+    return <div className={`${base} bg-[#F3F1EB]/40`} style={slotStyle} aria-hidden />;
   }
-
   if (state.kind === "past" && state.clickable) {
-    return (
-      <button
-        type="button"
-        className={`${edge} bg-[#F3F1EB]/45 hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[2] ${highlightCls}`}
-        style={slotStyle}
-        data-schedule-slot=""
-        data-staff-id={staffId}
-        data-slot-min={slotMin}
-        data-slot-end={slotEnd}
-        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
-        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
-        onClick={activate}
-        aria-label={state.title}
-        title={state.title}
-        data-testid={`schedule-slot-past-clickable-${testSuffix}`}
-      />
-    );
+    return <div className={`${base} bg-[#F3F1EB]/30 ${highlightCls}`} style={slotStyle} aria-hidden />;
   }
-
   if (state.kind === "past") {
-    return (
-      <div
-        className={`${edge} bg-[#F3F1EB]/35 cursor-default`}
-        style={slotStyle}
-        title="Past time"
-        aria-label="Past time"
-        data-testid={`schedule-slot-past-${testSuffix}`}
-      />
-    );
+    return <div className={`${base} bg-[#F3F1EB]/25`} style={slotStyle} aria-hidden />;
   }
-
-  return (
-    <div
-      className={`${edge} bg-[#F3F1EB]/35 cursor-default`}
-      style={slotStyle}
-      title={state.title}
-      data-testid={`schedule-slot-disabled-${testSuffix}`}
-    />
-  );
+  return <div className={`${base} bg-[#F3F1EB]/25`} style={slotStyle} aria-hidden />;
 }
 
 function StaffRow({
@@ -493,14 +418,16 @@ function StaffRow({
   apptManip,
   onManipulateStart,
   dragPreview,
-  onSlotPointerDown,
-  onSlotPointerEnter,
-  onSlotClick,
+  canScheduleInteract,
+  onTrackPointerDownHit,
+  onTrackPointerMoveHit,
+  onTrackPointerUpHit,
   patientHighlight,
   onHighlightPatient,
   tooltipContainer = null,
 }) {
   const { slotHeight, slotWidth, staffColW } = useScheduleMetrics();
+  const trackRef = useRef(null);
   const vSlot = slotHeight;
   const hSlot = slotWidth;
   const rowBookings = bookings.filter(
@@ -577,6 +504,7 @@ function StaffRow({
         <div className="text-[10px] uppercase tracking-wide text-[#A89F8B] mt-0.5">{formatStaffRole(staff.role)}</div>
       </div>
       <div
+        ref={trackRef}
         className="relative flex-1 overflow-hidden"
         style={{ height: "var(--schedule-slot-height)", minWidth: gridWidth }}
         data-schedule-track=""
@@ -589,7 +517,7 @@ function StaffRow({
         data-row-h={vSlot}
       >
         <div
-          className="absolute inset-0 grid"
+          className="absolute inset-0 grid pointer-events-none z-[1]"
           style={{ gridTemplateColumns: `repeat(${slotCount}, var(--schedule-slot-width))` }}
         >
           {Array.from({ length: slotCount }, (_, i) => {
@@ -614,19 +542,19 @@ function StaffRow({
               <ScheduleSlotCell
                 key={i}
                 state={state}
-                timeStr={timeStr}
-                staffId={staff.id}
-                slotMin={slotMin}
-                slotEnd={slotEnd}
                 orientation="horizontal"
                 highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
-                onSlotPointerDown={onSlotPointerDown}
-                onSlotPointerEnter={onSlotPointerEnter}
-                onSlotClick={onSlotClick}
               />
             );
           })}
         </div>
+        <ScheduleTrackInteractionLayer
+          trackRef={trackRef}
+          enabled={canScheduleInteract}
+          onPointerDownHit={onTrackPointerDownHit}
+          onPointerMoveHit={onTrackPointerMoveHit}
+          onPointerUpHit={onTrackPointerUpHit}
+        />
         {visibleBookings.map((b) => renderBooking(b))}
         {dragPreview?.staffId === staff.id && (
           <div
@@ -665,14 +593,16 @@ function StaffColumn({
   apptManip,
   onManipulateStart,
   dragPreview,
-  onSlotPointerDown,
-  onSlotPointerEnter,
-  onSlotClick,
+  canScheduleInteract,
+  onTrackPointerDownHit,
+  onTrackPointerMoveHit,
+  onTrackPointerUpHit,
   patientHighlight,
   onHighlightPatient,
   tooltipContainer = null,
 }) {
   const { slotHeight, slotWidth, staffColW } = useScheduleMetrics();
+  const trackRef = useRef(null);
   const vSlot = slotHeight;
   const hSlot = slotWidth;
   const rowBookings = bookings.filter(
@@ -742,6 +672,7 @@ function StaffColumn({
 
   return (
     <div
+      ref={trackRef}
       className="shrink-0 border-r border-[#EAE6D7] relative"
       style={{ width: staffColW, height: trackHeight }}
       data-testid={`schedule-col-${staff.id}`}
@@ -754,41 +685,47 @@ function StaffColumn({
       data-slot-px={hSlot}
       data-row-h={vSlot}
     >
-      {Array.from({ length: slotCount }, (_, i) => {
-        const slotMin = openMin + i * interval;
-        const slotEnd = slotMin + interval;
-        const timeStr = minToHhmm(slotMin);
-        const occupied = slotOverlapsBooking(bookings, staff.id, slotMin, slotEnd);
-        const state = resolveEmptySlotState({
-          scheduleDate,
-          slotMin,
-          slotEnd,
-          timezone,
-          effective,
-          occupied,
-          canManage,
-          canBookSlots,
-          canCreateOvertime,
-          staffName: staff.name,
-          timeStr,
-        });
-        return (
-          <div key={i} className="absolute left-0 right-0 z-[2]" style={{ top: `calc(${i} * var(--schedule-slot-height))`, height: "var(--schedule-slot-height)" }}>
-            <ScheduleSlotCell
-              state={state}
-              timeStr={timeStr}
-              staffId={staff.id}
-              slotMin={slotMin}
-              slotEnd={slotEnd}
-              orientation="vertical"
-              highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
-              onSlotPointerDown={onSlotPointerDown}
-              onSlotPointerEnter={onSlotPointerEnter}
-              onSlotClick={onSlotClick}
-            />
-          </div>
-        );
-      })}
+      <div className="absolute inset-0 pointer-events-none z-[1]">
+        {Array.from({ length: slotCount }, (_, i) => {
+          const slotMin = openMin + i * interval;
+          const slotEnd = slotMin + interval;
+          const timeStr = minToHhmm(slotMin);
+          const occupied = slotOverlapsBooking(bookings, staff.id, slotMin, slotEnd);
+          const state = resolveEmptySlotState({
+            scheduleDate,
+            slotMin,
+            slotEnd,
+            timezone,
+            effective,
+            occupied,
+            canManage,
+            canBookSlots,
+            canCreateOvertime,
+            staffName: staff.name,
+            timeStr,
+          });
+          return (
+            <div
+              key={i}
+              className="absolute left-0 right-0"
+              style={{ top: `calc(${i} * var(--schedule-slot-height))`, height: "var(--schedule-slot-height)" }}
+            >
+              <ScheduleSlotCell
+                state={state}
+                orientation="vertical"
+                highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <ScheduleTrackInteractionLayer
+        trackRef={trackRef}
+        enabled={canScheduleInteract}
+        onPointerDownHit={onTrackPointerDownHit}
+        onPointerMoveHit={onTrackPointerMoveHit}
+        onPointerUpHit={onTrackPointerUpHit}
+      />
       {visibleBookings.map((b) => renderBooking(b))}
       {dragPreview?.staffId === staff.id && (
         <div
@@ -1333,34 +1270,88 @@ export default function BookingsScheduleView({
     [bookings, date, timezone, effectiveByStaff, canManage, canScheduleBook, canCreateOvertime, staffById],
   );
 
-  const finishDrag = useCallback(() => {
-    if (apptManipRef.current) return;
-    const d = dragRef.current;
-    const preview = dragPreviewRef.current;
-    const moved = Boolean(d?.moved);
-    lastDragMovedRef.current = moved;
-    dragRef.current = null;
-    dragPreviewRef.current = null;
-    setDragPreview(null);
-    if (!d || !preview || preview.staffId !== d.staffId) return;
-
-    const { startMin, endMinExclusive } = preview;
-    if (isDragRangeSelection(moved, startMin, endMinExclusive, interval)) {
-      const startTime = minToHhmm(startMin);
-      const endTime = minToHhmm(endMinExclusive);
-      onRangeSelect?.({
-        scheduled_date: date,
-        scheduled_time: startTime,
-        scheduled_end_time: endTime,
-        selected_start_time: startTime,
-        selected_end_time: endTime,
-        selected_range_label: `${startTime}–${endTime}`,
-        performer_id: d.staffId,
-        duration_min: endMinExclusive - startMin,
-        fromDragRange: true,
+  const resolveHitSlotState = useCallback(
+    (hit) => {
+      if (!hit) return null;
+      const { staffId, slotMin, slotEnd, timeStr } = hit;
+      const occupied = slotOverlapsBooking(bookings, staffId, slotMin, slotEnd);
+      const staffMember = staffById[staffId];
+      return resolveEmptySlotState({
+        scheduleDate: date,
+        slotMin,
+        slotEnd,
+        timezone,
+        effective: effectiveByStaff[staffId],
+        occupied,
+        canManage,
+        canBookSlots: canScheduleBook,
+        canCreateOvertime,
+        staffName: staffMember?.name || "",
+        timeStr: timeStr || minToHhmm(slotMin),
       });
-    }
-  }, [date, interval, onRangeSelect]);
+    },
+    [bookings, date, timezone, effectiveByStaff, canManage, canScheduleBook, canCreateOvertime, staffById],
+  );
+
+  const finishDrag = useCallback(
+    (upHit) => {
+      if (apptManipRef.current) return;
+      const d = dragRef.current;
+      const preview = dragPreviewRef.current;
+      const moved = Boolean(d?.moved);
+      lastDragMovedRef.current = moved;
+      dragRef.current = null;
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+      if (!d) return;
+
+      if (moved && preview && preview.staffId === d.staffId) {
+        const { startMin, endMinExclusive } = preview;
+        if (isDragRangeSelection(moved, startMin, endMinExclusive, interval)) {
+          const startTime = minToHhmm(startMin);
+          const endTime = minToHhmm(endMinExclusive);
+          onRangeSelect?.({
+            scheduled_date: date,
+            scheduled_time: startTime,
+            scheduled_end_time: endTime,
+            selected_start_time: startTime,
+            selected_end_time: endTime,
+            selected_range_label: `${startTime}–${endTime}`,
+            performer_id: d.staffId,
+            duration_min: endMinExclusive - startMin,
+            fromDragRange: true,
+          });
+          return;
+        }
+      }
+
+      if (!moved) {
+        const hit = upHit || {
+          staffId: d.staffId,
+          slotMin: d.anchorMin,
+          slotEnd: d.anchorMin + interval,
+          timeStr: minToHhmm(d.anchorMin),
+          slotIndex: Math.floor((d.anchorMin - openMin) / interval),
+          localX: 0,
+          localY: 0,
+        };
+        const state = resolveHitSlotState(hit);
+        logScheduleInteractionDebug({
+          phase: "click",
+          x: hit.localX,
+          y: hit.localY,
+          staffId: hit.staffId,
+          time: hit.timeStr,
+          slotIndex: hit.slotIndex,
+          isPast: state?.kind === "past",
+          isBlocked: Boolean(state && !state.clickable),
+          canClick: Boolean(state?.clickable),
+        });
+        handleSlotClick({ staffId: hit.staffId, timeStr: hit.timeStr, state });
+      }
+    },
+    [date, interval, onRangeSelect, openMin, resolveHitSlotState, handleSlotClick],
+  );
 
   const expandDragToSlot = useCallback(
     (staffId, slotMin, slotEnd, clientX, clientY) => {
@@ -1381,30 +1372,43 @@ export default function BookingsScheduleView({
     [interval, isSlotValidForDrag, updateDragPreview],
   );
 
-  useEffect(() => {
-    const onGlobalPointerUp = () => {
-      if (dragRef.current) finishDrag();
-    };
-    const onGlobalPointerMove = (e) => {
-      if (!dragRef.current || (e.buttons & 1) === 0) return;
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const slotEl = el?.closest?.("[data-schedule-slot]");
-      if (!slotEl) return;
-      const staffId = slotEl.getAttribute("data-staff-id");
-      const slotMin = Number(slotEl.getAttribute("data-slot-min"));
-      const slotEnd = Number(slotEl.getAttribute("data-slot-end"));
-      if (!staffId || Number.isNaN(slotMin) || Number.isNaN(slotEnd)) return;
-      expandDragToSlot(staffId, slotMin, slotEnd, e.clientX, e.clientY);
-    };
-    window.addEventListener("pointerup", onGlobalPointerUp);
-    window.addEventListener("pointercancel", onGlobalPointerUp);
-    window.addEventListener("pointermove", onGlobalPointerMove);
-    return () => {
-      window.removeEventListener("pointerup", onGlobalPointerUp);
-      window.removeEventListener("pointercancel", onGlobalPointerUp);
-      window.removeEventListener("pointermove", onGlobalPointerMove);
-    };
-  }, [finishDrag, expandDragToSlot]);
+  const onTrackPointerDownHit = useCallback(
+    (e, hit) => {
+      if (apptManipRef.current) return;
+      if (!canScheduleBook || !hit) return;
+      const state = resolveHitSlotState(hit);
+      const canDrag = isSlotValidForDrag(hit.staffId, hit.slotMin, hit.slotEnd);
+      const canClick = Boolean(state?.clickable);
+      if (!canDrag && !canClick) return;
+      dragRef.current = {
+        staffId: hit.staffId,
+        anchorMin: hit.slotMin,
+        moved: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        canDrag,
+      };
+      if (canDrag) {
+        updateDragPreview({ staffId: hit.staffId, startMin: hit.slotMin, endMinExclusive: hit.slotEnd });
+      }
+    },
+    [canScheduleBook, resolveHitSlotState, isSlotValidForDrag, updateDragPreview],
+  );
+
+  const onTrackPointerMoveHit = useCallback(
+    (e, hit) => {
+      if (!dragRef.current?.canDrag || !hit) return;
+      expandDragToSlot(hit.staffId, hit.slotMin, hit.slotEnd, e.clientX, e.clientY);
+    },
+    [expandDragToSlot],
+  );
+
+  const onTrackPointerUpHit = useCallback(
+    (_e, hit) => {
+      finishDrag(hit);
+    },
+    [finishDrag],
+  );
 
   const trackParamsFromEl = useCallback((trackEl) => ({
     openMin: Number(trackEl.getAttribute("data-open-min")),
@@ -1607,37 +1611,6 @@ export default function BookingsScheduleView({
     };
   }, [finishApptManip, updateApptManipPreview]);
 
-  const onSlotPointerDown = useCallback(
-    (e, { staffId, slotMin, slotEnd }) => {
-      if (apptManipRef.current) return;
-      if (!canScheduleBook) return;
-      if (!isSlotValidForDrag(staffId, slotMin, slotEnd)) return;
-      if (e.button !== 0) return;
-      dragRef.current = {
-        staffId,
-        anchorMin: slotMin,
-        moved: false,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      updateDragPreview({ staffId, startMin: slotMin, endMinExclusive: slotEnd });
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    },
-    [canScheduleBook, isSlotValidForDrag, updateDragPreview],
-  );
-
-  const onSlotPointerEnter = useCallback(
-    (e, { staffId, slotMin, slotEnd }) => {
-      if ((e.buttons & 1) === 0) return;
-      expandDragToSlot(staffId, slotMin, slotEnd, e.clientX, e.clientY);
-    },
-    [expandDragToSlot],
-  );
-
   const setLayout = (next) => {
     setOrientation(next);
     saveScheduleOrientation(next);
@@ -1676,7 +1649,7 @@ export default function BookingsScheduleView({
       data-testid="schedule-horizontal"
     >
       <div style={{ minWidth: staffColW + gridWidth }}>
-        <div className="flex border-b border-[#EAE6D7] bg-[#F8F5EC] sticky top-0 z-20">
+        <div className="flex border-b border-[#EAE6D7] bg-[#F8F5EC] sticky top-0 z-20 pointer-events-none">
           <div className="shrink-0 px-3 py-2 text-xs uppercase tracking-widest text-[#5C6C62] sticky left-0 z-30 bg-[#F8F5EC]" style={{ width: staffColW }}>
             Staff
           </div>
@@ -1725,9 +1698,10 @@ export default function BookingsScheduleView({
                   apptManip={apptManip}
                   onManipulateStart={onManipulateStart}
                   dragPreview={dragPreview}
-                  onSlotPointerDown={onSlotPointerDown}
-                  onSlotPointerEnter={onSlotPointerEnter}
-                  onSlotClick={handleSlotClick}
+                  canScheduleInteract={canScheduleBook}
+                  onTrackPointerDownHit={onTrackPointerDownHit}
+                  onTrackPointerMoveHit={onTrackPointerMoveHit}
+                  onTrackPointerUpHit={onTrackPointerUpHit}
                   patientHighlight={patientHighlight}
                   onHighlightPatient={onHighlightPatient}
                   tooltipContainer={tooltipContainer}
@@ -1749,7 +1723,7 @@ export default function BookingsScheduleView({
     >
       <div style={{ minWidth: timeColW + flatStaff.length * staffColW }}>
         {/* Sticky header: time corner + staff names */}
-        <div className="flex sticky top-0 z-30 border-b border-[#EAE6D7] bg-[#F8F5EC]">
+        <div className="flex sticky top-0 z-30 border-b border-[#EAE6D7] bg-[#F8F5EC] pointer-events-none">
           <div
             className="sticky left-0 z-40 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
             style={{ width: timeColW }}
@@ -1789,7 +1763,7 @@ export default function BookingsScheduleView({
         {/* Body: sticky time column + staff grid */}
         <div className="flex relative">
           <div
-            className="sticky left-0 z-20 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7]"
+            className="sticky left-0 z-20 shrink-0 bg-[#F8F5EC] border-r border-[#EAE6D7] pointer-events-none"
             style={{ width: timeColW }}
           >
             {Array.from({ length: slotCount }, (_, i) => {
@@ -1836,9 +1810,10 @@ export default function BookingsScheduleView({
                 apptManip={apptManip}
                 onManipulateStart={onManipulateStart}
                 dragPreview={dragPreview}
-                onSlotPointerDown={onSlotPointerDown}
-                onSlotPointerEnter={onSlotPointerEnter}
-                onSlotClick={handleSlotClick}
+                canScheduleInteract={canScheduleBook}
+                onTrackPointerDownHit={onTrackPointerDownHit}
+                onTrackPointerMoveHit={onTrackPointerMoveHit}
+                onTrackPointerUpHit={onTrackPointerUpHit}
                 patientHighlight={patientHighlight}
                 onHighlightPatient={onHighlightPatient}
                 tooltipContainer={tooltipContainer}
