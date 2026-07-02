@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, Minus, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +46,7 @@ export default function ScheduleFitControls({
   onAdjustSlotPx,
   onAdjustStaffCol,
   compact = false,
+  menuContainer,
 }) {
   const [open, setOpen] = useState(false);
   const fitLabel = fitMode === SCHEDULE_FIT_MODES.default ? "Fit" : "Fit ·";
@@ -78,7 +80,13 @@ export default function ScheduleFitControls({
             <ChevronDown className="w-3.5 h-3.5 opacity-70" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[11rem]">
+        <DropdownMenuContent
+          align="end"
+          container={menuContainer}
+          className={cn(
+            "min-w-[11rem] z-[130] bg-[var(--bl-surface)] border-[var(--bl-border)] text-[var(--bl-text)] shadow-lg",
+          )}
+        >
           <DropdownMenuItem
             className="cursor-pointer"
             onClick={() => { onFitHeight(); setOpen(false); }}

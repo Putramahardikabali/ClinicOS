@@ -1880,6 +1880,7 @@ export default function BookingsScheduleView({
             <ScheduleFitControls
               fitMode={scaleState.fitMode}
               orientation={orientation}
+              menuContainer={document.fullscreenElement || shellRef.current}
               onFitHeight={() => applyFitMode(SCHEDULE_FIT_MODES.fitHeight)}
               onFitWidth={() => applyFitMode(SCHEDULE_FIT_MODES.fitWidth)}
               onFitScreen={() => applyFitMode(SCHEDULE_FIT_MODES.fitScreen)}
