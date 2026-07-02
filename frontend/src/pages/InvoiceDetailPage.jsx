@@ -6,6 +6,7 @@ import {
 } from "@/lib/performerUtils";
 import InvoiceLineItemRow from "@/components/invoices/InvoiceLineItemRow";
 import InvoiceAddItemBar from "@/components/invoices/InvoiceAddItemBar";
+import InvoiceCheckoutPanel from "@/components/invoices/InvoiceCheckoutPanel";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
 import api from "@/lib/api";
