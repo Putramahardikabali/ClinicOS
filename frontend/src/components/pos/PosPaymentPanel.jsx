@@ -59,6 +59,8 @@ export default function PosPaymentPanel({
 
   onSaveDraft,
 
+  customerBlocked = false,
+
   giftCardCode,
 
   onGiftCardCodeChange,
@@ -458,13 +460,15 @@ export default function PosPaymentPanel({
 
             type="button"
 
-            disabled={busy || cartEmpty}
+            disabled={busy || cartEmpty || customerBlocked}
 
             onClick={onComplete}
 
             className="bl-btn-primary w-full"
 
             data-testid="pos-complete-sale"
+
+            title={customerBlocked ? "Select a patient for this POS sale." : undefined}
 
           >
 
@@ -476,13 +480,15 @@ export default function PosPaymentPanel({
 
             type="button"
 
-            disabled={busy || cartEmpty}
+            disabled={busy || cartEmpty || customerBlocked}
 
             onClick={onSaveDraft}
 
             className="bl-btn-ghost w-full text-sm"
 
             data-testid="pos-save-draft"
+
+            title={customerBlocked ? "Select a patient for this POS sale." : undefined}
 
           >
 

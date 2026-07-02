@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { UserPlus, X } from "lucide-react";
 import PatientLabelsRow from "@/components/patient/PatientLabelsRow";
 import PatientBlacklistBanner from "@/components/patient/PatientBlacklistBanner";
+import PosSearchCombobox from "@/components/pos/PosSearchCombobox";
 import { isBlacklisted } from "@/lib/patientLabelDisplay";
 
 export default function PosCustomerBar({
@@ -68,7 +69,7 @@ export default function PosCustomerBar({
     }
   };
 
-  const patientSecondary = (p) => [p.phone, p.email].filter(Boolean).join(" · ");
+  const patientSecondary = (p) => [p?.phone, p?.email].filter(Boolean).join(" · ");
 
   return (
     <div className="bl-card p-4 sm:p-5 overflow-visible" data-testid="pos-customer-bar">
@@ -105,8 +106,8 @@ export default function PosCustomerBar({
               <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-medium text-[#2D3A33] flex flex-wrap items-center gap-2">
-                  {selectedPatient.full_name}
-                  <PatientLabelsRow labels={selectedPatient.patient_labels} />
+                  {selectedPatient?.full_name || "Patient"}
+                  <PatientLabelsRow labels={selectedPatient?.patient_labels} />
                 </div>
                 {patientSecondary(selectedPatient) && (
                   <div className="text-xs text-[#5C6C62] mt-0.5">{patientSecondary(selectedPatient)}</div>
@@ -127,43 +128,48 @@ export default function PosCustomerBar({
               <PatientBlacklistBanner patient={selectedPatient} />
             </div>
           ) : (
-            <PosSearchCombobox
-              value={patientQuery}
-              onValueChange={(v) => {
-                onPatientQueryChange(v);
-                if (!v.trim()) onPatientOptionsChange([]);
-              }}
-              options={patientOptions}
-              onSelect={(p) => {
-                onSelectPatient(p);
-                onPatientQueryChange("");
-                onPatientOptionsChange([]);
-              }}
-              getOptionKey={(p) => p.id}
-              placeholder="Search patient by name or phone…"
-              listAriaLabel="Patients"
-              emptyMessage="No patients found"
-              testId="pos-patient-search"
-              renderOption={(p) => (
-                <>
-                  <div className="font-medium text-sm text-[#2D3A33] flex flex-wrap items-center gap-1.5">
-                    {p.full_name}
-                    <PatientLabelsRow labels={p.patient_labels} />
-                  </div>
-                  {patientSecondary(p) && (
-                    <div className="text-xs text-[#5C6C62] mt-0.5">
-                      {patientSecondary(p)}
-                      {isBlacklisted(p) ? " · Blacklisted patient" : ""}
+            <>
+              <p className="text-xs text-[#5C6C62] mb-2" data-testid="pos-patient-helper">
+                Select a patient for this POS sale.
+              </p>
+              <PosSearchCombobox
+                value={patientQuery}
+                onValueChange={(v) => {
+                  onPatientQueryChange(v);
+                  if (!v.trim()) onPatientOptionsChange([]);
+                }}
+                options={patientOptions}
+                onSelect={(p) => {
+                  onSelectPatient(p);
+                  onPatientQueryChange("");
+                  onPatientOptionsChange([]);
+                }}
+                getOptionKey={(p) => p.id}
+                placeholder="Search patient by name, phone, email, or code…"
+                listAriaLabel="Patients"
+                emptyMessage="No patients found"
+                testId="pos-patient-search"
+                renderOption={(p) => (
+                  <>
+                    <div className="font-medium text-sm text-[#2D3A33] flex flex-wrap items-center gap-1.5">
+                      {p?.full_name || "Patient"}
+                      <PatientLabelsRow labels={p?.patient_labels} />
                     </div>
-                  )}
-                </>
-              )}
-            />
+                    {patientSecondary(p) && (
+                      <div className="text-xs text-[#5C6C62] mt-0.5">
+                        {patientSecondary(p)}
+                        {isBlacklisted(p) ? " · Blacklisted patient" : ""}
+                      </div>
+                    )}
+                  </>
+                )}
+              />
+            </>
           )}
         </div>
       )}
 
-      {(walkIn || !selectedPatient) && (
+      {walkIn && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input
             className="bl-input"

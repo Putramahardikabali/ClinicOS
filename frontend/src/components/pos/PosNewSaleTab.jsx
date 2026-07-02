@@ -18,6 +18,7 @@ import { buildPrepaidCartLine } from "@/lib/posPrepaid";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { computeInvoiceDiscount, lineTotal, parseIdr, receiptPhone } from "@/lib/posUtils";
 import { isCashPayment } from "@/lib/paymentAmountQuickFill";
+import { isPosCustomerReady, posCustomerValidationMessage } from "@/lib/posCustomerValidation";
 
 export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, compact = false }) {
   const { user } = useAuth();
@@ -100,6 +101,10 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, 
   const balanceDue = Math.max(0, total - gcApplied - walletApplied - paid);
   const cartHasPackage = cart.some((ln) => ln.item_type === "package");
   const cartHasPrepaid = cart.some((ln) => ln.item_type === "prepaid");
+  const customerReady = useMemo(
+    () => isPosCustomerReady({ walkIn, selectedPatient }),
+    [walkIn, selectedPatient],
+  );
 
   const updateCartLine = (key, patch) => {
     setCart((prev) => prev.map((ln) => (ln.key === key ? { ...ln, ...patch } : ln)));
@@ -213,20 +218,15 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, 
     }));
 
   const validateCustomer = () => {
-    if (cartHasPackage && !selectedPatient) {
-      toast.error("Select a patient — packages create a patient package after payment");
-      return false;
-    }
-    if (cartHasPrepaid && !selectedPatient) {
-      toast.error("Select a patient — prepaid is issued to the patient after payment");
-      return false;
-    }
-    if (!walkIn && !selectedPatient) {
-      toast.error("Enable walk-in or select a patient");
-      return false;
-    }
-    if (walkIn && !selectedPatient && !customerName.trim()) {
-      toast.error("Enter walk-in customer name");
+    const message = posCustomerValidationMessage({
+      walkIn,
+      selectedPatient,
+      customerName,
+      cartHasPackage,
+      cartHasPrepaid,
+    });
+    if (message) {
+      toast.error(message);
       return false;
     }
     for (const ln of cart) {
@@ -378,6 +378,13 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, 
                 setSelectedPatient(null);
                 setPatientQuery("");
                 setPatientOptions([]);
+              } else {
+                setSelectedPatient(null);
+                setPatientQuery("");
+                setPatientOptions([]);
+                setCustomerName("");
+                setCustomerPhone("");
+                setCustomerEmail("");
               }
             }}
             patientQuery={patientQuery}
@@ -386,10 +393,12 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, 
             onPatientOptionsChange={setPatientOptions}
             selectedPatient={selectedPatient}
             onSelectPatient={(p) => {
+              if (!p?.id) return;
               setSelectedPatient(p);
               setPatientQuery("");
               setWalkIn(false);
               if (p.phone) setCustomerPhone(p.phone);
+              if (p.email) setCustomerEmail(p.email);
             }}
             onClearPatient={() => setSelectedPatient(null)}
             customerName={customerName}
@@ -443,6 +452,7 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, 
             onPaymentMethodChange={setPaymentMethod}
             onComplete={completeSale}
             onSaveDraft={saveDraft}
+            customerBlocked={!customerReady}
             giftCardCode={giftCardCode}
             onGiftCardCodeChange={setGiftCardCode}
             giftCardAmount={giftCardAmount}

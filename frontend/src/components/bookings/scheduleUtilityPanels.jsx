@@ -4,6 +4,7 @@ import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
 import { ScheduleInvoiceDrawerDetail } from "@/components/bookings/ScheduleInvoiceDrawerDetail";
 import PosNewSaleTab from "@/components/pos/PosNewSaleTab";
+import PosDrawerErrorBoundary from "@/components/pos/PosDrawerErrorBoundary";
 import {
   INDICATOR_DEFS,
   INDICATOR_PRIORITY,
@@ -411,13 +412,15 @@ export function PosPanel() {
         </div>
       )}
       {section === "sale" && canCreate ? (
-        <PosNewSaleTab
-          compact
-          onSaleCompleted={() => {
-            setSummaryKey((k) => k + 1);
-            setSection("summary");
-          }}
-        />
+        <PosDrawerErrorBoundary>
+          <PosNewSaleTab
+            compact
+            onSaleCompleted={() => {
+              setSummaryKey((k) => k + 1);
+              setSection("summary");
+            }}
+          />
+        </PosDrawerErrorBoundary>
       ) : (
         <PosTodaySummary refreshKey={summaryKey} />
       )}
