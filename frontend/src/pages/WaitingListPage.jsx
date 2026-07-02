@@ -4,11 +4,15 @@ import { ExternalLink } from "lucide-react";
 import api from "@/lib/api";
 import { hasPermission, useAuth } from "@/lib/auth";
 import WaitingListForm from "@/components/waitingList/WaitingListForm";
+import WaitlistDatePresetFilters from "@/components/waitingList/WaitlistDatePresetFilters";
 import {
+  DEFAULT_WAITLIST_DATE_PRESET,
   WAITLIST_SOURCES,
   WAITLIST_STATUSES,
+  buildWaitlistQueryParams,
   waitlistDisplayName,
   waitlistDisplayPhone,
+  waitlistEmptyMessage,
   waitlistPreferredTimeLabel,
   waitlistStatusChip,
 } from "@/lib/waitingList";
@@ -18,12 +22,7 @@ export default function WaitingListPage() {
   const canReport = hasPermission(user, "waiting_list.report");
   const canCreate = hasPermission(user, "waiting_list.create");
 
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 29);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [datePreset, setDatePreset] = useState(DEFAULT_WAITLIST_DATE_PRESET);
   const [status, setStatus] = useState("");
   const [treatmentId, setTreatmentId] = useState("");
   const [staffId, setStaffId] = useState("");
@@ -41,15 +40,17 @@ export default function WaitingListPage() {
     api.get("/users").then((r) => setStaff(r.data || [])).catch(() => {});
   }, []);
 
-  const params = useMemo(() => {
-    const p = { from: fromDate, to: toDate };
-    if (status) p.status = status;
-    if (treatmentId) p.treatment_id = treatmentId;
-    if (staffId) p.staff_id = staffId;
-    if (source) p.source = source;
-    if (q.trim()) p.q = q.trim();
-    return p;
-  }, [fromDate, toDate, status, treatmentId, staffId, source, q]);
+  const params = useMemo(
+    () => buildWaitlistQueryParams({
+      datePreset,
+      status,
+      q,
+      treatment_id: treatmentId || undefined,
+      staff_id: staffId || undefined,
+      source: source || undefined,
+    }),
+    [datePreset, status, treatmentId, staffId, source, q],
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -100,15 +101,8 @@ export default function WaitingListPage() {
       )}
 
       <div className="mt-6 bl-card p-4 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div>
-            <label className="label-eyebrow block mb-1.5">From</label>
-            <input type="date" className="bl-input w-full" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          </div>
-          <div>
-            <label className="label-eyebrow block mb-1.5">To</label>
-            <input type="date" className="bl-input w-full" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </div>
+        <WaitlistDatePresetFilters value={datePreset} onChange={setDatePreset} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label-eyebrow block mb-1.5">Treatment</label>
             <select className="bl-input w-full" value={treatmentId} onChange={(e) => setTreatmentId(e.target.value)}>
@@ -163,7 +157,7 @@ export default function WaitingListPage() {
         {showAdd && (
           <div className="border-t border-[#EAE6D7] pt-4">
             <WaitingListForm
-              scheduleDate={toDate}
+              scheduleDate={new Date().toISOString().slice(0, 10)}
               onSaved={() => { setShowAdd(false); load(); }}
               onCancel={() => setShowAdd(false)}
             />
@@ -190,7 +184,7 @@ export default function WaitingListPage() {
                 <tr><td colSpan={7} className="text-center py-10 text-[#5C6C62]">Loading…</td></tr>
               )}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-10 text-[#5C6C62]">No entries match your filters.</td></tr>
+                <tr><td colSpan={7} className="text-center py-10 text-[#5C6C62]">{waitlistEmptyMessage(datePreset)}</td></tr>
               )}
               {!loading && rows.map((entry) => (
                 <tr key={entry.id} data-testid={`waitlist-row-${entry.id}`}>

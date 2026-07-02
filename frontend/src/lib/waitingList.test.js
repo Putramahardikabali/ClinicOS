@@ -1,11 +1,59 @@
-import { buildWaitlistBookingPrefill, resolveWaitlistDateRange } from "./waitingList";
+import {
+  buildWaitlistBookingPrefill,
+  buildWaitlistQueryParams,
+  resolveWaitlistDateRange,
+  waitlistEmptyMessage,
+} from "./waitingList";
 
 describe("waitingList", () => {
-  it("defaults date range to schedule date", () => {
-    expect(resolveWaitlistDateRange("schedule", "2026-06-02")).toEqual({
+  const fixedNow = new Date("2026-06-02T12:00:00");
+
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(fixedNow);
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("defaults date range to today", () => {
+    expect(resolveWaitlistDateRange("today")).toEqual({
       from: "2026-06-02",
       to: "2026-06-02",
+      all: false,
     });
+  });
+
+  it("resolves past 7 days through today", () => {
+    expect(resolveWaitlistDateRange("past7")).toEqual({
+      from: "2026-05-27",
+      to: "2026-06-02",
+      all: false,
+    });
+  });
+
+  it("resolves next 7 days from today", () => {
+    expect(resolveWaitlistDateRange("next7")).toEqual({
+      from: "2026-06-02",
+      to: "2026-06-08",
+      all: false,
+    });
+  });
+
+  it("omits date params for show all", () => {
+    expect(resolveWaitlistDateRange("all")).toEqual({ from: null, to: null, all: true });
+    expect(buildWaitlistQueryParams({ datePreset: "all", status: "waiting", q: "demo" })).toEqual({
+      status: "waiting",
+      q: "demo",
+    });
+  });
+
+  it("returns preset-specific empty messages", () => {
+    expect(waitlistEmptyMessage("today")).toMatch(/today/i);
+    expect(waitlistEmptyMessage("past7")).toMatch(/past 7 days/i);
+    expect(waitlistEmptyMessage("next7")).toMatch(/next 7 days/i);
+    expect(waitlistEmptyMessage("all")).toMatch(/found/i);
   });
 
   it("builds booking prefill from waitlist entry", () => {

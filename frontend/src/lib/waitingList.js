@@ -40,12 +40,17 @@ export const CANCEL_REASONS = [
   { key: "other", label: "Other" },
 ];
 
-export const DATE_PRESETS = [
-  { key: "schedule", label: "Schedule date" },
+export const WAITLIST_DATE_PRESETS = [
   { key: "today", label: "Today" },
-  { key: "last7", label: "Last 7 days" },
-  { key: "last30", label: "Last 30 days" },
+  { key: "past7", label: "Past 7 days" },
+  { key: "next7", label: "Next 7 days" },
+  { key: "all", label: "Show All" },
 ];
+
+export const DEFAULT_WAITLIST_DATE_PRESET = "today";
+
+/** @deprecated use WAITLIST_DATE_PRESETS */
+export const DATE_PRESETS = WAITLIST_DATE_PRESETS;
 
 function toYmd(d) {
   const y = d.getFullYear();
@@ -54,25 +59,57 @@ function toYmd(d) {
   return `${y}-${m}-${day}`;
 }
 
-export function resolveWaitlistDateRange(preset, scheduleDate) {
+export function resolveWaitlistDateRange(preset) {
   const now = new Date();
+  const today = toYmd(now);
   switch (preset) {
-    case "today":
-      return { from: toYmd(now), to: toYmd(now) };
-    case "last7": {
+    case "past7": {
       const from = new Date(now);
       from.setDate(from.getDate() - 6);
-      return { from: toYmd(from), to: toYmd(now) };
+      return { from: toYmd(from), to: today, all: false };
     }
-    case "last30": {
-      const from = new Date(now);
-      from.setDate(from.getDate() - 29);
-      return { from: toYmd(from), to: toYmd(now) };
+    case "next7": {
+      const to = new Date(now);
+      to.setDate(to.getDate() + 6);
+      return { from: today, to: toYmd(to), all: false };
     }
-    case "schedule":
+    case "all":
+      return { from: null, to: null, all: true };
+    case "today":
     default:
-      return { from: scheduleDate || toYmd(now), to: scheduleDate || toYmd(now) };
+      return { from: today, to: today, all: false };
   }
+}
+
+export function waitlistEmptyMessage(preset) {
+  switch (preset) {
+    case "past7":
+      return "No waiting list entries in the past 7 days.";
+    case "next7":
+      return "No waiting list entries in the next 7 days.";
+    case "all":
+      return "No waiting list entries found.";
+    case "today":
+    default:
+      return "No waiting list entries for today.";
+  }
+}
+
+export function buildWaitlistQueryParams({
+  datePreset = DEFAULT_WAITLIST_DATE_PRESET,
+  status = "",
+  q = "",
+  ...extra
+} = {}) {
+  const range = resolveWaitlistDateRange(datePreset);
+  const params = { ...extra };
+  if (!range.all) {
+    params.from = range.from;
+    params.to = range.to;
+  }
+  if (status) params.status = status;
+  if (q?.trim()) params.q = q.trim();
+  return params;
 }
 
 export function waitlistStatusChip(status) {

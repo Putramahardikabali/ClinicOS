@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CalendarPlus, Check, ExternalLink, MoreHorizontal, Phone, X } from "lucide-react";
 import api from "@/lib/api";
 import { hasPermission, useAuth } from "@/lib/auth";
 import WaitingListForm from "@/components/waitingList/WaitingListForm";
+import WaitlistDatePresetFilters from "@/components/waitingList/WaitlistDatePresetFilters";
 import {
   CANCEL_REASONS,
-  DATE_PRESETS,
+  DEFAULT_WAITLIST_DATE_PRESET,
   WAITLIST_STATUSES,
-  resolveWaitlistDateRange,
+  buildWaitlistQueryParams,
   waitlistDisplayName,
   waitlistDisplayPhone,
+  waitlistEmptyMessage,
   waitlistPreferredTimeLabel,
   waitlistPriorityChip,
   waitlistStatusChip,
@@ -203,27 +205,20 @@ export default function WaitingListPanel({ scheduleDate, onCreateAppointment }) 
   const [mode, setMode] = useState("list");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const [datePreset, setDatePreset] = useState("schedule");
+  const [datePreset, setDatePreset] = useState(DEFAULT_WAITLIST_DATE_PRESET);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const dateRange = useMemo(
-    () => resolveWaitlistDateRange(datePreset, scheduleDate),
-    [datePreset, scheduleDate],
-  );
-
   const load = useCallback(() => {
     setLoading(true);
-    const params = { from: dateRange.from, to: dateRange.to };
-    if (status) params.status = status;
-    if (q.trim()) params.q = q.trim();
+    const params = buildWaitlistQueryParams({ datePreset, status, q });
     return api
       .get("/waiting-list", { params })
       .then((r) => setRows(r.data || []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [dateRange, status, q]);
+  }, [datePreset, status, q]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0);
@@ -264,24 +259,9 @@ export default function WaitingListPanel({ scheduleDate, onCreateAppointment }) 
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
+      <WaitlistDatePresetFilters value={datePreset} onChange={setDatePreset} className="mb-3" />
       <div className="flex flex-wrap gap-1.5 mb-3">
-        {DATE_PRESETS.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => setDatePreset(p.key)}
-            className={`text-xs px-2.5 py-1 rounded-full border ${
-              datePreset === p.key
-                ? "border-[#52796F] bg-[#EDF3EF] text-[#2C7755]"
-                : "border-[#EAE6D7] text-[#5C6C62]"
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {WAITLIST_STATUSES.slice(0, 5).map((f) => (
+        {WAITLIST_STATUSES.map((f) => (
           <button
             key={f.key || "all"}
             type="button"
@@ -308,7 +288,7 @@ export default function WaitingListPanel({ scheduleDate, onCreateAppointment }) 
       )}
       {loading && <p className="text-sm text-[#5C6C62]">Loading…</p>}
       {!loading && rows.length === 0 && (
-        <p className="text-sm text-[#5C6C62]">No waiting list entries for this date.</p>
+        <p className="text-sm text-[#5C6C62]">{waitlistEmptyMessage(datePreset)}</p>
       )}
       <div className="space-y-2" data-testid="schedule-waitlist-list">
         {rows.map((entry) => (
