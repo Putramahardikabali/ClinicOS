@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { useAuth, can, hasPermission, ROLE_LABEL } from "@/lib/auth";
+import { useAuth, hasPermission, ROLE_LABEL } from "@/lib/auth";
 import { useClinic, hasFeature } from "@/lib/clinic";
 import { useSettings } from "@/lib/settings";
 import {
@@ -9,9 +9,14 @@ import {
   visitPerformerRoles,
   treatmentAllowedForVisitRoles,
 } from "@/lib/visitUi";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil } from "lucide-react";
 import ProductUsageSelector, { CUSTOM_PRODUCT_ID, productUsageName } from "@/components/visit/ProductUsageSelector";
-import { bookedTreatmentLabel, bookedTreatmentReference, performedTreatmentItems } from "@/lib/visitWorkflow";
+import {
+  bookedTreatmentLabel,
+  bookedTreatmentReference,
+  performedTreatmentItems,
+  canEditPerformedTreatments,
+} from "@/lib/visitWorkflow";
 import { primaryAndAdditionalPerformers } from "@/lib/visitUi";
 
 const fmtIDR = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -42,7 +47,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   const { settings } = useSettings();
   const treatmentsEnabled = !clinicLoading && hasFeature(clinic, "emr");
   const UNITS = settings?.form_config?.treatment_units || ["session"];
-  const editable = can(user, "add_treatment");
+  const editable = canEditPerformedTreatments(user, visit);
   const canSeePrice = Boolean(
     user && (
       user.platform_admin
@@ -58,6 +63,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState(() => emptyForm(UNITS));
   const [adding, setAdding] = useState(false);
+  const [editingItemId, setEditingItemId] = useState(null);
   const [formPrefilled, setFormPrefilled] = useState(false);
   const bookedRef = bookedTreatmentReference(visit);
   const bookedLabel = bookedRef?.name || bookedTreatmentLabel(visit);
@@ -74,7 +80,11 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   }, [visit.product_usages]);
   const visitRoles = useMemo(() => visitPerformerRoles(visit), [visit]);
   const visitPerformers = useMemo(() => visitClinicalPerformers(visit), [visit]);
-  const multiPerformer = visitPerformers.length > 1;
+  const defaultPerformerId = useMemo(() => {
+    if (primary?.staff_id) return primary.staff_id;
+    if (visitPerformers.length === 1) return visitPerformers[0].staff_id;
+    return "";
+  }, [primary, visitPerformers]);
 
   const roleCatalog = useMemo(() => {
     return catalog.filter((t) => treatmentAllowedForVisitRoles(t, visitRoles));
@@ -192,7 +202,6 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
     const match =
       catalogList.find((t) => t.name.toLowerCase() === label.toLowerCase())
       || catalogList.find((t) => label.toLowerCase().includes(t.name.toLowerCase()));
-    const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
     if (match) {
       setSelectedId(match.id);
       let eligible = visitPerformers;
@@ -201,7 +210,9 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
           match.allowed_performer_roles.includes((p.staff_role_snapshot || "").toLowerCase()),
         );
       }
-      const performerId = eligible.length === 1 ? eligible[0].staff_id : "";
+      const performerId = eligible.length === 1
+        ? eligible[0].staff_id
+        : (eligible.some((p) => p.staff_id === defaultPerformerId) ? defaultPerformerId : "");
       setForm({
         category: match.category || "Other",
         name: match.name,
@@ -212,12 +223,12 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         unit_type: UNITS[0] || "session",
         notes: "",
         price: String(Number(match.price_idr) || 0),
-        performer_id: performerId || defaultPid,
+        performer_id: performerId,
       });
     } else {
       setSelectedId("");
       setForm({
-        ...emptyForm(UNITS, defaultPid),
+        ...emptyForm(UNITS, defaultPerformerId),
         name: label,
         quantity: "1",
         unit_type: UNITS[0] || "session",
@@ -226,32 +237,77 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
     setFormPrefilled(true);
   };
 
-  const prevPerformedCount = useRef(performedItems.length);
-
-  useEffect(() => {
-    if (!workflowMode || loadingCatalog || formPrefilled || performedItems.length > 0) return;
-    if (bookedLabel.trim() && roleCatalog.length) {
-      prefillFromBooked(roleCatalog);
+  const productUsageFromItem = (item) => {
+    const usage = usageByTreatment.get(item.id);
+    if (usage?.product_id) {
+      return {
+        product_id: usage.product_id,
+        quantity_used: String(usage.quantity_used ?? ""),
+        dose_notes: usage.dose_notes || "",
+        product: usage.product,
+        is_custom: false,
+      };
     }
-  }, [workflowMode, loadingCatalog, formPrefilled, performedItems.length, bookedLabel, roleCatalog]);
-
-  useEffect(() => {
-    if (workflowMode && prevPerformedCount.current > 0 && performedItems.length === 0) {
-      setFormPrefilled(false);
+    if (item.product_used) {
+      return {
+        product_id: CUSTOM_PRODUCT_ID,
+        custom_name: item.product_used,
+        quantity_used: "1",
+        is_custom: true,
+      };
     }
-    prevPerformedCount.current = performedItems.length;
-  }, [workflowMode, performedItems.length]);
+    return null;
+  };
+
+  const loadItemIntoForm = (item) => {
+    const match = roleCatalog.find((t) => t.name === item.name);
+    setEditingItemId(item.id);
+    setSelectedId(match?.id || "");
+    setForm({
+      category: item.category || match?.category || "Other",
+      name: item.name || "",
+      product_used: item.product_used || "",
+      productUsage: productUsageFromItem(item),
+      area_treated: item.area_treated || "",
+      quantity: String(item.quantity ?? 1),
+      unit_type: item.unit_type || UNITS[0] || "session",
+      notes: item.notes || "",
+      price: String(Number(item.price) || 0),
+      performer_id: item.performer_id || defaultPerformerId,
+    });
+    setFormPrefilled(true);
+  };
 
   const resetFormAfterAdd = () => {
+    setEditingItemId(null);
     setFormPrefilled(false);
     if (workflowMode && bookedLabel.trim()) {
       prefillFromBooked();
     } else {
-      const defaultPid = visitPerformers.length === 1 ? visitPerformers[0].staff_id : "";
       setSelectedId("");
-      setForm(emptyForm(UNITS, defaultPid));
+      setForm(emptyForm(UNITS, defaultPerformerId));
     }
   };
+
+  const cancelEdit = () => {
+    resetFormAfterAdd();
+  };
+
+  const prevPerformedCount = useRef(performedItems.length);
+
+  useEffect(() => {
+    if (!workflowMode || loadingCatalog || formPrefilled || performedItems.length > 0 || editingItemId) return;
+    if (bookedLabel.trim() && roleCatalog.length) {
+      prefillFromBooked(roleCatalog);
+    }
+  }, [workflowMode, loadingCatalog, formPrefilled, performedItems.length, bookedLabel, roleCatalog, editingItemId]);
+
+  useEffect(() => {
+    if (workflowMode && prevPerformedCount.current > 0 && performedItems.length === 0 && !editingItemId) {
+      setFormPrefilled(false);
+    }
+    prevPerformedCount.current = performedItems.length;
+  }, [workflowMode, performedItems.length, editingItemId]);
 
   const qtyNum = parseNum(form.quantity, 1);
   const priceNum = parseNum(form.price, 0);
@@ -265,8 +321,8 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       toast.error("Select a treatment from the catalog");
       return;
     }
-    if (multiPerformer && !form.performer_id) {
-      toast.error("Select which staff member performed this treatment");
+    if (visitPerformers.length > 0 && !form.performer_id) {
+      toast.error("Select assigned staff for this treatment");
       return;
     }
     const quantity = parseNum(form.quantity, NaN);
@@ -320,8 +376,11 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
       }
 
       setAdding(true);
+      if (editingItemId) {
+        await api.delete(`/visits/${visit.id}/treatments/${editingItemId}`);
+      }
       await api.post(`/visits/${visit.id}/treatments`, body);
-      toast.success("Treatment added");
+      toast.success(editingItemId ? "Treatment updated" : "Treatment added");
       resetFormAfterAdd();
       onSaved?.();
     } catch (e) {
@@ -332,51 +391,75 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
   };
 
   const del = async (id) => {
+    if (!window.confirm("Remove this performed treatment?")) return;
+    if (editingItemId === id) cancelEdit();
     try {
       await api.delete(`/visits/${visit.id}/treatments/${id}`);
+      toast.success("Treatment removed");
       onSaved?.();
     } catch {
-      /* ignore */
+      toast.error("Failed to remove treatment");
     }
   };
 
+  const performerLabel = (item) => {
+    if (item.performer_name_snapshot) {
+      const role = item.performer_role_snapshot
+        ? ` (${ROLE_LABEL[item.performer_role_snapshot] || item.performer_role_snapshot})`
+        : "";
+      return `${item.performer_name_snapshot}${role}`;
+    }
+    const match = visitPerformers.find((p) => p.staff_id === item.performer_id);
+    if (match) {
+      return `${match.staff_name_snapshot || match.staff_id}${match.staff_role_snapshot ? ` (${ROLE_LABEL[match.staff_role_snapshot] || match.staff_role_snapshot})` : ""}`;
+    }
+    return "—";
+  };
+
+  const bookedReferenceCard = workflowMode && bookedRef ? (
+    <div className="bl-card p-4 bg-[#F8F5EC] border-[#EAE6D7]" data-testid="booked-treatment-banner">
+      <div className="text-xs uppercase tracking-widest text-[#5C6C62]">Booked treatment</div>
+      <div className="font-medium text-[#2D3A33] mt-1">{bookedRef.name}</div>
+      {bookedRef.durationMin != null && (
+        <div className="text-sm text-[#5C6C62] mt-2">Duration: {bookedRef.durationMin} min</div>
+      )}
+      {bookedRef.notes && (
+        <div className="text-sm text-[#5C6C62] mt-2">Booking note: {bookedRef.notes}</div>
+      )}
+      {primary && (
+        <div className="text-sm text-[#5C6C62] mt-2">
+          Assigned staff: {primary.staff_name_snapshot}
+          {primary.staff_role_snapshot ? ` (${ROLE_LABEL[primary.staff_role_snapshot] || primary.staff_role_snapshot})` : ""}
+        </div>
+      )}
+      {additional.length > 0 && (
+        <div className="text-sm text-[#5C6C62] mt-1">
+          Additional staff: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}
+        </div>
+      )}
+      <p className="text-sm text-[#5C6C62] mt-3">
+        The booked treatment is used to pre-fill the form. Only items added below are recorded as performed treatments.
+      </p>
+    </div>
+  ) : null;
+
   return (
     <div className="space-y-6">
+      {bookedReferenceCard}
+
       {editable && (
         <form onSubmit={add} className="bl-card p-5" data-testid="treatment-form">
           {workflowMode ? (
             <>
-              {bookedRef && (
-                <div className="bl-card p-4 bg-[#F8F5EC] border-[#EAE6D7] mb-4" data-testid="booked-treatment-banner">
-                  <div className="text-xs uppercase tracking-widest text-[#5C6C62]">Booked treatment</div>
-                  <div className="font-medium text-[#2D3A33] mt-1">{bookedRef.name}</div>
-                  {bookedRef.durationMin != null && (
-                    <div className="text-sm text-[#5C6C62] mt-2">Duration: {bookedRef.durationMin} min</div>
-                  )}
-                  {bookedRef.notes && (
-                    <div className="text-sm text-[#5C6C62] mt-2">Booking note: {bookedRef.notes}</div>
-                  )}
-                  {primary && (
-                    <div className="text-sm text-[#5C6C62] mt-2">
-                      Assigned staff: {primary.staff_name_snapshot}
-                      {primary.staff_role_snapshot ? ` (${ROLE_LABEL[primary.staff_role_snapshot] || primary.staff_role_snapshot})` : ""}
-                    </div>
-                  )}
-                  {additional.length > 0 && (
-                    <div className="text-sm text-[#5C6C62] mt-1">
-                      Additional: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}
-                    </div>
-                  )}
-                  <p className="text-sm text-[#5C6C62] mt-3">
-                    The booked treatment is used to pre-fill the form. Only items added below will be recorded as performed treatments.
-                  </p>
-                </div>
-              )}
-              <div className="font-display text-base text-[#2D3A33] mb-1">Record performed treatment</div>
+              <div className="font-display text-base text-[#2D3A33] mb-1">
+                {editingItemId ? "Edit performed treatment" : "Record performed treatment"}
+              </div>
               <p className="text-sm text-[#5C6C62] mb-4">
-                {bookedRef
-                  ? "Review or change the treatment below, then click Add item to record what was actually performed."
-                  : "Select the treatment performed during this session, then click Add item."}
+                {editingItemId
+                  ? "Update the fields below, then save to replace this performed treatment row."
+                  : bookedRef
+                    ? "Review or change the treatment below, then click Add item to record what was actually performed."
+                    : "Select the treatment performed during this session, then click Add item."}
               </p>
             </>
           ) : (
@@ -476,9 +559,9 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 )}
               </div>
 
-              {multiPerformer && (
+              {visitPerformers.length > 0 && (
                 <div className="md:col-span-2 lg:col-span-3">
-                  <label className="label-eyebrow block mb-1.5">Performed by</label>
+                  <label className="label-eyebrow block mb-1.5">Assigned staff</label>
                   <select
                     className="bl-input"
                     required
@@ -494,6 +577,12 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                       </option>
                     ))}
                   </select>
+                  {additional.length > 0 && (
+                    <p className="text-xs text-[#5C6C62] mt-1.5">
+                      Session also has additional staff: {additional.map((p) => p.staff_name_snapshot).filter(Boolean).join(", ")}.
+                      Select the primary performer for this line item.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -591,15 +680,28 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
             </div>
 
           {(roleCatalog.length > 0) && (
-            <button
-              type="submit"
-              className="bl-btn-primary mt-4 inline-flex items-center gap-2"
-              disabled={adding}
-              data-testid="treatment-add"
-            >
-              <Plus className="w-4 h-4" />
-              {adding ? "Adding…" : "Add item"}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className="bl-btn-primary inline-flex items-center gap-2"
+                disabled={adding}
+                data-testid="treatment-add"
+              >
+                <Plus className="w-4 h-4" />
+                {adding ? "Saving…" : editingItemId ? "Update item" : "Add item"}
+              </button>
+              {editingItemId && (
+                <button
+                  type="button"
+                  className="bl-btn-ghost"
+                  onClick={cancelEdit}
+                  disabled={adding}
+                  data-testid="treatment-cancel-edit"
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
           )}
             </>
           )}
@@ -627,15 +729,26 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                   <div className="font-medium text-[#2D3A33]">{treatmentName}</div>
                 </div>
                 {editable && (
-                  <button
-                    type="button"
-                    onClick={() => del(it.id)}
-                    className="text-[#B14A2C] p-2 -mr-2 shrink-0"
-                    aria-label="Delete item"
-                    data-testid={`treatment-delete-${it.id}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => loadItemIntoForm(it)}
+                      className="text-[#5C6C62] hover:text-[#2D3A33] p-2"
+                      aria-label="Edit item"
+                      data-testid={`treatment-edit-${it.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => del(it.id)}
+                      className="text-[#B14A2C] p-2 -mr-2"
+                      aria-label="Delete item"
+                      data-testid={`treatment-delete-${it.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -646,6 +759,10 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 <div>
                   <div className="label-eyebrow text-[10px]">Area</div>
                   <div className="text-[#5C6C62]">{it.area_treated || "—"}</div>
+                </div>
+                <div>
+                  <div className="label-eyebrow text-[10px]">Staff</div>
+                  <div className="text-[#5C6C62]">{performerLabel(it)}</div>
                 </div>
                 <div>
                   <div className="label-eyebrow text-[10px]">Qty</div>
@@ -663,22 +780,23 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
         })}
       </div>
 
-      <div className="hidden md:block bl-card overflow-hidden rounded-xl" data-testid="treatment-items-table">
+      <div className="hidden md:block bl-card table-card overflow-hidden rounded-xl" data-testid="treatment-items-table">
         {workflowMode && (
-          <div className="px-5 py-3 border-b border-[#EAE6D7] bg-[#F8F5EC]">
+          <div className="px-5 py-3 border-b border-[var(--bl-border)] bg-[var(--bl-table-header-bg)]">
             <div className="label-eyebrow">Performed treatments</div>
           </div>
         )}
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full text-sm min-w-[640px]">
-            <thead className="bg-[#F8F5EC]">
-              <tr className="text-left text-xs uppercase tracking-widest text-[#5C6C62]">
+          <table className="bl-data-table w-full text-sm min-w-[640px]">
+            <thead className="bl-data-table-head">
+              <tr>
                 {workflowMode ? (
                   <>
                     <th className="px-5 py-3" data-testid="treatment-col-header">Treatment</th>
                     <th className="px-5 py-3">Product</th>
                     <th className="px-5 py-3">Area</th>
                     <th className="px-5 py-3">Qty</th>
+                    <th className="px-5 py-3">Staff</th>
                     {canSeePrice && <th className="px-5 py-3 text-right">Total</th>}
                     <th className="px-5 py-3 text-right">Actions</th>
                   </>
@@ -702,7 +820,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                   <td
                     colSpan={
                       workflowMode
-                        ? 4 + (canSeePrice ? 1 : 0) + 1
+                        ? 5 + (canSeePrice ? 1 : 0) + 1
                         : 6 + (canSeePrice ? 1 : 0) + 1
                     }
                     className="text-center py-8 text-[#5C6C62]"
@@ -718,7 +836,7 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                 const qtyLabel = `${Number(it.quantity ?? 1)} ${it.unit_type || "session"}`;
                 const lineTotal = Number(it.price || 0) * Number(it.quantity || 1);
                 return (
-                <tr key={it.id} className="border-t border-[#EAE6D7]" data-testid={`treatment-row-${it.id}`}>
+                <tr key={it.id} data-testid={`treatment-row-${it.id}`}>
                   {workflowMode ? (
                     <>
                       <td className="px-5 py-3 font-medium text-[#2D3A33]" data-testid={`treatment-row-treatment-${it.id}`}>
@@ -735,20 +853,32 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                       </td>
                       <td className="px-5 py-3 text-[#5C6C62]">{it.area_treated || "—"}</td>
                       <td className="px-5 py-3 text-[#5C6C62]">{qtyLabel}</td>
+                      <td className="px-5 py-3 text-[#5C6C62]">{performerLabel(it)}</td>
                       {canSeePrice && (
                         <td className="px-5 py-3 text-right font-medium">{fmtIDR(lineTotal)}</td>
                       )}
                       <td className="px-5 py-3 text-right">
                         {editable && (
-                          <button
-                            type="button"
-                            onClick={() => del(it.id)}
-                            className="text-[#B14A2C] hover:text-[#8a3a22]"
-                            aria-label="Delete item"
-                            data-testid={`treatment-delete-${it.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => loadItemIntoForm(it)}
+                              className="text-[#5C6C62] hover:text-[#2D3A33] p-1"
+                              aria-label="Edit item"
+                              data-testid={`treatment-edit-${it.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => del(it.id)}
+                              className="text-[#B14A2C] hover:text-[#8a3a22] p-1"
+                              aria-label="Delete item"
+                              data-testid={`treatment-delete-${it.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </>
@@ -776,14 +906,25 @@ export default function TreatmentItems({ visit, onSaved, workflowMode = false })
                       )}
                       <td className="px-5 py-3 text-right">
                         {editable && (
-                          <button
-                            type="button"
-                            onClick={() => del(it.id)}
-                            className="text-[#B14A2C] hover:text-[#8a3a22]"
-                            data-testid={`treatment-delete-${it.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => loadItemIntoForm(it)}
+                              className="text-[#5C6C62] hover:text-[#2D3A33] p-1"
+                              aria-label="Edit item"
+                              data-testid={`treatment-edit-${it.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => del(it.id)}
+                              className="text-[#B14A2C] hover:text-[#8a3a22] p-1"
+                              data-testid={`treatment-delete-${it.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </>

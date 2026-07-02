@@ -1,5 +1,6 @@
 import { consentSummary } from "@/components/consent/ConsentStatusBadge";
 import { recordNoteStatus } from "@/lib/clinicalNotes";
+import { hasPermission } from "@/lib/auth";
 import { formatBillingLabel, visitNoteTabRoles, visitHasTreatmentContext } from "@/lib/visitUi";
 import { hasFeature } from "@/lib/clinic";
 
@@ -105,6 +106,17 @@ export function bookedTreatmentReference(visit) {
     notes: (booking?.notes || "").trim(),
     staff: visit?.performers || [],
   };
+}
+
+/** Whether the user may add/edit/delete performed treatment items on this visit. */
+export function canEditPerformedTreatments(user, visit) {
+  if (!user || !visit) return false;
+  if (visit.status === "completed") return false;
+  if (user.platform_admin || user.role === "super_admin") return true;
+  if (user.permissions?.length) {
+    return hasPermission(user, "clinical_records.edit");
+  }
+  return ["doctor", "therapist", "nurse"].includes(user.role);
 }
 
 function consentStepStatus(visit) {

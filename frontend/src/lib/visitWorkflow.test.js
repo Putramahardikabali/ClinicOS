@@ -7,6 +7,7 @@ import {
   clinicalNotesStepLabel,
   buildVisitClinicalAlerts,
   primaryVisitNoteRole,
+  canEditPerformedTreatments,
 } from "@/lib/visitWorkflow";
 
 const doctorUser = { role: "doctor", permissions: ["edit_clinical"] };
@@ -140,5 +141,16 @@ describe("visitWorkflow", () => {
       performers: [{ staff_id: "s2", staff_role_snapshot: "therapist", performer_type: "primary" }],
     });
     expect(primaryVisitNoteRole(visit)).toBe("therapist");
+  });
+
+  it("canEditPerformedTreatments allows clinical roles and blocks completed visits", () => {
+    const visit = baseVisit();
+    expect(canEditPerformedTreatments({ role: "doctor" }, visit)).toBe(true);
+    expect(canEditPerformedTreatments({ role: "therapist" }, visit)).toBe(true);
+    expect(canEditPerformedTreatments({ role: "nurse" }, visit)).toBe(true);
+    expect(canEditPerformedTreatments({ role: "doctor", permissions: ["clinical_records.edit"] }, visit)).toBe(true);
+    expect(canEditPerformedTreatments(nurseUser, visit)).toBe(false);
+    expect(canEditPerformedTreatments(managerUser, visit)).toBe(false);
+    expect(canEditPerformedTreatments({ role: "doctor" }, { ...visit, status: "completed" })).toBe(false);
   });
 });
