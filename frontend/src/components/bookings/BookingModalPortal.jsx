@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 
 /**
- * Render booking modals inside the schedule fullscreen shell when active,
+ * Render booking modals inside the schedule shell when browser fullscreen is active,
  * otherwise portal to document.body (default behavior).
  */
 export function BookingModalPortal({ active, fullscreen, portalRef, children }) {

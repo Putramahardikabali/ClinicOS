@@ -14,6 +14,7 @@ import ImpersonationBanner from "@/components/ImpersonationBanner";
 import FrontDeskReminderLayer from "@/components/frontdesk/FrontDeskReminderLayer";
 import { FrontDeskReminderProvider } from "@/lib/frontDeskReminderContext";
 import { RealtimeEventsProvider } from "@/lib/realtimeEventsContext";
+import { useScheduleFocusMode } from "@/lib/scheduleFocusModeContext";
 import { HelpDrawer } from "@/pages/HelpPage";
 import {
   LayoutDashboard, Users, Stethoscope, ScrollText, LogOut, Sparkles,
@@ -192,6 +193,9 @@ export default function AppShell({ children }) {
   const useAccountingSidebar = isAccountingUser(user);
   const useFOSidebar = user?.role === "fo";
   const useGroupedSidebar = isOpsSidebarRole(user?.role) || useAccountingSidebar || useFOSidebar;
+  const { isScheduleFocusMode } = useScheduleFocusMode();
+  const scheduleFocusActive = isScheduleFocusMode
+    && (loc.pathname === "/bookings" || loc.pathname.startsWith("/bookings/"));
   const bottomKeys = BOTTOM_NAV_BY_ROLE[user?.role] || ["/", "/patients", "/visits"];
   const bottomItems = bottomKeys.map((k) => visibleNav.find((n) => n.to === k)).filter(Boolean);
 
@@ -325,12 +329,18 @@ export default function AppShell({ children }) {
   return (
     <RealtimeEventsProvider>
     <FrontDeskReminderProvider>
-    <div className="min-h-screen flex" style={{ background: "var(--bl-background)" }}>
+    <div
+      className={`flex ${scheduleFocusActive ? "h-screen overflow-hidden" : "min-h-screen"}`}
+      style={{ background: "var(--bl-background)" }}
+      data-schedule-focus-mode={scheduleFocusActive ? "true" : "false"}
+    >
       <ExpiryGate />
       {/* Desktop sidebar */}
+      {!scheduleFocusActive && (
       <aside className="hidden lg:flex" data-testid="app-sidebar">
         <Sidebar />
       </aside>
+      )}
 
       {/* Mobile drawer (overflow nav) */}
       {mobileOpen && (
@@ -343,20 +353,20 @@ export default function AppShell({ children }) {
       )}
 
       {/* Main */}
-      <main className="flex-1 min-w-0 flex flex-col">
-        {showBetaBadge && (
+      <main className={`flex-1 min-w-0 flex flex-col ${scheduleFocusActive ? "min-h-0 overflow-hidden" : ""}`}>
+        {showBetaBadge && !scheduleFocusActive && (
           <div className="px-4 py-2 text-xs font-semibold text-amber-900 bg-amber-100 border-b border-amber-200 text-center tracking-wide">
             ClinicOS Beta Environment
           </div>
         )}
         <ImpersonationBanner />
-        <BillingNotificationBanner />
-        <UsageWarningBanner />
-        <SubscriptionBanner />
-        <PlatformAnnouncementBanner />
+        {!scheduleFocusActive && <BillingNotificationBanner />}
+        {!scheduleFocusActive && <UsageWarningBanner />}
+        {!scheduleFocusActive && <SubscriptionBanner />}
+        {!scheduleFocusActive && <PlatformAnnouncementBanner />}
         {/* Mobile top bar — hidden on visit workflow for more vertical space */}
         <header
-          className={`lg:hidden sticky top-0 z-30 backdrop-blur border-b px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage ? "hidden" : ""}`}
+          className={`lg:hidden sticky top-0 z-30 backdrop-blur border-b px-4 py-3 flex items-center justify-between ${isVisitWorkflowPage || scheduleFocusActive ? "hidden" : ""}`}
           style={{ background: "color-mix(in srgb, var(--bl-background) 95%, transparent)", borderColor: "var(--bl-border)" }}
           data-testid="mobile-app-header"
         >
@@ -381,13 +391,14 @@ export default function AppShell({ children }) {
         </header>
 
         <div
-          className={`flex-1 lg:pb-0 ${isVisitWorkflowPage ? "pb-[12.5rem]" : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"}`}
+          className={`flex-1 ${scheduleFocusActive ? "min-h-0 overflow-hidden flex flex-col" : `lg:pb-0 ${isVisitWorkflowPage ? "pb-[12.5rem]" : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"}`}`}
           data-visit-workflow={isVisitWorkflowPage ? "true" : undefined}
         >
           {children}
         </div>
 
         {/* Mobile bottom navigation */}
+        {!scheduleFocusActive && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#EAE6D7] safe-area-pb" data-testid="bottom-nav">
           <div className="flex items-stretch justify-around">
             {bottomItems.map((n) => {
@@ -419,6 +430,7 @@ export default function AppShell({ children }) {
             </button>
           </div>
         </nav>
+        )}
 
         {/* Mobile profile sheet */}
         {profileOpen && (

@@ -60,8 +60,8 @@ export function clampScheduleMetric(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-export function buildScheduleMetrics(scaleState, isFullscreen) {
-  if (!isFullscreen) {
+export function buildScheduleMetrics(scaleState, isFocusMode) {
+  if (!isFocusMode) {
     return { ...SCHEDULE_SCALE_DEFAULTS, fitMode: SCHEDULE_FIT_MODES.default };
   }
   const d = SCHEDULE_SCALE_DEFAULTS;

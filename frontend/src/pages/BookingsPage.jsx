@@ -65,6 +65,7 @@ import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursM
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
 import { useAuth, hasPermission, can } from "@/lib/auth";
+import { useScheduleFocusMode, readScheduleFocusModePreference } from "@/lib/scheduleFocusModeContext";
 import { evaluateNewBookingSubmit } from "@/lib/bookingSubmitValidation";
 import BookingGiftCardSection from "@/components/bookings/BookingGiftCardSection";
 import {
@@ -2576,9 +2577,14 @@ export default function BookingsPage() {
   const [automationActive, setAutomationActive] = useState(false);
   const scheduleModalPortalRef = useRef(null);
   const scheduleHighlightApiRef = useRef(null);
-  const [scheduleFullscreen, setScheduleFullscreen] = useState(false);
-  const onScheduleFullscreenChange = useCallback((fs) => setScheduleFullscreen(Boolean(fs)), []);
-  const useScheduleModalPortal = viewMode === "schedule" && scheduleFullscreen;
+  const {
+    isScheduleFocusMode,
+    isBrowserFullscreen,
+    enterFocusMode,
+  } = useScheduleFocusMode();
+  const restoredFocusRef = useRef(false);
+  const scheduleFocusLayout = isScheduleFocusMode && viewMode === "schedule";
+  const useScheduleModalPortal = scheduleFocusLayout && isBrowserFullscreen;
   const clinicName = branding?.clinic_name || clinic?.name || "our clinic";
   const canCreateOvertime =
     ["super_admin", "manager"].includes(user?.role) ||
@@ -2605,6 +2611,14 @@ export default function BookingsPage() {
   const handleCreatePatientFromSearch = useCallback(() => {
     navigate("/patients");
   }, [navigate]);
+
+  useEffect(() => {
+    if (viewMode !== "schedule" || restoredFocusRef.current) return;
+    restoredFocusRef.current = true;
+    if (readScheduleFocusModePreference()) {
+      enterFocusMode();
+    }
+  }, [viewMode, enterFocusMode]);
 
   useEffect(() => {
     if (viewMode !== "schedule") {
@@ -2733,7 +2747,15 @@ export default function BookingsPage() {
   const canManage = ["super_admin", "fo", "manager"].includes(user?.role);
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 max-w-7xl mx-auto" data-testid="bookings-page">
+    <div
+      className={scheduleFocusLayout
+        ? "flex flex-col flex-1 min-h-0 h-full"
+        : "p-6 md:p-8 lg:p-10 max-w-7xl mx-auto"}
+      data-testid="bookings-page"
+      data-schedule-focus-layout={scheduleFocusLayout ? "true" : "false"}
+    >
+      {!scheduleFocusLayout && (
+      <>
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="label-eyebrow">Front desk</div>
@@ -2813,6 +2835,8 @@ export default function BookingsPage() {
           </select>
         </div>
       </div>
+      </>
+      )}
 
       {viewMode === "list" && (
         <div className="mt-4 flex gap-1 bg-[#F3F1EB] rounded-xl p-1 w-fit" data-testid="scope-tabs">
@@ -2825,7 +2849,7 @@ export default function BookingsPage() {
       )}
 
       {viewMode === "schedule" ? (
-        <div className="mt-5">
+        <div className={scheduleFocusLayout ? "flex flex-col flex-1 min-h-0" : "mt-5"}>
           <BookingsScheduleView
             clinic={clinic}
             user={user}
@@ -2839,7 +2863,6 @@ export default function BookingsPage() {
             canWhatsgo={canWhatsgoSend && automationActive}
             canCreatePatient={can(user, "create_patient")}
             modalPortalRef={scheduleModalPortalRef}
-            onFullscreenChange={onScheduleFullscreenChange}
             highlightApiRef={scheduleHighlightApiRef}
             onHighlightActivated={() => {
               setDetailBooking(null);

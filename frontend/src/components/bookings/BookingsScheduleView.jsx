@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
-import { ChevronLeft, ChevronRight, Layers, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Layers, Maximize2, PanelLeft } from "lucide-react";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import {
   buildSchedulePreviewLines,
@@ -15,6 +15,13 @@ import ScheduleFullscreenUtilityRail from "@/components/bookings/ScheduleFullscr
 import ScheduleUtilityDrawer from "@/components/bookings/ScheduleUtilityDrawer";
 import { resolveScheduleUtilityAccess } from "@/components/bookings/scheduleUtilityPermissions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useScheduleFocusMode } from "@/lib/scheduleFocusModeContext";
 import {
   getClinicNowParts,
   hhmmToMin,
@@ -843,7 +850,6 @@ export default function BookingsScheduleView({
   canCreatePatient = false,
   reloadAt = 0,
   modalPortalRef,
-  onFullscreenChange,
   highlightApiRef,
   onHighlightActivated,
   onBookPatient,
@@ -861,7 +867,13 @@ export default function BookingsScheduleView({
   const lastReloadAtRef = useRef(0);
   const lastRefreshErrorAtRef = useRef(0);
   const [orientation, setOrientation] = useState(() => loadScheduleOrientation());
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const {
+    isScheduleFocusMode,
+    isBrowserFullscreen,
+    enterFocusMode,
+    exitFocusMode,
+    toggleBrowserFullscreen,
+  } = useScheduleFocusMode();
   const [scaleState, setScaleState] = useState(() => loadScheduleScaleState());
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
@@ -1042,22 +1054,8 @@ export default function BookingsScheduleView({
   }, [activatePatientHighlight]);
 
   useEffect(() => {
-    const onFsChange = () => {
-      const fs = Boolean(document.fullscreenElement);
-      setIsFullscreen(fs);
-      onFullscreenChange?.(fs);
-    };
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, [onFullscreenChange]);
-
-  useEffect(() => {
-    onFullscreenChange?.(isFullscreen);
-  }, [isFullscreen, onFullscreenChange]);
-
-  useEffect(() => {
-    if (!isFullscreen) setActiveUtility(null);
-  }, [isFullscreen]);
+    if (!isScheduleFocusMode) setActiveUtility(null);
+  }, [isScheduleFocusMode]);
 
   const utilityAccess = useMemo(
     () => resolveScheduleUtilityAccess(user, clinic),
@@ -1065,7 +1063,7 @@ export default function BookingsScheduleView({
   );
 
   useEffect(() => {
-    if (!isFullscreen || !activeUtility) return undefined;
+    if (!isScheduleFocusMode || !activeUtility) return undefined;
     const onKeyDown = (e) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -1074,7 +1072,7 @@ export default function BookingsScheduleView({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [isFullscreen, activeUtility]);
+  }, [isScheduleFocusMode, activeUtility]);
 
   const { openMin, closeMin, interval, closed, closedReason, slotCount } = useMemo(() => {
     const dk = dayKey(date);
@@ -1102,8 +1100,8 @@ export default function BookingsScheduleView({
   }, [clinic, date]);
 
   const metrics = useMemo(
-    () => buildScheduleMetrics(scaleState, isFullscreen),
-    [scaleState, isFullscreen],
+    () => buildScheduleMetrics(scaleState, isScheduleFocusMode),
+    [scaleState, isScheduleFocusMode],
   );
 
   const gridWidth = useMemo(() => slotCount * metrics.slotPx, [slotCount, metrics.slotPx]);
@@ -1167,7 +1165,7 @@ export default function BookingsScheduleView({
   }, [persistScale, scaleState]);
 
   useEffect(() => {
-    if (!isFullscreen || closed || workingStaff.length === 0) return undefined;
+    if (!isScheduleFocusMode || closed || workingStaff.length === 0) return undefined;
     if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
       return undefined;
     }
@@ -1189,7 +1187,7 @@ export default function BookingsScheduleView({
     });
     return () => cancelAnimationFrame(id);
   }, [
-    isFullscreen,
+    isScheduleFocusMode,
     orientation,
     slotCount,
     flatStaff.length,
@@ -1201,7 +1199,7 @@ export default function BookingsScheduleView({
   ]);
 
   useEffect(() => {
-    if (!isFullscreen) return undefined;
+    if (!isScheduleFocusMode) return undefined;
     if ([SCHEDULE_FIT_MODES.default, SCHEDULE_FIT_MODES.manual].includes(scaleState.fitMode)) {
       return undefined;
     }
@@ -1223,7 +1221,7 @@ export default function BookingsScheduleView({
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [isFullscreen, scaleState.fitMode, measureFitRatios]);
+  }, [isScheduleFocusMode, scaleState.fitMode, measureFitRatios]);
 
   const unassigned = bookings.filter(
     (b) =>
@@ -1585,26 +1583,12 @@ export default function BookingsScheduleView({
     saveScheduleOrientation(next);
   };
 
-  const enterFullscreen = async () => {
-    setIsFullscreen(true);
-    try {
-      if (shellRef.current?.requestFullscreen) {
-        await shellRef.current.requestFullscreen();
-      }
-    } catch {
-      /* app-level fullscreen still applies */
-    }
+  const enterFocusModeLayout = () => {
+    enterFocusMode();
   };
 
-  const exitFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch {
-      /* ignore */
-    }
-    setIsFullscreen(false);
+  const showNavigation = () => {
+    exitFocusMode();
   };
 
   const hasWorkingStaff = workingStaff.length > 0;
@@ -1612,9 +1596,11 @@ export default function BookingsScheduleView({
   const trackHeight = slotCount * rowH;
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
-  const gridScrollClass = isFullscreen ? "h-full" : "max-h-[min(72vh,900px)]";
-  const tooltipContainer = isFullscreen ? shellRef.current : undefined;
-  const searchPortalContainer = isFullscreen ? (document.fullscreenElement || shellRef.current) : undefined;
+  const gridScrollClass = isScheduleFocusMode ? "h-full" : "max-h-[min(72vh,900px)]";
+  const tooltipContainer = isBrowserFullscreen ? shellRef.current : undefined;
+  const overlayPortalContainer = isBrowserFullscreen
+    ? (document.fullscreenElement || shellRef.current)
+    : undefined;
 
   const handleSearchBookPatient = useCallback((patient) => {
     onBookPatient?.(patient, date);
@@ -1630,7 +1616,7 @@ export default function BookingsScheduleView({
 
   const renderHorizontal = () => (
     <div
-      ref={isFullscreen ? gridViewportRef : null}
+      ref={isScheduleFocusMode ? gridViewportRef : null}
       className={`overflow-auto ${gridScrollClass}`}
       data-testid="schedule-horizontal"
     >
@@ -1699,7 +1685,7 @@ export default function BookingsScheduleView({
 
   const renderVertical = () => (
     <div
-      ref={isFullscreen ? gridViewportRef : null}
+      ref={isScheduleFocusMode ? gridViewportRef : null}
       className={`overflow-auto ${gridScrollClass}`}
       data-testid="schedule-vertical"
     >
@@ -1803,8 +1789,8 @@ export default function BookingsScheduleView({
     </div>
   );
 
-  const shellClass = isFullscreen
-    ? "fixed inset-0 z-[70] bg-[#FDFBF7] flex flex-col p-3 sm:p-4 overflow-hidden relative"
+  const shellClass = isScheduleFocusMode
+    ? "flex flex-col flex-1 min-h-0 h-full bg-[#FDFBF7] overflow-hidden relative p-3 sm:p-4"
     : "";
 
   return (
@@ -1814,9 +1800,9 @@ export default function BookingsScheduleView({
       ref={shellRef}
       className={shellClass}
       data-testid="bookings-schedule-view"
-      data-schedule-fullscreen={isFullscreen ? "true" : "false"}
+      data-schedule-focus-mode={isScheduleFocusMode ? "true" : "false"}
     >
-      <div className={`flex flex-wrap items-center gap-2 sm:gap-3 mb-4 ${isFullscreen ? "shrink-0" : ""}`}>
+      <div className={`flex flex-wrap items-center gap-2 sm:gap-3 mb-4 ${isScheduleFocusMode ? "shrink-0" : ""}`}>
         <div className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => shiftDay(-1)} className="bl-icon-btn" data-testid="schedule-prev-day">
             <ChevronLeft className="w-4 h-4" />
@@ -1839,14 +1825,14 @@ export default function BookingsScheduleView({
           )}
         </div>
 
-        {isFullscreen && (
+        {isScheduleFocusMode && (
           <div className="flex items-center gap-2 flex-1 min-w-[12rem] flex-wrap w-full sm:w-auto sm:flex-initial">
             <SchedulePatientSearch
               date={date}
               canManage={canManage}
               canWhatsgo={canWhatsgo}
               canCreatePatient={canCreatePatient}
-              portalContainer={searchPortalContainer}
+              portalContainer={overlayPortalContainer}
               onHighlightPatient={handleSearchHighlightPatient}
               onBookPatient={handleSearchBookPatient}
               onModifyBooking={handleSearchModifyBooking}
@@ -1888,11 +1874,11 @@ export default function BookingsScheduleView({
             </button>
           </div>
 
-          {isFullscreen && (
+          {isScheduleFocusMode && (
             <ScheduleFitControls
               fitMode={scaleState.fitMode}
               orientation={orientation}
-              menuContainer={document.fullscreenElement || shellRef.current}
+              menuContainer={overlayPortalContainer}
               onFitHeight={() => applyFitMode(SCHEDULE_FIT_MODES.fitHeight)}
               onFitWidth={() => applyFitMode(SCHEDULE_FIT_MODES.fitWidth)}
               onFitScreen={() => applyFitMode(SCHEDULE_FIT_MODES.fitScreen)}
@@ -1903,22 +1889,63 @@ export default function BookingsScheduleView({
             />
           )}
 
-          <button
-            type="button"
-            className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
-            onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-            data-testid={isFullscreen ? "schedule-exit-fullscreen" : "schedule-enter-fullscreen"}
-            title={isFullscreen ? "Exit full screen" : "View full screen schedule"}
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            {isFullscreen ? "Exit full screen" : "Full screen"}
-          </button>
+          {isScheduleFocusMode ? (
+            <button
+              type="button"
+              className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
+              onClick={showNavigation}
+              data-testid="schedule-show-navigation"
+              title="Show navigation and exit focus mode"
+            >
+              <PanelLeft className="w-4 h-4" />
+              Show navigation
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="bl-btn-secondary text-xs inline-flex items-center gap-1.5"
+              onClick={enterFocusModeLayout}
+              data-testid="schedule-enter-focus-mode"
+              title="Expand schedule into focus mode"
+            >
+              <Maximize2 className="w-4 h-4" />
+              Focus mode
+            </button>
+          )}
+
+          {isScheduleFocusMode && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="bl-btn-secondary text-xs inline-flex items-center gap-1"
+                  data-testid="schedule-focus-more-menu"
+                >
+                  More
+                  <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                container={overlayPortalContainer}
+                className="min-w-[11rem] z-[130] bg-[var(--bl-surface)] border-[var(--bl-border)] text-[var(--bl-text)] shadow-lg"
+              >
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => toggleBrowserFullscreen(shellRef.current)}
+                  data-testid="schedule-browser-fullscreen"
+                >
+                  {isBrowserFullscreen ? "Exit browser full screen" : "Browser full screen"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
       {patientHighlight && (
         <div
-          className={`flex flex-wrap items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] ${isFullscreen ? "shrink-0" : ""}`}
+          className={`flex flex-wrap items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] ${isScheduleFocusMode ? "shrink-0" : ""}`}
           data-testid="schedule-patient-highlight-banner"
         >
           <div className="text-sm text-[#1E3A8A]">
@@ -1940,12 +1967,12 @@ export default function BookingsScheduleView({
         </div>
       )}
 
-      <p className={`text-xs text-[#A89F8B] mb-3 ${isFullscreen ? "shrink-0" : ""}`}>
+      <p className={`text-xs text-[#A89F8B] mb-3 ${isScheduleFocusMode ? "shrink-0" : ""}`}>
         Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
 
-      <div className={`${isFullscreen ? "flex flex-1 min-h-0 relative" : ""}`}>
-        <div className={`${isFullscreen ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
+      <div className={`${isScheduleFocusMode ? "flex flex-1 min-h-0 relative" : ""}`}>
+        <div className={`${isScheduleFocusMode ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
         {initialLoading && bookings.length === 0 && staff.length === 0 ? (
           <div className="bl-card p-10 text-center text-[#5C6C62]">Loading schedule…</div>
         ) : closed ? (
@@ -1961,8 +1988,8 @@ export default function BookingsScheduleView({
             No staff scheduled to work on {dateLabel}. Adjust staff schedules or pick another day.
           </div>
         ) : (
-          <div className={`bl-card overflow-hidden ${isFullscreen ? "h-full flex flex-col flex-1 min-h-0" : ""}`}>
-            <div className={isFullscreen ? "flex-1 min-h-0 overflow-auto" : ""}>
+          <div className={`bl-card overflow-hidden ${isScheduleFocusMode ? "h-full flex flex-col flex-1 min-h-0" : ""}`}>
+            <div className={isScheduleFocusMode ? "flex-1 min-h-0 overflow-auto" : ""}>
               {orientation === "vertical" ? renderVertical() : renderHorizontal()}
             </div>
 
@@ -1998,7 +2025,7 @@ export default function BookingsScheduleView({
         )}
         </div>
 
-        {isFullscreen && (
+        {isScheduleFocusMode && (
           <>
             <ScheduleUtilityDrawer
               open={!!activeUtility}
@@ -2015,13 +2042,13 @@ export default function BookingsScheduleView({
         )}
       </div>
 
-      {!isFullscreen && <ScheduleLegend />}
+      {!isScheduleFocusMode && <ScheduleLegend />}
 
       <div
         ref={modalPortalRef}
-        className={isFullscreen ? "fixed inset-0 z-[120] pointer-events-none [&>*]:pointer-events-auto" : "hidden"}
+        className={isBrowserFullscreen ? "fixed inset-0 z-[120] pointer-events-none [&>*]:pointer-events-auto" : "hidden"}
         data-testid="schedule-modal-portal"
-        aria-hidden={!isFullscreen}
+        aria-hidden={!isBrowserFullscreen}
       />
 
       <ScheduleMoveConfirmModal
