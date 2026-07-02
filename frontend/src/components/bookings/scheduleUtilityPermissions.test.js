@@ -2,7 +2,7 @@ import { resolveScheduleUtilityAccess, UTILITY_ITEMS } from "./scheduleUtilityPe
 
 describe("scheduleUtilityPermissions", () => {
   const clinicWithBilling = {
-    features: ["billing", "products", "treatments"],
+    features: ["billing", "products", "treatments", "emr"],
   };
 
   it("grants legend to appointment viewers", () => {
@@ -32,7 +32,32 @@ describe("scheduleUtilityPermissions", () => {
     expect(access.dailyClosing).toBe(true);
   });
 
-  it("defines six utility items", () => {
-    expect(UTILITY_ITEMS).toHaveLength(6);
+  it("shows sessions for visit viewers with emr feature", () => {
+    const access = resolveScheduleUtilityAccess(
+      { role: "fo", permissions: ["visits.view", "appointments.view"] },
+      clinicWithBilling,
+    );
+    expect(access.sessions).toBe(true);
+  });
+
+  it("hides sessions without emr feature", () => {
+    const access = resolveScheduleUtilityAccess(
+      { role: "fo", permissions: ["visits.view"] },
+      { features: ["billing"] },
+    );
+    expect(access.sessions).toBe(false);
+  });
+
+  it("defines seven utility items", () => {
+    expect(UTILITY_ITEMS).toHaveLength(7);
+    expect(UTILITY_ITEMS.map((i) => i.id)).toEqual([
+      "price_checker",
+      "invoices",
+      "pos",
+      "sessions",
+      "daily_closing",
+      "appointment_log",
+      "legend",
+    ]);
   });
 });

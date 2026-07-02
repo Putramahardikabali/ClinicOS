@@ -822,6 +822,7 @@ export default function BookingsScheduleView({
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
   const [invoiceDrawerInit, setInvoiceDrawerInit] = useState(null);
+  const [sessionsDrawerInit, setSessionsDrawerInit] = useState(null);
   const utilityCloseGuardRef = useRef(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
   const shellRef = useRef(null);
@@ -1005,6 +1006,7 @@ export default function BookingsScheduleView({
     if (!isAppointmentWorkspace) {
       setActiveUtility(null);
       setInvoiceDrawerInit(null);
+      setSessionsDrawerInit(null);
     }
   }, [isAppointmentWorkspace]);
 
@@ -1019,6 +1021,15 @@ export default function BookingsScheduleView({
       } else if (next !== "invoices") {
         setInvoiceDrawerInit(null);
       }
+      if (next === "sessions" && appointmentContext) {
+        setSessionsDrawerInit({
+          visitId: appointmentContext.visit_id || null,
+          patientId: appointmentContext.patient_id || null,
+          bookingId: appointmentContext.id || null,
+        });
+      } else if (next !== "sessions") {
+        setSessionsDrawerInit(null);
+      }
       return next;
     });
   }, [appointmentContext]);
@@ -1027,6 +1038,7 @@ export default function BookingsScheduleView({
     if (utilityCloseGuardRef.current && utilityCloseGuardRef.current() === false) return;
     setActiveUtility(null);
     setInvoiceDrawerInit(null);
+    setSessionsDrawerInit(null);
   }, []);
 
   const handleInvoicePaymentSuccess = useCallback(() => {
@@ -2056,6 +2068,7 @@ export default function BookingsScheduleView({
           onClose={closeUtilityDrawer}
           scheduleDate={date}
           invoiceInit={activeUtility === "invoices" ? invoiceDrawerInit : null}
+          sessionsInit={activeUtility === "sessions" ? sessionsDrawerInit : null}
           onPaymentSuccess={handleInvoicePaymentSuccess}
           closeGuardRef={utilityCloseGuardRef}
         />

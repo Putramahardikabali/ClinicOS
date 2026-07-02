@@ -8,6 +8,7 @@ export default function ScheduleUtilityDrawer({
   onClose,
   scheduleDate,
   invoiceInit,
+  sessionsInit,
   onPaymentSuccess,
   closeGuardRef,
 }) {
@@ -53,6 +54,7 @@ export default function ScheduleUtilityDrawer({
             utilityId={utilityId}
             scheduleDate={scheduleDate}
             invoiceInit={invoiceInit}
+            sessionsInit={sessionsInit}
             onPaymentSuccess={onPaymentSuccess}
             closeGuardRef={closeGuardRef}
           />

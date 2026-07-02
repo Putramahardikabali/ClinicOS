@@ -5,6 +5,7 @@ import {
   FileText,
   Receipt,
   ShoppingCart,
+  Stethoscope,
 } from "lucide-react";
 import { UTILITY_ITEMS } from "@/components/bookings/scheduleUtilityPermissions";
 
@@ -12,6 +13,7 @@ const ICONS = {
   price_checker: Calculator,
   invoices: FileText,
   pos: ShoppingCart,
+  sessions: Stethoscope,
   daily_closing: Receipt,
   appointment_log: ClipboardList,
   legend: BookOpen,

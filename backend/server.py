@@ -1837,9 +1837,65 @@ async def list_visits(patient_id: Optional[str] = None, status: Optional[str] = 
     if assigned_to and user_has_permission(user, "visits.view"):
         flt["assigned_to"] = assigned_to
     items = await db.visits.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
+    if not items:
+        return items
+    patient_ids = list({v["patient_id"] for v in items if v.get("patient_id")})
+    patients = {}
+    if patient_ids:
+        async for p in db.patients.find({"id": {"$in": patient_ids}}, {"_id": 0, "id": 1, "full_name": 1, "phone": 1}):
+            patients[p["id"]] = p
+    user_ids = list({v["assigned_to"] for v in items if v.get("assigned_to")})
+    users_map = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            users_map[u["id"]] = u
+    booking_ids = list({v["booking_id"] for v in items if v.get("booking_id")})
+    bookings_map = {}
+    clinic_id = items[0].get("clinic_id")
+    if booking_ids and clinic_id:
+        async for b in db.bookings.find(
+            {"id": {"$in": booking_ids}, "clinic_id": clinic_id},
+            {"_id": 0, "id": 1, "treatment": 1, "scheduled_at": 1},
+        ):
+            bookings_map[b["id"]] = b
+    visit_ids = [v["id"] for v in items]
+    invoices_map = {}
+    if visit_ids and clinic_id:
+        async for inv in db.invoices.find(
+            {
+                "visit_id": {"$in": visit_ids},
+                "clinic_id": clinic_id,
+                "payment_status": {"$nin": ["cancelled"]},
+            },
+            {"_id": 0, "visit_id": 1, "id": 1, "payment_status": 1, "invoice_number": 1},
+        ):
+            if inv.get("visit_id") and inv["visit_id"] not in invoices_map:
+                invoices_map[inv["visit_id"]] = inv
     for v in items:
-        p = await db.patients.find_one({"id": v["patient_id"]}, {"_id": 0, "full_name": 1})
+        p = patients.get(v.get("patient_id"))
         v["patient_name"] = p["full_name"] if p else "Unknown"
+        v["patient_phone"] = (p.get("phone") or "") if p else ""
+        if v.get("assigned_to"):
+            u = users_map.get(v["assigned_to"])
+            v["assigned_user_name"] = u["name"] if u else None
+        elif v.get("performers"):
+            primary = next(
+                (p for p in v["performers"] if (p.get("performer_type") or "primary") == "primary"),
+                v["performers"][0] if v["performers"] else None,
+            )
+            v["assigned_user_name"] = primary.get("staff_name_snapshot") if primary else None
+        else:
+            v["assigned_user_name"] = None
+        if v.get("booking_id"):
+            b = bookings_map.get(v["booking_id"])
+            if b:
+                v["booking_treatment"] = b.get("treatment")
+                v["scheduled_at"] = b.get("scheduled_at")
+        inv = invoices_map.get(v["id"])
+        if inv:
+            v["invoice_id"] = inv["id"]
+            v["invoice_payment_status"] = inv.get("payment_status")
+            v["invoice_number"] = inv.get("invoice_number")
     return items
 
 @api.get("/visits/{vid}")

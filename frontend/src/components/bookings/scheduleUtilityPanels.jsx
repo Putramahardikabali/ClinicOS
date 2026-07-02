@@ -1,8 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
 import { ScheduleInvoiceDrawerDetail } from "@/components/bookings/ScheduleInvoiceDrawerDetail";
+import { ScheduleSessionDrawerDetail } from "@/components/bookings/ScheduleSessionDrawerDetail";
+import {
+  DATE_PRESETS,
+  SESSION_STATUS_FILTERS,
+  SESSION_TYPE_FILTERS,
+  filterScheduleSessions,
+  formatSessionTime,
+  resolveDateRange,
+  sessionPaymentLabel,
+  sessionStatusChip,
+  sessionTreatmentLabel,
+  visitTypeLabel,
+} from "@/lib/scheduleSessionsDrawer";
 import PosNewSaleTab from "@/components/pos/PosNewSaleTab";
 import PosDrawerErrorBoundary from "@/components/pos/PosDrawerErrorBoundary";
 import {
@@ -321,6 +334,214 @@ export function InvoicesPanel({
             </div>
           </button>
         ))}
+      </div>
+    </PanelShell>
+  );
+}
+
+export function SessionsPanel({ scheduleDate, sessionsInit }) {
+  const { user } = useAuth();
+  const canFilterPerformer = hasPermission(user, "visits.view");
+  const [mode, setMode] = useState("list");
+  const [selectedId, setSelectedId] = useState(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [performerFilter, setPerformerFilter] = useState("");
+  const [datePreset, setDatePreset] = useState("schedule");
+  const [rows, setRows] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [patientScopeId, setPatientScopeId] = useState("");
+
+  useEffect(() => {
+    if (!sessionsInit) return;
+    if (sessionsInit.visitId) {
+      setSelectedId(sessionsInit.visitId);
+      setMode("detail");
+      return;
+    }
+    setMode("list");
+    setSelectedId(null);
+    setPatientScopeId(sessionsInit.patientId || "");
+    setDatePreset("schedule");
+  }, [sessionsInit]);
+
+  const dateRange = useMemo(
+    () => resolveDateRange(datePreset, scheduleDate),
+    [datePreset, scheduleDate],
+  );
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const params = {};
+    if (status) params.status = status;
+    if (performerFilter && canFilterPerformer) params.assigned_to = performerFilter;
+    if (patientScopeId) params.patient_id = patientScopeId;
+    return api
+      .get("/visits", { params })
+      .then((r) => setRows(r.data || []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, [status, performerFilter, canFilterPerformer, patientScopeId]);
+
+  useEffect(() => {
+    const t = setTimeout(load, q ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [load, q]);
+
+  useEffect(() => {
+    if (!canFilterPerformer) return;
+    api
+      .get("/users")
+      .then((r) => {
+        const list = (r.data || []).filter((u) => ["doctor", "therapist", "nurse"].includes(u.role));
+        setUsers(list);
+      })
+      .catch(() => setUsers([]));
+  }, [canFilterPerformer]);
+
+  const filtered = useMemo(
+    () => filterScheduleSessions(rows, {
+      q,
+      typeFilter,
+      fromDate: dateRange.from,
+      toDate: dateRange.to,
+    }),
+    [rows, q, typeFilter, dateRange],
+  );
+
+  const openDetail = (visitId) => {
+    setSelectedId(visitId);
+    setMode("detail");
+  };
+
+  const backToList = () => {
+    setMode("list");
+    setSelectedId(null);
+  };
+
+  if (mode === "detail" && selectedId) {
+    return (
+      <ScheduleSessionDrawerDetail
+        visitId={selectedId}
+        onBack={backToList}
+      />
+    );
+  }
+
+  return (
+    <PanelShell title="Sessions" footer={<OpenPageLink to="/visits" label="Open Treatment Sessions page" />}>
+      <SearchInput value={q} onChange={setQ} placeholder="Patient name or phone" />
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {DATE_PRESETS.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => setDatePreset(p.key)}
+            className={`text-xs px-2.5 py-1 rounded-full border ${
+              datePreset === p.key
+                ? "border-[#52796F] bg-[#EDF3EF] text-[#2C7755]"
+                : "border-[#EAE6D7] text-[#5C6C62]"
+            }`}
+            data-testid={`session-date-preset-${p.key}`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-[#A89F8B] mb-3">
+        {dateRange.from === dateRange.to ? dateRange.from : `${dateRange.from} – ${dateRange.to}`}
+      </p>
+      <div className="mb-3">
+        <div className="text-[10px] uppercase text-[#A89F8B] mb-1.5">Status</div>
+        <div className="flex flex-wrap gap-1.5">
+          {SESSION_STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key || "all-status"}
+              type="button"
+              onClick={() => setStatus(f.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border ${
+                status === f.key
+                  ? "border-[#52796F] bg-[#EDF3EF] text-[#2C7755]"
+                  : "border-[#EAE6D7] text-[#5C6C62]"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {canFilterPerformer && (
+        <div className="mb-3">
+          <label className="text-[10px] uppercase text-[#A89F8B] block mb-1">Staff</label>
+          <select
+            className="bl-input w-full text-sm"
+            value={performerFilter}
+            onChange={(e) => setPerformerFilter(e.target.value)}
+            data-testid="schedule-session-staff-filter"
+          >
+            <option value="">All staff</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="mb-3">
+        <div className="text-[10px] uppercase text-[#A89F8B] mb-1.5">Type</div>
+        <div className="flex flex-wrap gap-1.5">
+          {SESSION_TYPE_FILTERS.map((f) => (
+            <button
+              key={f.key || "all-type"}
+              type="button"
+              onClick={() => setTypeFilter(f.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border ${
+                typeFilter === f.key
+                  ? "border-[#52796F] bg-[#EDF3EF] text-[#2C7755]"
+                  : "border-[#EAE6D7] text-[#5C6C62]"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {loading && <p className="text-sm text-[#5C6C62]">Loading…</p>}
+      {!loading && filtered.length === 0 && (
+        <p className="text-sm text-[#5C6C62]">No sessions match your filters.</p>
+      )}
+      <div className="space-y-2" data-testid="schedule-session-list">
+        {filtered.map((v) => {
+          const treatment = sessionTreatmentLabel(v);
+          const payment = sessionPaymentLabel(v);
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => openDetail(v.id)}
+              className="w-full text-left rounded-lg border border-[#EAE6D7] px-3 py-2 hover:bg-[#F8F5EC] transition"
+              data-testid={`schedule-session-card-${v.id}`}
+            >
+              <div className="font-medium text-sm text-[#2D3A33] truncate">{v.patient_name}</div>
+              <div className="text-xs text-[#5C6C62] mt-0.5 truncate">
+                {visitTypeLabel(v.visit_type)}
+                {treatment ? ` · ${treatment}` : ""}
+              </div>
+              <div className="text-xs text-[#5C6C62] mt-0.5 truncate">
+                {v.assigned_user_name || "Unassigned"} · {formatSessionTime(v)}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${sessionStatusChip(v.status)}`}>
+                  {(v.status || "").replace("_", " ")}
+                </span>
+                <span className={`bl-chip text-[10px] py-0.5 px-1.5 ${payment.chip}`}>
+                  {payment.label}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </PanelShell>
   );
@@ -747,7 +968,7 @@ export function LegendPanel() {
   );
 }
 
-export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onPaymentSuccess, closeGuardRef }) {
+export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, sessionsInit, onPaymentSuccess, closeGuardRef }) {
   const invoiceDirtyRef = useRef(false);
 
   useEffect(() => {
@@ -779,6 +1000,13 @@ export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onP
       );
     case "pos":
       return <PosPanel />;
+    case "sessions":
+      return (
+        <SessionsPanel
+          scheduleDate={scheduleDate}
+          sessionsInit={sessionsInit}
+        />
+      );
     case "daily_closing":
       return <DailyClosingPanel scheduleDate={scheduleDate} />;
     case "appointment_log":

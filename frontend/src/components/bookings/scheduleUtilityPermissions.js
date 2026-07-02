@@ -7,6 +7,7 @@ export function resolveScheduleUtilityAccess(user, clinic) {
       priceChecker: false,
       invoices: false,
       pos: false,
+      sessions: false,
       dailyClosing: false,
       appointmentLog: false,
       legend: false,
@@ -35,6 +36,13 @@ export function resolveScheduleUtilityAccess(user, clinic) {
     (platform || role === "super_admin" || hasPermission(user, "pos.view") || hasPermission(user, "pos.create"))
     && hasFeature(clinic, "products");
 
+  const sessions =
+    (platform
+      || role === "super_admin"
+      || hasPermission(user, "visits.view")
+      || hasPermission(user, "visits.view_own"))
+    && hasFeature(clinic, "emr");
+
   const dailyClosing =
     (platform || role === "super_admin" || hasPermission(user, "closing.view") || hasPermission(user, "closing.create"))
     && hasFeature(clinic, "products");
@@ -57,6 +65,7 @@ export function resolveScheduleUtilityAccess(user, clinic) {
     priceChecker,
     invoices,
     pos,
+    sessions,
     dailyClosing,
     appointmentLog,
     legend,
@@ -67,6 +76,7 @@ export const UTILITY_ITEMS = [
   { id: "price_checker", label: "Prices", permissionKey: "priceChecker" },
   { id: "invoices", label: "Invoices", permissionKey: "invoices" },
   { id: "pos", label: "POS", permissionKey: "pos" },
+  { id: "sessions", label: "Sessions", permissionKey: "sessions" },
   { id: "daily_closing", label: "Closing", permissionKey: "dailyClosing" },
   { id: "appointment_log", label: "Log", permissionKey: "appointmentLog" },
   { id: "legend", label: "Legend", permissionKey: "legend" },
