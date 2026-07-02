@@ -34,8 +34,9 @@ export function isSlotSelectableForDrag({
   effective,
   occupied,
   canManage,
+  canBookSlots,
 }) {
-  if (!canManage || occupied) return false;
+  if (!(canBookSlots ?? canManage) || occupied) return false;
   const state = resolveEmptySlotState({
     scheduleDate,
     slotMin,
@@ -44,11 +45,12 @@ export function isSlotSelectableForDrag({
     effective,
     occupied,
     canManage,
+    canBookSlots,
     canCreateOvertime: false,
     staffName: "",
     timeStr: "",
   });
-  return state.kind === "available";
+  return state.kind === "available" || (state.kind === "past" && state.clickable);
 }
 
 export function clipDragRangeToValid({ startMin, endMinExclusive, interval, isSlotValid }) {

@@ -124,9 +124,13 @@ async def get_scheduling_settings(db, clinic_id: str) -> dict:
     policy = str(raw.get("conflict_policy") or "warn_allow").strip().lower()
     if policy not in CONFLICT_POLICIES:
         policy = "warn_allow"
+    past_policy = str(raw.get("past_appointment_policy") or "warn_allow").strip().lower()
+    if past_policy not in ("warn_allow", "allow", "block"):
+        past_policy = "warn_allow"
     return {
         "conflict_policy": policy,
         "fo_can_override_conflict": raw.get("fo_can_override_conflict", True) is not False,
+        "past_appointment_policy": past_policy,
     }
 
 

@@ -165,10 +165,12 @@ export function resolveEmptySlotState({
   effective,
   occupied,
   canManage,
+  canBookSlots,
   canCreateOvertime,
   staffName,
   timeStr,
 }) {
+  const canBook = canBookSlots ?? canManage;
   const past = isPastEmptySlot({ scheduleDate, slotMin, timezone });
   const { available, reason } = staffSlotFits(effective, slotMin, slotEnd);
   const isOutsideHours = !available && reason === "Outside working hours";
@@ -183,6 +185,14 @@ export function resolveEmptySlotState({
   }
 
   if (past) {
+    if (canBook) {
+      return {
+        kind: "past",
+        clickable: true,
+        title: "Past time slot. Internal users can still create or edit appointments.",
+        past: true,
+      };
+    }
     return {
       kind: "past",
       clickable: false,

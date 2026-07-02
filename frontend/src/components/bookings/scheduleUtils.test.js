@@ -47,7 +47,7 @@ describe("schedule past slots", () => {
     })).toBe(false);
   });
 
-  test("resolveEmptySlotState blocks past empty slots", () => {
+  test("resolveEmptySlotState allows past empty slots for internal bookers", () => {
     const state = resolveEmptySlotState({
       scheduleDate: "2020-01-01",
       slotMin: 600,
@@ -56,6 +56,23 @@ describe("schedule past slots", () => {
       effective: { is_working: true, work_windows: [{ start: 540, end: 1200 }], block_ranges: [] },
       occupied: false,
       canManage: true,
+      canCreateOvertime: false,
+      staffName: "Dr. A",
+      timeStr: "10:00",
+    });
+    expect(state.kind).toBe("past");
+    expect(state.clickable).toBe(true);
+  });
+
+  test("resolveEmptySlotState keeps past slots non-clickable without permission", () => {
+    const state = resolveEmptySlotState({
+      scheduleDate: "2020-01-01",
+      slotMin: 600,
+      slotEnd: 630,
+      timezone: tz,
+      effective: { is_working: true, work_windows: [{ start: 540, end: 1200 }], block_ranges: [] },
+      occupied: false,
+      canManage: false,
       canCreateOvertime: false,
       staffName: "Dr. A",
       timeStr: "10:00",

@@ -182,9 +182,7 @@ class BookingIn(BaseModel):
     treatment_default_duration_minutes: Optional[int] = None
     overlap_override: Optional[bool] = False
     overlap_override_reason: Optional[str] = None
-
-
-OVERTIME_REASONS = (
+    past_booking_acknowledged: Optional[bool] = False
     "Patient request",
     "Emergency",
     "Schedule exception",
@@ -313,9 +311,10 @@ class BookingUpdateIn(BaseModel):
     schedule_change_source: Optional[str] = None
     staff_request_override: Optional[bool] = False
     staff_request_override_reason: Optional[str] = None
+    past_booking_acknowledged: Optional[bool] = False
 
 
-class CouponIn(BaseModel):
+OVERTIME_REASONS = (
     code: str
     name: Optional[str] = ""
     discount_type: str = "percent"  # percent | fixed
@@ -1720,18 +1719,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 raise
             except Exception:
                 raise HTTPException(status_code=400, detail="Invalid scheduled_at")
-            from public_booking_time import clinic_local_now, clinic_today_str
+            from internal_booking_time import enforce_internal_past_booking_policy
 
-            clinic_doc = await db.clinics.find_one({"id": cid}, {"_id": 0, "timezone": 1})
-            today_str = clinic_today_str(clinic_doc or {})
-            if day_str < today_str:
-                raise HTTPException(status_code=400, detail="Cannot block time in the past")
-            if day_str == today_str:
-                now_local = clinic_local_now(clinic_doc or {})
-                start_min = sched_dt.hour * 60 + sched_dt.minute
-                now_min = now_local.hour * 60 + now_local.minute
-                if start_min < now_min:
-                    raise HTTPException(status_code=400, detail="Cannot block time in the past")
+            await enforce_internal_past_booking_policy(
+                db,
+                user,
+                cid,
+                payload.scheduled_at,
+                past_booking_acknowledged=bool(payload.past_booking_acknowledged),
+                action="create_block",
+            )
             block_duration = int(duration_min or 30)
             if block_duration <= 0:
                 raise HTTPException(status_code=400, detail="Block duration must be greater than zero")
@@ -1838,6 +1835,16 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             raise
         except Exception:
             pass
+        from internal_booking_time import enforce_internal_past_booking_policy
+
+        await enforce_internal_past_booking_policy(
+            db,
+            user,
+            cid,
+            payload.scheduled_at,
+            past_booking_acknowledged=bool(payload.past_booking_acknowledged),
+            action="create",
+        )
         staff_ids_booking = staff_ids_from_performers({"performers": performers})
         primary_pid = primary_performer_id({"performers": performers}) or payload.performer_id
 
@@ -1884,6 +1891,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             )
         subtotal = await _resolve_booking_subtotal(cid, booking_type, treatment_name, package_id)
         b = payload.model_dump()
+        b.pop("past_booking_acknowledged", None)
         b["treatment"] = treatment_name
         b["duration_min"] = duration_min
         b["booking_type"] = booking_type
@@ -1974,13 +1982,15 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         existing = await db.bookings.find_one(scope(user, {"id": bid}), {"_id": 0})
         if not existing:
             raise HTTPException(status_code=404, detail="Booking not found")
+
+        raw = payload.model_dump(exclude_unset=True)
         if existing.get("status") in ("cancelled", "completed", "no_show"):
             notes_only = set(raw.keys()) <= {"notes"} and "notes" in raw
             if not notes_only:
                 raise HTTPException(status_code=400, detail="Cannot edit a cancelled or completed booking")
 
-        raw = payload.model_dump(exclude_unset=True)
-        upd = {k: v for k, v in raw.items() if v is not None}
+        upd = {k: v for k, v in raw.items() if v is not None and k != "past_booking_acknowledged"}
+        past_booking_acknowledged = bool(raw.get("past_booking_acknowledged"))
         if "performer_id" in raw and raw["performer_id"] is None:
             upd["performer_id"] = None
 
@@ -1994,24 +2004,22 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
             if schedule_changed:
                 sched_at = merged.get("scheduled_at")
                 try:
-                    sched_dt = _parse_iso(sched_at)
-                    day_str = sched_dt.strftime("%Y-%m-%d")
-                    from public_booking_time import clinic_local_now, clinic_today_str
-
-                    clinic_doc = await db.clinics.find_one({"id": cid}, {"_id": 0, "timezone": 1})
-                    today_str = clinic_today_str(clinic_doc or {})
-                    if day_str < today_str:
-                        raise HTTPException(status_code=400, detail="Cannot block time in the past")
-                    if day_str == today_str:
-                        now_local = clinic_local_now(clinic_doc or {})
-                        start_min = sched_dt.hour * 60 + sched_dt.minute
-                        now_min = now_local.hour * 60 + now_local.minute
-                        if start_min < now_min:
-                            raise HTTPException(status_code=400, detail="Cannot block time in the past")
+                    _parse_iso(sched_at)
                 except HTTPException:
                     raise
                 except Exception:
                     raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+                from internal_booking_time import enforce_internal_past_booking_policy
+
+                await enforce_internal_past_booking_policy(
+                    db,
+                    user,
+                    cid,
+                    sched_at,
+                    past_booking_acknowledged=past_booking_acknowledged,
+                    booking_id=bid,
+                    action="update_block",
+                )
                 block_conflicts = await _enforce_booking_staff_conflicts(
                     db,
                     user,
@@ -2115,6 +2123,18 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 raise
             except Exception:
                 raise HTTPException(status_code=400, detail="Invalid scheduled_at")
+            from internal_booking_time import enforce_internal_past_booking_policy
+
+            if "scheduled_at" in upd:
+                await enforce_internal_past_booking_policy(
+                    db,
+                    user,
+                    cid,
+                    sched_at,
+                    past_booking_acknowledged=past_booking_acknowledged,
+                    booking_id=bid,
+                    action="update",
+                )
             performer_ids = staff_ids_from_performers(merged) if merged.get("performers") else (
                 [merged["performer_id"]] if merged.get("performer_id") else []
             )

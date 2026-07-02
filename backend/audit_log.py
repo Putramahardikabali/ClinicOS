@@ -260,6 +260,25 @@ async def log_booking_note_updated(db, user: dict, booking_id: str, *, old_note:
     )
 
 
+async def log_internal_past_booking(
+    db,
+    user: dict,
+    booking_id: str,
+    scheduled_at: str,
+    *,
+    action: str = "create",
+) -> None:
+    await write_audit(
+        db,
+        user,
+        action="past_booking_override",
+        module=MODULE_APPOINTMENT,
+        record_id=booking_id,
+        new_value={"scheduled_at": scheduled_at, "internal_past_booking": True},
+        meta={"internal_action": action},
+    )
+
+
 async def log_performer_changes(
     db, user: dict, booking_id: str, old_performers: list, new_performers: list,
 ) -> None:

@@ -87,6 +87,7 @@ import {
   shouldShowVerticalTimeLabel,
 } from "@/lib/scheduleScale";
 import { toast } from "sonner";
+import { confirmPastBookingProceed } from "@/lib/pastBookingPolicy";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
 
@@ -413,6 +414,25 @@ function ScheduleSlotCell({
     );
   }
 
+  if (state.kind === "past" && state.clickable) {
+    return (
+      <button
+        type="button"
+        className={`${edge} bg-[#EDE8DC]/70 hover:bg-[#E8E0D0]/90 cursor-pointer select-none relative z-[1] opacity-80 ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
+        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+        data-schedule-slot=""
+        data-staff-id={staffId}
+        data-slot-min={slotMin}
+        data-slot-end={slotEnd}
+        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
+        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
+        aria-label={state.title}
+        title={state.title}
+        data-testid={`schedule-slot-past-clickable-${testSuffix}`}
+      />
+    );
+  }
+
   if (state.kind === "past") {
     return (
       <div
@@ -448,6 +468,7 @@ function StaffRow({
   onOvertimeSlot,
   effective,
   canManage,
+  canBookSlots,
   canCreateOvertime,
   canDragResize,
   apptManip,
@@ -562,6 +583,7 @@ function StaffRow({
               effective,
               occupied,
               canManage,
+              canBookSlots,
               canCreateOvertime,
               staffName: staff.name,
               timeStr,
@@ -622,6 +644,7 @@ function StaffColumn({
   onOvertimeSlot,
   effective,
   canManage,
+  canBookSlots,
   canCreateOvertime,
   canDragResize,
   apptManip,
@@ -726,6 +749,7 @@ function StaffColumn({
           effective,
           occupied,
           canManage,
+          canBookSlots,
           canCreateOvertime,
           staffName: staff.name,
           timeStr,
@@ -824,6 +848,7 @@ export default function BookingsScheduleView({
   onShowListView,
   onCopyPublicLink,
   clinicSlug,
+  canBookSlots,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -881,6 +906,7 @@ export default function BookingsScheduleView({
   useEffect(() => () => clearDrag(), [clearDrag]);
 
   const timezone = resolveClinicTimezone(clinic);
+  const canScheduleBook = canBookSlots ?? canManage;
   const clinicNow = useMemo(() => getClinicNowParts(timezone), [timezone]);
   const isToday = date === clinicNow.dateStr;
 
@@ -1221,14 +1247,13 @@ export default function BookingsScheduleView({
   };
 
   const handleEmptyClick = useCallback((partial) => {
-    if (!canManage) return;
+    if (!canScheduleBook) return;
     onEmptySlot({ scheduled_date: date, scheduled_time: partial.scheduled_time, performer_id: partial.performer_id });
-  }, [canManage, date, onEmptySlot]);
+  }, [canScheduleBook, date, onEmptySlot]);
 
   const handleOvertimeClick = (partial) => {
     const slotMin = hhmmToMin(partial.scheduled_time);
     if (slotMin == null) return;
-    if (isPastEmptySlot({ scheduleDate: date, slotMin, timezone })) return;
     onOvertimeSlot({
       scheduled_date: date,
       scheduled_time: partial.scheduled_time,
@@ -1249,9 +1274,10 @@ export default function BookingsScheduleView({
         effective: effectiveByStaff[staffId],
         occupied,
         canManage,
+        canBookSlots: canScheduleBook,
       });
     },
-    [bookings, date, timezone, effectiveByStaff, canManage],
+    [bookings, date, timezone, effectiveByStaff, canManage, canScheduleBook],
   );
 
   const finishDrag = useCallback(() => {
@@ -1395,10 +1421,7 @@ export default function BookingsScheduleView({
       && m.origin.staffId === m.preview.staffId;
     if (unchanged) return;
 
-    if (isPastEmptySlot({ scheduleDate: date, slotMin: m.preview.startMin, timezone })) {
-      toast.error("Cannot move appointment to the past");
-      return;
-    }
+    const isPastTime = isPastEmptySlot({ scheduleDate: date, slotMin: m.preview.startMin, timezone });
     const targetEffective = effectiveByStaff[m.preview.staffId];
     if (targetEffective && targetEffective.is_working === false) {
       toast.error("Selected staff is not on duty this day");
@@ -1421,6 +1444,7 @@ export default function BookingsScheduleView({
       meta,
       scheduleDate: date,
       conflicts,
+      isPastTime,
     });
   }, [bookings, date, onSelectBooking, staffById, timezone, effectiveByStaff]);
 
@@ -1475,6 +1499,15 @@ export default function BookingsScheduleView({
       }
       if (withOverlapOverride) payload.overlap_override = true;
       if (staffRequestOverride) payload.staff_request_override = true;
+      if (pendingConfirm.isPastTime) {
+        if (!payload.past_booking_acknowledged) {
+          if (!(await confirmPastBookingProceed())) {
+            setConfirmBusy(false);
+            return;
+          }
+          payload.past_booking_acknowledged = true;
+        }
+      }
       await api.put(`/bookings/${booking.id}`, payload);
       toast.success("Appointment updated");
       setPendingConfirm(null);
@@ -1526,7 +1559,7 @@ export default function BookingsScheduleView({
   const onSlotPointerDown = useCallback(
     (e, { staffId, slotMin, slotEnd }) => {
       if (apptManipRef.current) return;
-      if (!canManage) return;
+      if (!canScheduleBook) return;
       if (!isSlotValidForDrag(staffId, slotMin, slotEnd)) return;
       if (e.button !== 0) return;
       dragRef.current = {
@@ -1632,6 +1665,7 @@ export default function BookingsScheduleView({
                   onOvertimeSlot={handleOvertimeClick}
                   effective={effectiveByStaff[s.id]}
                   canManage={canManage}
+                  canBookSlots={canScheduleBook}
                   canCreateOvertime={canCreateOvertime}
                   canDragResize={canDragResize}
                   apptManip={apptManip}
@@ -1740,6 +1774,7 @@ export default function BookingsScheduleView({
                 onOvertimeSlot={handleOvertimeClick}
                 effective={effectiveByStaff[s.id]}
                 canManage={canManage}
+                canBookSlots={canScheduleBook}
                 canCreateOvertime={canCreateOvertime}
                 canDragResize={canDragResize}
                 apptManip={apptManip}

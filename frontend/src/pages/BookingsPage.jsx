@@ -60,7 +60,9 @@ import BookingsScheduleView, { scheduleDateStr } from "@/components/bookings/Boo
 import { SCHEDULE_STATUS_FILTER_OPTIONS, filterBookingsByScheduleStatus, resolveApiStatusFilter } from "@/components/bookings/scheduleStatusFilter";
 import { isHighlightableBooking } from "@/components/bookings/schedulePatientHighlight";
 import { BookingModalPortal } from "@/components/bookings/BookingModalPortal";
-import { hhmmToMin } from "@/components/bookings/scheduleUtils";
+import { resolveClinicTimezone } from "@/components/bookings/scheduleUtils";
+import PastBookingWarningBanner from "@/components/bookings/PastBookingWarningBanner";
+import { withPastBookingAcknowledgement } from "@/lib/pastBookingPolicy";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
@@ -178,7 +180,7 @@ function StaffRequestCheckbox({ checked, onChange, disabled = false, testId = "s
   );
 }
 
-function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
+function SlotActionModal({ initial, staff, onBook, onBlock, onClose, timezone }) {
   const performer = staff?.find(s => s.id === initial?.performer_id);
   const startTime = initial?.selected_start_time || initial?.scheduled_time || "";
   const endTime = initial?.selected_end_time || initial?.scheduled_end_time || "";
@@ -194,6 +196,11 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
           {performer?.name || "Staff"}
           {rangeLabel ? ` · ${rangeLabel}` : ""}
         </p>
+        <PastBookingWarningBanner
+          scheduleDate={initial?.scheduled_date}
+          timeStr={startTime}
+          timezone={timezone}
+        />
         {fromRange && (
           <p className="text-xs text-[#52796F] bg-[#EDF3EF] rounded-lg px-3 py-2" data-testid="slot-action-range-hint">
             Appointment will use the selected time range. You can adjust duration in the booking form.
@@ -213,7 +220,7 @@ function SlotActionModal({ initial, staff, onBook, onBlock, onClose }) {
   );
 }
 
-function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBookTreatment }) {
+function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBookTreatment, timezone }) {
   const isEdit = !!booking;
   const dt = booking ? new Date(booking.scheduled_at) : null;
   const pad = (n) => String(n).padStart(2, "0");
@@ -283,21 +290,32 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
         performer_id: form.performer_id,
         notes: form.notes || "",
       };
-      if (isEdit) {
-        const r = await api.put(`/bookings/${booking.id}`, body);
-        finishModalSuccess({
-          message: "Blocked time updated",
-          onSuccess: () => onSaved?.(r.data),
-          onClose,
-        });
-      } else {
-        await api.post("/bookings", body);
+      const saveRequest = async (payload) => {
+        if (isEdit) {
+          const r = await api.put(`/bookings/${booking.id}`, payload);
+          finishModalSuccess({
+            message: "Blocked time updated",
+            onSuccess: () => onSaved?.(r.data),
+            onClose,
+          });
+          return r;
+        }
+        await api.post("/bookings", payload);
         finishModalSuccess({
           message: "Time slot blocked",
           onSuccess: onSaved,
           onClose,
         });
-      }
+        return null;
+      };
+      const outcome = await withPastBookingAcknowledgement({
+        scheduleDate: form.scheduled_date,
+        timeStr: form.scheduled_time,
+        timezone,
+        body,
+        request: saveRequest,
+      });
+      if (outcome?.cancelled) return;
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Failed to save");
     } finally {
@@ -324,6 +342,12 @@ function BlockTimeModal({ onClose, onSaved, initial = null, booking = null, onBo
             Selected range: {form.scheduled_time} – {form.scheduled_end_time}
           </p>
         )}
+
+        <PastBookingWarningBanner
+          scheduleDate={form.scheduled_date}
+          timeStr={form.scheduled_time}
+          timezone={timezone}
+        />
 
         <div className="mt-5 space-y-4">
           <div>
@@ -722,7 +746,7 @@ function WaPanel({ booking, templates, clinicName, onSent, onClose, automationAc
   );
 }
 
-function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = null }) {
+function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = null, timezone }) {
   const { user } = useAuth();
   const canRedeemGiftCard = hasPermission(user, "gift_cards.redeem");
   const schedulePrefill = !!(initial?.performer_id && initial?.scheduled_date && initial?.scheduled_time);
@@ -1097,7 +1121,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
       if (giftCardLocksService && appliedGiftCard?.gift_card_id) {
         body.gift_card_id = appliedGiftCard.gift_card_id;
       }
-      await postBookingWithConflict(api, body);
+      const outcome = await withPastBookingAcknowledgement({
+        scheduleDate: form.scheduled_date,
+        timeStr: form.scheduled_time,
+        timezone,
+        body,
+        request: (payload) => postBookingWithConflict(api, payload),
+      });
+      if (outcome?.cancelled) return;
       setPendingConflict(null);
       setPendingSubmitBody(null);
       finishModalSuccess({
@@ -1360,6 +1391,14 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
             </div>
 
             {serviceSelected && form.scheduled_date && form.scheduled_time && (
+              <PastBookingWarningBanner
+                scheduleDate={form.scheduled_date}
+                timeStr={form.scheduled_time}
+                timezone={timezone}
+              />
+            )}
+
+            {serviceSelected && form.scheduled_date && form.scheduled_time && (
               <AppointmentDurationFields
                 scheduledDate={form.scheduled_date}
                 startTime={form.scheduled_time}
@@ -1593,6 +1632,7 @@ function BookingDetailPanel({
   automationActive = false,
   canSendViaProvider = false,
   canWhatsgoSend = false,
+  timezone,
 }) {
   const navigate = useNavigate();
   const block = isTimeBlock(initialBooking);
@@ -1978,10 +2018,18 @@ function BookingDetailPanel({
         ...staffRequestPayload(form, staff),
       };
       appendBookingDurationMetadata(payload, form);
-      const r = await putBookingWithConflict(api, booking.id, payload);
+      const outcome = await withPastBookingAcknowledgement({
+        scheduleDate: form.scheduled_date,
+        timeStr: form.scheduled_time,
+        timezone,
+        body: payload,
+        request: (body) => putBookingWithConflict(api, booking.id, body),
+      });
+      if (outcome?.cancelled) return;
+      const r = outcome?.result;
       finishModalSuccess({
         message: "Appointment updated",
-        onSuccess: () => onSaved?.(r.data),
+        onSuccess: () => onSaved?.(r?.data),
         onClose,
       });
       setEditing(false);
@@ -2170,6 +2218,11 @@ function BookingDetailPanel({
                 <input type="time" className="bl-input" value={form.scheduled_time} onChange={e => setForm({ ...form, scheduled_time: e.target.value })} required data-testid="edit-booking-time" />
               </div>
             </div>
+            <PastBookingWarningBanner
+              scheduleDate={form.scheduled_date}
+              timeStr={form.scheduled_time}
+              timezone={timezone}
+            />
             {form.scheduled_date && form.scheduled_time && (
               <AppointmentDurationFields
                 scheduledDate={form.scheduled_date}
@@ -2756,6 +2809,10 @@ export default function BookingsPage() {
   const copyLink = () => { navigator.clipboard.writeText(publicLink); toast.success("Public appointment link copied"); };
 
   const canManage = ["super_admin", "fo", "manager"].includes(user?.role);
+  const canBookSlots = canManage
+    || hasPermission(user, "appointments.create")
+    || hasPermission(user, "appointments.edit");
+  const timezone = resolveClinicTimezone(clinic);
 
   return (
     <div
@@ -2774,6 +2831,7 @@ export default function BookingsPage() {
             onStatusFilterChange={setStatusFilter}
             reloadAt={reloadAt}
             canManage={canManage}
+            canBookSlots={canBookSlots}
             canCreateOvertime={canCreateOvertime}
             canWhatsgo={canWhatsgoSend && automationActive}
             canCreatePatient={can(user, "create_patient")}
@@ -3014,6 +3072,7 @@ export default function BookingsPage() {
           automationActive={automationActive}
           canSendViaProvider={canSendViaProvider}
           canWhatsgoSend={canWhatsgoSend}
+          timezone={timezone}
         />
         )}
       </BookingModalPortal>
@@ -3022,6 +3081,7 @@ export default function BookingsPage() {
         <SlotActionModal
           initial={slotAction}
           staff={scheduleStaff}
+          timezone={timezone}
           onClose={() => setSlotAction(null)}
           onBook={() => {
             setNewInitial({
@@ -3044,6 +3104,7 @@ export default function BookingsPage() {
         <BlockTimeModal
           initial={blockInitial}
           booking={blockEdit}
+          timezone={timezone}
           onClose={() => { setBlockOpen(false); setBlockInitial(null); setBlockEdit(null); }}
           onBookTreatment={(payload) => {
             setBlockOpen(false);
@@ -3088,6 +3149,7 @@ export default function BookingsPage() {
         <NewBookingModal
           initial={newInitial}
           overtimeMeta={overtimeMeta}
+          timezone={timezone}
           onClose={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); }}
           onCreated={() => { setNewOpen(false); setNewInitial(null); setOvertimeMeta(null); invalidateBookingsNow(); }}
         />

@@ -73,6 +73,15 @@ export default function ScheduleMoveConfirmModal({
           </div>
         </dl>
 
+        {pending.isPastTime && (
+          <div
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            data-testid="schedule-move-past-warning"
+          >
+            This appointment time is in the past. Confirm to save the change.
+          </div>
+        )}
+
         {hasConflict && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-2" data-testid="schedule-move-conflict">
             <div className="flex items-start gap-2 text-sm text-amber-900">

@@ -891,6 +891,7 @@ DEFAULT_SETTINGS = {
     "scheduling": {
         "conflict_policy": "warn_allow",
         "fo_can_override_conflict": True,
+        "past_appointment_policy": "warn_allow",
     },
     "inventory": {
         "allow_negative_stock": False,
