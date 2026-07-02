@@ -787,8 +787,17 @@ def register_invoices(
         from audit_log import log_invoice_event
         old_status = (old_inv or {}).get("payment_status")
         new_status = saved.get("payment_status")
+        old_items = (old_inv or {}).get("items") or []
+        new_items = saved.get("items") or []
+        items_changed = len(old_items) != len(new_items) or any(
+            (old_items[i].get("id"), old_items[i].get("line_total_idr"), old_items[i].get("quantity"))
+            != (new_items[i].get("id"), new_items[i].get("line_total_idr"), new_items[i].get("quantity"))
+            for i in range(min(len(old_items), len(new_items)))
+        )
         if old_status != new_status and new_status == "paid":
             action = "paid"
+        elif items_changed:
+            action = "items_updated"
         else:
             action = "updated"
         await log_invoice_event(
@@ -798,6 +807,7 @@ def register_invoices(
                 "amount_paid": (old_inv or {}).get("amount_paid"),
                 "total_amount": (old_inv or {}).get("total_amount"),
                 "remaining_balance": (old_inv or {}).get("remaining_balance"),
+                "items_count": len(old_items),
             } if old_inv else None,
             reason=(saved.get("discount_reason") or "").strip(),
         )

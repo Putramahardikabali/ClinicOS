@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
 import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
@@ -198,12 +198,14 @@ export function InvoicesPanel({
   scheduleDate,
   invoiceInit,
   onPaymentSuccess,
+  onDirtyChange: onDirtyChangeProp,
 }) {
   const { user } = useAuth();
   const canCreateInvoice = hasPermission(user, "billing.create") || hasPermission(user, "billing.edit");
   const [mode, setMode] = useState("list");
   const [selectedId, setSelectedId] = useState(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
+  const [detailDirty, setDetailDirty] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState([]);
@@ -250,6 +252,8 @@ export function InvoicesPanel({
   };
 
   const backToList = () => {
+    if (detailDirty && !window.confirm("Discard unsaved invoice item changes?")) return;
+    setDetailDirty(false);
     setMode("list");
     setSelectedId(null);
     setListRefreshKey((k) => k + 1);
@@ -263,6 +267,10 @@ export function InvoicesPanel({
         canCreateInvoice={canCreateInvoice}
         onBack={backToList}
         onPaymentSuccess={handlePaymentSuccess}
+        onDirtyChange={(dirty) => {
+          setDetailDirty(dirty);
+          onDirtyChangeProp?.(dirty);
+        }}
       />
     );
   }
@@ -739,7 +747,22 @@ export function LegendPanel() {
   );
 }
 
-export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onPaymentSuccess }) {
+export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onPaymentSuccess, closeGuardRef }) {
+  const invoiceDirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!closeGuardRef) return undefined;
+    closeGuardRef.current = () => {
+      if (utilityId === "invoices" && invoiceDirtyRef.current) {
+        return window.confirm("Discard unsaved invoice item changes?");
+      }
+      return true;
+    };
+    return () => {
+      if (closeGuardRef) closeGuardRef.current = null;
+    };
+  }, [utilityId, closeGuardRef]);
+
   switch (utilityId) {
     case "price_checker":
       return <PriceCheckerPanel />;
@@ -749,6 +772,9 @@ export function ScheduleUtilityPanel({ utilityId, scheduleDate, invoiceInit, onP
           scheduleDate={scheduleDate}
           invoiceInit={invoiceInit}
           onPaymentSuccess={onPaymentSuccess}
+          onDirtyChange={(dirty) => {
+            invoiceDirtyRef.current = dirty;
+          }}
         />
       );
     case "pos":

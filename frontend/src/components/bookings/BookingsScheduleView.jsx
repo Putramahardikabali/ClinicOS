@@ -822,6 +822,7 @@ export default function BookingsScheduleView({
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
   const [invoiceDrawerInit, setInvoiceDrawerInit] = useState(null);
+  const utilityCloseGuardRef = useRef(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
   const shellRef = useRef(null);
   const dragRef = useRef(null);
@@ -1023,6 +1024,7 @@ export default function BookingsScheduleView({
   }, [appointmentContext]);
 
   const closeUtilityDrawer = useCallback(() => {
+    if (utilityCloseGuardRef.current && utilityCloseGuardRef.current() === false) return;
     setActiveUtility(null);
     setInvoiceDrawerInit(null);
   }, []);
@@ -2055,6 +2057,7 @@ export default function BookingsScheduleView({
           scheduleDate={date}
           invoiceInit={activeUtility === "invoices" ? invoiceDrawerInit : null}
           onPaymentSuccess={handleInvoicePaymentSuccess}
+          closeGuardRef={utilityCloseGuardRef}
         />
         </div>
 

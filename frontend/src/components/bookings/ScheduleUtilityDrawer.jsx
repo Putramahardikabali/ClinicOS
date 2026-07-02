@@ -9,10 +9,16 @@ export default function ScheduleUtilityDrawer({
   scheduleDate,
   invoiceInit,
   onPaymentSuccess,
+  closeGuardRef,
 }) {
   if (!open || !utilityId) return null;
 
   const label = UTILITY_ITEMS.find((u) => u.id === utilityId)?.label || "Utility";
+
+  const handleClose = () => {
+    if (closeGuardRef?.current && closeGuardRef.current() === false) return;
+    onClose?.();
+  };
 
   return (
     <div
@@ -23,7 +29,7 @@ export default function ScheduleUtilityDrawer({
         type="button"
         className="absolute inset-0 bg-[#2D3A33]/30 pointer-events-auto"
         aria-label="Close utility panel"
-        onClick={onClose}
+        onClick={handleClose}
         data-testid="schedule-utility-drawer-backdrop"
       />
       <div
@@ -35,7 +41,7 @@ export default function ScheduleUtilityDrawer({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-3 right-3 z-10 p-1.5 rounded-md text-[#5C6C62] hover:bg-[#F3F1EB] hover:text-[#2D3A33]"
           aria-label="Close"
           data-testid="schedule-utility-drawer-close"
@@ -48,6 +54,7 @@ export default function ScheduleUtilityDrawer({
             scheduleDate={scheduleDate}
             invoiceInit={invoiceInit}
             onPaymentSuccess={onPaymentSuccess}
+            closeGuardRef={closeGuardRef}
           />
         </div>
       </div>

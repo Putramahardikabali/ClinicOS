@@ -62,6 +62,8 @@ export default function InvoiceLineItemRow({
               className="bl-input text-sm"
               value={item.name}
               onChange={(e) => onUpdate({ name: e.target.value })}
+              readOnly={item.item_type !== "custom"}
+              disabled={item.item_type !== "custom"}
             />
           </div>
           <div>

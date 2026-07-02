@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import api from "@/lib/api";
 import { formatIdr } from "@/lib/clinic";
 import { hasPermission, useAuth } from "@/lib/auth";
+import {
+  CLINICAL_PERFORMER_ROLES,
+} from "@/lib/performerUtils";
+import InvoiceLineItemRow from "@/components/invoices/InvoiceLineItemRow";
+import InvoiceAddItemBar from "@/components/invoices/InvoiceAddItemBar";
 import InvoiceCheckoutPanel from "@/components/invoices/InvoiceCheckoutPanel";
 import { resolveLineQuantity, lineGrossIdr } from "@/lib/invoiceLineQuantity";
 import { buildInvoicePaymentPreview } from "@/lib/invoicePaymentPreview";
+import {
+  canEditInvoiceItems,
+  emptyInvoiceItem,
+  invoiceItemsSnapshot,
+  mapInvoiceItemsForEdit,
+  serializeInvoiceItems,
+} from "@/lib/invoiceItemEditing";
 import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { isCashPayment } from "@/lib/paymentAmountQuickFill";
 import { toast } from "sonner";
@@ -23,10 +35,16 @@ function lineDisplayAmount(it) {
   return lineGrossIdr(it);
 }
 
+function lineServiceValue(it) {
+  if (it.original_treatment_value != null) return Number(it.original_treatment_value) || 0;
+  return lineGrossIdr(it);
+}
+
 export function ScheduleInvoiceDrawerDetail({
   invoiceId,
   onBack,
   onPaymentSuccess,
+  onDirtyChange,
   visitId,
   canCreateInvoice = false,
 }) {
@@ -43,6 +61,9 @@ export function ScheduleInvoiceDrawerDetail({
   const [busy, setBusy] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [resolvedId, setResolvedId] = useState(invoiceId);
+  const [viewMode, setViewMode] = useState("detail");
+  const [editItems, setEditItems] = useState([]);
+  const editBaselineRef = useRef("");
   const [discountType, setDiscountType] = useState("none");
   const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState("");
@@ -60,6 +81,19 @@ export function ScheduleInvoiceDrawerDetail({
   const [campaigns, setCampaigns] = useState([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
 
+  const [treatments, setTreatments] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [performers, setPerformers] = useState([]);
+  const [pickType, setPickType] = useState("treatment");
+  const [pickId, setPickId] = useState("");
+  const [patientPackages, setPatientPackages] = useState([]);
+  const [eligibleByItem, setEligibleByItem] = useState({});
+  const [packagePick, setPackagePick] = useState({});
+  const [packageBusy, setPackageBusy] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [addMode, setAddMode] = useState(null);
+
   const applyInvoice = useCallback((inv) => {
     setInvoice(inv);
     setDiscountType(inv.discount_type || "none");
@@ -70,6 +104,25 @@ export function ScheduleInvoiceDrawerDetail({
     setPaymentReference(inv.payment_reference || "");
     setAmountReceived("");
     setSelectedCampaignId(inv.campaign_id || "");
+  }, []);
+
+  const loadCatalogs = useCallback(async () => {
+    try {
+      const [t, p] = await Promise.all([
+        api.get("/treatments-catalog"),
+        api.get("/packages-catalog"),
+      ]);
+      setTreatments(t.data || []);
+      setPackages(p.data || []);
+    } catch { /* optional */ }
+    try {
+      const pr = await api.get("/products-catalog");
+      setProducts(pr.data || []);
+    } catch { setProducts([]); }
+    try {
+      const u = await api.get("/users");
+      setPerformers((u.data || []).filter((x) => CLINICAL_PERFORMER_ROLES.includes(x.role)));
+    } catch { setPerformers([]); }
   }, []);
 
   useEffect(() => {
@@ -105,32 +158,63 @@ export function ScheduleInvoiceDrawerDetail({
     return undefined;
   }, [invoice?.patient_id, canUseWallet]);
 
-  const items = useMemo(
-    () => (invoice?.items || []).map((it) => ({ ...it, quantity: resolveLineQuantity(it) })),
-    [invoice?.items],
-  );
+  useEffect(() => {
+    if (!invoice?.patient_id) {
+      setPatientPackages([]);
+      return;
+    }
+    api.get(`/patients/${invoice.patient_id}/patient-packages`)
+      .then((r) => setPatientPackages((r.data || []).filter((p) => ["active", "partially_used"].includes(p.status) && p.remaining_sessions > 0)))
+      .catch(() => setPatientPackages([]));
+  }, [invoice?.patient_id, invoice?.updated_at]);
+
+  const readOnlyItems = invoice
+    ? mapInvoiceItemsForEdit(invoice.items || [])
+    : [];
+  const activeItems = viewMode === "edit-items" ? editItems : readOnlyItems;
+
+  const itemsDirty = viewMode === "edit-items"
+    && invoiceItemsSnapshot(editItems) !== editBaselineRef.current;
+
+  useEffect(() => {
+    onDirtyChange?.(itemsDirty);
+  }, [itemsDirty, onDirtyChange]);
+
+  const defaultPerformer = useMemo(() => {
+    if (!invoice) return null;
+    if (invoice.default_performer?.performer_id) return invoice.default_performer;
+    const u = invoice.visit?.assigned_user;
+    if (u?.id) {
+      return {
+        performer_id: u.id,
+        performer_name_snapshot: u.name || "",
+        performer_role_snapshot: u.role || "",
+      };
+    }
+    return null;
+  }, [invoice]);
 
   const preview = useMemo(
     () => buildInvoicePaymentPreview({
-      items,
+      items: activeItems,
       discountType,
       discountValue,
       amountReceived,
       prepaidAmount,
       amountPaid: invoice?.amount_paid,
     }),
-    [items, discountType, discountValue, amountReceived, prepaidAmount, invoice?.amount_paid],
+    [activeItems, discountType, discountValue, amountReceived, prepaidAmount, invoice?.amount_paid],
   );
 
   const giftRedemption = useMemo(
     () => resolveGiftCardRedemption({
       card: giftLookup?.card,
-      lineItems: items,
+      lineItems: activeItems,
       patientId: invoice?.patient_id,
       amountDue: preview.outstanding,
       userEnteredAmount: giftCardAmount,
     }),
-    [giftLookup, items, invoice?.patient_id, preview.outstanding, giftCardAmount],
+    [giftLookup, activeItems, invoice?.patient_id, preview.outstanding, giftCardAmount],
   );
 
   const appliedCampaign = useMemo(() => {
@@ -138,15 +222,156 @@ export function ScheduleInvoiceDrawerDetail({
     return campaigns.find((c) => c.id === invoice.campaign_id) || {
       id: invoice.campaign_id,
       name: invoice.campaign_name_snapshot,
-      code: invoice.campaign_code_snapshot,
-      discount_type: invoice.discount_type_snapshot,
-      discount_value: invoice.discount_value_snapshot,
-      applies_to: invoice.applies_to_snapshot,
-      eligible_summary_snapshot: invoice.eligible_summary_snapshot,
-      start_date: null,
-      end_date: null,
     };
   }, [invoice, campaigns]);
+
+  const closingLocked = invoice?.closing_locked;
+  const closed = invoice?.payment_status === "paid";
+  const itemsEditable = canEditInvoiceItems({
+    canEdit,
+    paymentStatus: invoice?.payment_status,
+    closingLocked,
+  });
+
+  const confirmDiscard = () => {
+    if (!itemsDirty) return true;
+    return window.confirm("Discard unsaved invoice item changes?");
+  };
+
+  const handleBack = () => {
+    if (!confirmDiscard()) return;
+    setViewMode("detail");
+    setEditItems([]);
+    setEditingItem(null);
+    setAddMode(null);
+    onBack?.();
+  };
+
+  const startEditItems = () => {
+    const mapped = mapInvoiceItemsForEdit(invoice?.items || []);
+    setEditItems(mapped);
+    editBaselineRef.current = invoiceItemsSnapshot(mapped);
+    setViewMode("edit-items");
+    setEditingItem(null);
+    setAddMode(null);
+    loadCatalogs();
+  };
+
+  const cancelEditItems = () => {
+    if (!confirmDiscard()) return;
+    setViewMode("detail");
+    setEditItems([]);
+    setEditingItem(null);
+    setAddMode(null);
+  };
+
+  const updateItem = (idx, patch) => {
+    setEditItems((prev) => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const next = { ...it, ...patch };
+      if (it.paid_by === "package") return it;
+      if ("unit_price_idr" in patch || "quantity" in patch) {
+        delete next.amount_charged;
+      }
+      return next;
+    }));
+  };
+
+  const removeItem = (idx) => {
+    const it = editItems[idx];
+    if (it?.paid_by === "package") {
+      toast.error("Reverse package usage before removing this line");
+      return;
+    }
+    if (it?.package_usage_id || it?.patient_package_id) {
+      if (!window.confirm("Removing this line may affect package benefits. Continue?")) return;
+    }
+    setEditItems((prev) => prev.filter((_, i) => i !== idx));
+    setEditingItem(null);
+  };
+
+  const setItemPerformers = (idx, built) => {
+    const enriched = built.map((p) => {
+      const person = performers.find((s) => s.id === p.staff_id);
+      return {
+        ...p,
+        staff_name_snapshot: person?.name || p.staff_name_snapshot || "",
+        staff_role_snapshot: person?.role || p.staff_role_snapshot || "",
+      };
+    });
+    const primary = enriched.find((p) => p.performer_type === "primary") || enriched[0];
+    updateItem(idx, {
+      performers: enriched,
+      performer_id: primary?.staff_id || "",
+      performer_name_snapshot: primary?.staff_name_snapshot || "",
+      performer_role_snapshot: primary?.staff_role_snapshot || "",
+    });
+  };
+
+  const addCustomLine = () => {
+    const nextIdx = editItems.length;
+    setEditItems((prev) => [...prev, emptyInvoiceItem(defaultPerformer)]);
+    setEditingItem({ idx: nextIdx, mode: "item" });
+    setAddMode(null);
+  };
+
+  const addCatalogLine = async () => {
+    if (!pickId || !invoice?.id) return;
+    setBusy(true);
+    try {
+      const r = await api.post(`/invoices/${invoice.id}/items/catalog`, {
+        item_type: pickType,
+        catalog_id: pickId,
+        quantity: 1,
+      });
+      applyInvoice(r.data);
+      const mapped = mapInvoiceItemsForEdit(r.data.items || []);
+      setEditItems(mapped);
+      editBaselineRef.current = invoiceItemsSnapshot(mapped);
+      setPickId("");
+      toast.success("Item added");
+      onPaymentSuccess?.(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not add item");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveItems = async () => {
+    if (!invoice?.id) return;
+    if (preview.discountAmount > 0 && !discountReason.trim() && !invoice?.campaign_id) {
+      toast.error("Discount reason is required");
+      return;
+    }
+    if ((invoice.amount_paid || 0) > preview.total) {
+      toast.warning("Paid amount exceeds invoice total. Please create adjustment/refund.");
+    }
+    setBusy(true);
+    try {
+      const r = await api.put(`/invoices/${invoice.id}`, {
+        items: serializeInvoiceItems(editItems),
+        discount_type: discountType,
+        discount_value: Number(discountValue) || 0,
+        discount_reason: discountReason,
+        notes,
+        payment_method: paymentMethod,
+        payment_reference: paymentReference,
+      });
+      applyInvoice(r.data);
+      setViewMode("detail");
+      setEditItems([]);
+      setEditingItem(null);
+      setAddMode(null);
+      editBaselineRef.current = "";
+      toast.success("Invoice updated.");
+      onPaymentSuccess?.(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const savePayment = async (markPaid = false) => {
     if (!invoice?.id) return;
@@ -231,10 +456,12 @@ export function ScheduleInvoiceDrawerDetail({
     }
   };
 
+  const catalogOptions = pickType === "treatment" ? treatments : pickType === "package" ? packages : products;
+
   if (!resolvedId && !visitId) {
     return (
       <div className="p-6 text-sm text-[#5C6C62]">
-        <button type="button" onClick={onBack} className="text-[#52796F] hover:underline inline-flex items-center gap-1 mb-3">
+        <button type="button" onClick={handleBack} className="text-[#52796F] hover:underline inline-flex items-center gap-1 mb-3">
           <ArrowLeft className="w-4 h-4" /> Back to invoices
         </button>
         Invoice not available.
@@ -246,7 +473,7 @@ export function ScheduleInvoiceDrawerDetail({
     return (
       <div className="flex flex-col h-full min-h-0" data-testid="schedule-invoice-create-prompt">
         <div className="px-4 py-3 border-b border-[#EAE6D7] shrink-0 flex items-center gap-2">
-          <button type="button" onClick={onBack} className="text-sm text-[#52796F] hover:text-[#2D3A33] inline-flex items-center gap-1">
+          <button type="button" onClick={handleBack} className="text-sm text-[#52796F] hover:text-[#2D3A33] inline-flex items-center gap-1">
             <ArrowLeft className="w-4 h-4" /> Back to invoices
           </button>
         </div>
@@ -275,18 +502,17 @@ export function ScheduleInvoiceDrawerDetail({
   }
 
   const readOnly = !canEdit || invoice.payment_status === "cancelled";
-  const closed = invoice.payment_status === "paid";
-  const closingLocked = invoice.closing_locked;
   const readOnlyPayment = readOnly || closingLocked;
   const paymentStatus = invoice.payment_status || preview.status;
   const createdLabel = (invoice.created_at || "").slice(0, 16).replace("T", " ");
+  const editingItems = viewMode === "edit-items";
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="schedule-invoice-detail">
       <div className="px-4 py-3 border-b border-[#EAE6D7] shrink-0 space-y-2">
         <button
           type="button"
-          onClick={onBack}
+          onClick={handleBack}
           className="text-sm text-[#52796F] hover:text-[#2D3A33] inline-flex items-center gap-1"
           data-testid="schedule-invoice-back"
         >
@@ -304,18 +530,81 @@ export function ScheduleInvoiceDrawerDetail({
             {paymentStatus}
           </span>
         </div>
+        {editingItems && (
+          <p className="text-xs text-[#52796F] font-medium">Editing items</p>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto px-4 py-3 space-y-4">
         <div className="rounded-lg border border-[#EAE6D7] bg-white overflow-hidden">
-          <div className="px-3 py-2 bg-[#F8F5EC] text-xs uppercase tracking-widest text-[#5C6C62]">
-            Line items
+          <div className="px-3 py-2 bg-[#F8F5EC] flex items-center justify-between gap-2">
+            <span className="text-xs uppercase tracking-widest text-[#5C6C62]">Line items</span>
+            {!editingItems && itemsEditable && (
+              <button
+                type="button"
+                className="text-xs text-[#52796F] hover:text-[#2D3A33] inline-flex items-center gap-1 font-medium"
+                onClick={startEditItems}
+                data-testid="schedule-invoice-edit-items"
+              >
+                <Pencil className="w-3 h-3" /> Edit items
+              </button>
+            )}
           </div>
-          {items.length === 0 ? (
+
+          {closed && !editingItems && (
+            <p className="px-3 py-3 text-xs text-[#5C6C62] border-b border-[#EAE6D7]">
+              Paid invoices cannot be edited directly. Use adjustment/refund or reopen the business day if permitted.
+            </p>
+          )}
+
+          {editingItems ? (
+            <div className="p-3 space-y-2">
+              {editItems.length === 0 && (
+                <p className="text-sm text-[#5C6C62] py-2 text-center">No items — add from catalog or custom line.</p>
+              )}
+              {editItems.map((it, idx) => (
+                <InvoiceLineItemRow
+                  key={it.id || `new-${idx}`}
+                  item={it}
+                  idx={idx}
+                  readOnly={false}
+                  performers={performers}
+                  editing={editingItem}
+                  onEdit={() => setEditingItem({ idx, mode: "item" })}
+                  onEditStaff={() => setEditingItem({ idx, mode: "staff" })}
+                  onCancelEdit={() => setEditingItem(null)}
+                  onUpdate={(patch) => updateItem(idx, patch)}
+                  onRemove={() => removeItem(idx)}
+                  onPerformersChange={(built) => setItemPerformers(idx, built)}
+                  lineDisplayAmount={lineDisplayAmount}
+                  lineServiceValue={lineServiceValue}
+                  eligibleOptions={[]}
+                  packagePick={packagePick[it.id]}
+                  onPackagePickChange={(val) => setPackagePick((prev) => ({ ...prev, [it.id]: val }))}
+                  onPayWithPackage={() => {}}
+                  packageBusy={packageBusy === it.id}
+                />
+              ))}
+              <InvoiceAddItemBar
+                readOnly={false}
+                defaultPerformer={defaultPerformer}
+                pickType={pickType}
+                pickId={pickId}
+                catalogOptions={catalogOptions}
+                busy={busy}
+                addMode={addMode}
+                onSetAddMode={setAddMode}
+                onPickTypeChange={(v) => { setPickType(v); setPickId(""); }}
+                onPickIdChange={setPickId}
+                onAddCatalog={addCatalogLine}
+                onAddCustom={addCustomLine}
+              />
+            </div>
+          ) : activeItems.length === 0 ? (
             <p className="px-3 py-4 text-sm text-[#5C6C62]">No line items.</p>
           ) : (
             <ul className="divide-y divide-[#EAE6D7]">
-              {items.map((it) => (
+              {activeItems.map((it) => (
                 <li key={it.id} className="px-3 py-2.5 text-sm flex justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium text-[#2D3A33] truncate">{it.name}</div>
@@ -360,85 +649,113 @@ export function ScheduleInvoiceDrawerDetail({
             <span>Balance</span>
             <span className="font-mono">{fmtIDR(closed ? 0 : preview.outstanding)}</span>
           </div>
+          {(invoice.amount_paid || 0) > preview.total && (
+            <p className="text-xs text-[#B14A2C] pt-1">
+              Paid amount exceeds invoice total. Please create adjustment/refund.
+            </p>
+          )}
         </div>
 
-        <InvoiceCheckoutPanel
-          compact
-          invoice={{ ...invoice, items }}
-          preview={preview}
-          appliedCampaign={appliedCampaign}
-          campaigns={campaigns}
-          selectedCampaignId={selectedCampaignId}
-          onCampaignSelect={setSelectedCampaignId}
-          onApplyCampaign={() => {}}
-          campaignBusy={false}
-          discountType={discountType}
-          discountValue={discountValue}
-          discountReason={discountReason}
-          onDiscountTypeChange={() => {}}
-          onDiscountValueChange={() => {}}
-          onDiscountReasonChange={() => {}}
-          onClearAdjustments={() => {}}
-          paymentMethod={paymentMethod}
-          paymentReference={paymentReference}
-          amountReceived={amountReceived}
-          notes={notes}
-          onPaymentMethodChange={(v) => {
-            setPaymentMethod(v);
-            if (v !== "gift_card") setGiftLookup(null);
-          }}
-          onPaymentReferenceChange={setPaymentReference}
-          onAmountReceivedChange={setAmountReceived}
-          onNotesChange={setNotes}
-          giftCardCode={giftCardCode}
-          giftCardAmount={giftCardAmount}
-          walletAmount={walletAmount}
-          walletBalance={walletBalance}
-          giftLookup={giftLookup}
-          onGiftCardCodeChange={setGiftCardCode}
-          onGiftCardAmountChange={setGiftCardAmount}
-          onGiftLookup={setGiftLookup}
-          onWalletAmountChange={setWalletAmount}
-          canRedeemGiftCard={canRedeemGiftCard}
-          canRedeemPrepaid={canRedeemPrepaid}
-          selectedPrepaidId={selectedPrepaidId}
-          onSelectedPrepaidIdChange={setSelectedPrepaidId}
-          prepaidAmount={prepaidAmount}
-          onPrepaidAmountChange={setPrepaidAmount}
-          prepaidAppliedPreview={parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0}
-          canUseWallet={canUseWallet}
-          canVoidPayment={canVoidPayment}
-          canRecordRefund={canRecordRefund}
-          canEdit={canEdit}
-          readOnly={readOnly}
-          readOnlyPayment={readOnlyPayment}
-          closed={closed}
-          closingLocked={closingLocked}
-          busy={busy}
-          onSaveInvoice={() => {}}
-          onSavePayment={() => savePayment(false)}
-          onMarkPaid={() => savePayment(true)}
-          onVoidPayment={async (paymentId) => {
-            const reason = window.prompt("Void reason (required):");
-            if (!reason || reason.trim().length < 3) return;
-            setBusy(true);
-            try {
-              const r = await api.post(`/invoices/${invoice.id}/payments/${paymentId}/void`, { reason: reason.trim() });
-              applyInvoice(r.data);
-              toast.success("Payment voided");
-              onPaymentSuccess?.(r.data);
-            } catch (e) {
-              toast.error(e?.response?.data?.detail || "Could not void payment");
-            } finally {
-              setBusy(false);
-            }
-          }}
-          onRecordRefund={() => {}}
-          onCloseVisit={() => {}}
-        />
+        {editingItems ? (
+          <div className="flex flex-wrap gap-2 sticky bottom-0 bg-[#FDFBF7] py-2 border-t border-[#EAE6D7] -mx-4 px-4">
+            <button
+              type="button"
+              className="bl-btn-primary flex-1 min-w-[120px]"
+              disabled={busy}
+              onClick={saveItems}
+              data-testid="schedule-invoice-save-items"
+            >
+              {busy ? "Saving…" : "Save invoice"}
+            </button>
+            <button
+              type="button"
+              className="bl-btn-ghost flex-1 min-w-[120px]"
+              disabled={busy}
+              onClick={cancelEditItems}
+              data-testid="schedule-invoice-cancel-items"
+            >
+              Cancel changes
+            </button>
+          </div>
+        ) : (
+          <InvoiceCheckoutPanel
+            compact
+            invoice={{ ...invoice, items: activeItems }}
+            preview={preview}
+            appliedCampaign={appliedCampaign}
+            campaigns={campaigns}
+            selectedCampaignId={selectedCampaignId}
+            onCampaignSelect={setSelectedCampaignId}
+            onApplyCampaign={() => {}}
+            campaignBusy={false}
+            discountType={discountType}
+            discountValue={discountValue}
+            discountReason={discountReason}
+            onDiscountTypeChange={() => {}}
+            onDiscountValueChange={() => {}}
+            onDiscountReasonChange={() => {}}
+            onClearAdjustments={() => {}}
+            paymentMethod={paymentMethod}
+            paymentReference={paymentReference}
+            amountReceived={amountReceived}
+            notes={notes}
+            onPaymentMethodChange={(v) => {
+              setPaymentMethod(v);
+              if (v !== "gift_card") setGiftLookup(null);
+            }}
+            onPaymentReferenceChange={setPaymentReference}
+            onAmountReceivedChange={setAmountReceived}
+            onNotesChange={setNotes}
+            giftCardCode={giftCardCode}
+            giftCardAmount={giftCardAmount}
+            walletAmount={walletAmount}
+            walletBalance={walletBalance}
+            giftLookup={giftLookup}
+            onGiftCardCodeChange={setGiftCardCode}
+            onGiftCardAmountChange={setGiftCardAmount}
+            onGiftLookup={setGiftLookup}
+            onWalletAmountChange={setWalletAmount}
+            canRedeemGiftCard={canRedeemGiftCard}
+            canRedeemPrepaid={canRedeemPrepaid}
+            selectedPrepaidId={selectedPrepaidId}
+            onSelectedPrepaidIdChange={setSelectedPrepaidId}
+            prepaidAmount={prepaidAmount}
+            onPrepaidAmountChange={setPrepaidAmount}
+            prepaidAppliedPreview={parseInt(String(prepaidAmount).replace(/\D/g, ""), 10) || 0}
+            canUseWallet={canUseWallet}
+            canVoidPayment={canVoidPayment}
+            canRecordRefund={canRecordRefund}
+            canEdit={canEdit}
+            readOnly={readOnly}
+            readOnlyPayment={readOnlyPayment}
+            closed={closed}
+            closingLocked={closingLocked}
+            busy={busy}
+            onSaveInvoice={() => {}}
+            onSavePayment={() => savePayment(false)}
+            onMarkPaid={() => savePayment(true)}
+            onVoidPayment={async (paymentId) => {
+              const reason = window.prompt("Void reason (required):");
+              if (!reason || reason.trim().length < 3) return;
+              setBusy(true);
+              try {
+                const r = await api.post(`/invoices/${invoice.id}/payments/${paymentId}/void`, { reason: reason.trim() });
+                applyInvoice(r.data);
+                toast.success("Payment voided");
+                onPaymentSuccess?.(r.data);
+              } catch (e) {
+                toast.error(e?.response?.data?.detail || "Could not void payment");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            onRecordRefund={() => {}}
+            onCloseVisit={() => {}}
+          />
+        )}
 
-        {!canEdit && (
-          <p className="text-xs text-[#5C6C62]">View only — you do not have permission to collect payment.</p>
+        {!canEdit && !editingItems && (
+          <p className="text-xs text-[#5C6C62]">View only — you do not have permission to edit or collect payment.</p>
         )}
       </div>
 
