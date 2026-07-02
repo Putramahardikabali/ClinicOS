@@ -18,6 +18,14 @@ export const SCHEDULE_SCALE_LIMITS = {
   maxStaffColW: 200,
 };
 
+/** Compact fit-mode limits for time-slot rows/columns (px). */
+export const SCHEDULE_FIT_SLOT_LIMITS = {
+  minSlotHeight: 7,
+  maxSlotHeight: 16,
+  minSlotWidth: 7,
+  maxSlotWidth: 16,
+};
+
 /** Sticky chrome inside the schedule grid viewport (px). */
 export const SCHEDULE_FIT_CHROME = {
   horizontalTimeHeader: 32,
@@ -35,12 +43,15 @@ export const SCHEDULE_FIT_MODES = {
 
 export const DEFAULT_SCALE_STATE = {
   fitMode: SCHEDULE_FIT_MODES.default,
+  slotHeightPx: null,
+  slotWidthPx: null,
+  staffColPx: null,
   slotPxRatio: 1,
   rowHRatio: 1,
   staffColRatio: 1,
 };
 
-const MANUAL_STEP = 0.08;
+const MANUAL_STEP_PX = 1;
 
 const ScheduleMetricsContext = createContext(null);
 
@@ -54,7 +65,7 @@ export function ScheduleMetricsProvider({ value, children }) {
 
 export function useScheduleMetrics() {
   const ctx = useContext(ScheduleMetricsContext);
-  return ctx || SCHEDULE_SCALE_DEFAULTS;
+  return ctx || buildScheduleMetrics(DEFAULT_SCALE_STATE, false);
 }
 
 function clampRatio(ratio, minPx, maxPx, base) {
@@ -67,19 +78,97 @@ export function clampScheduleMetric(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function clampFitSlotHeight(px) {
+  const { minSlotHeight, maxSlotHeight } = SCHEDULE_FIT_SLOT_LIMITS;
+  return Math.round(Math.min(maxSlotHeight, Math.max(minSlotHeight, px)) * 10) / 10;
+}
+
+function clampFitSlotWidth(px) {
+  const { minSlotWidth, maxSlotWidth } = SCHEDULE_FIT_SLOT_LIMITS;
+  return Math.round(Math.min(maxSlotWidth, Math.max(minSlotWidth, px)) * 10) / 10;
+}
+
+function isFitActive(fitMode) {
+  return fitMode && fitMode !== SCHEDULE_FIT_MODES.default;
+}
+
+function usesFitSlotHeight(fitMode) {
+  return [SCHEDULE_FIT_MODES.fitHeight, SCHEDULE_FIT_MODES.fitScreen, SCHEDULE_FIT_MODES.manual].includes(fitMode);
+}
+
+function usesFitSlotWidth(fitMode) {
+  return [SCHEDULE_FIT_MODES.fitWidth, SCHEDULE_FIT_MODES.fitScreen, SCHEDULE_FIT_MODES.manual].includes(fitMode);
+}
+
 export function buildScheduleMetrics(scaleState, isFocusMode) {
   if (!isFocusMode) {
-    return { ...SCHEDULE_SCALE_DEFAULTS, fitMode: SCHEDULE_FIT_MODES.default };
+    const d = SCHEDULE_SCALE_DEFAULTS;
+    return {
+      ...d,
+      slotHeight: d.rowH,
+      slotWidth: d.slotPx,
+      compact: false,
+      fitMode: SCHEDULE_FIT_MODES.default,
+    };
   }
+
   const d = SCHEDULE_SCALE_DEFAULTS;
   const l = SCHEDULE_SCALE_LIMITS;
   const state = scaleState || DEFAULT_SCALE_STATE;
+  const fitMode = state.fitMode || SCHEDULE_FIT_MODES.default;
+  const fitActive = isFitActive(fitMode);
+
+  let slotHeight = state.slotHeightPx != null
+    ? state.slotHeightPx
+    : clampScheduleMetric(d.rowH * (state.rowHRatio || 1), l.minRowH, l.maxRowH);
+
+  let slotWidth = state.slotWidthPx != null
+    ? state.slotWidthPx
+    : clampScheduleMetric(d.slotPx * (state.slotPxRatio || 1), l.minSlotPx, l.maxSlotPx);
+
+  let staffColW = state.staffColPx != null
+    ? state.staffColPx
+    : clampScheduleMetric(d.staffColW * (state.staffColRatio || 1), l.minStaffColW, l.maxStaffColW);
+
+  if (fitActive && usesFitSlotHeight(fitMode) && state.slotHeightPx != null) {
+    slotHeight = state.slotHeightPx;
+  }
+  if (fitActive && usesFitSlotWidth(fitMode) && state.slotWidthPx != null) {
+    slotWidth = state.slotWidthPx;
+  }
+
+  const compact = fitActive && (slotHeight <= 16 || slotWidth <= 16);
+
   return {
-    slotPx: clampScheduleMetric(d.slotPx * state.slotPxRatio, l.minSlotPx, l.maxSlotPx),
-    rowH: clampScheduleMetric(d.rowH * state.rowHRatio, l.minRowH, l.maxRowH),
-    staffColW: clampScheduleMetric(d.staffColW * state.staffColRatio, l.minStaffColW, l.maxStaffColW),
+    slotPx: slotWidth,
+    rowH: slotHeight,
+    slotHeight,
+    slotWidth,
+    staffColW,
     timeColW: d.timeColW,
-    fitMode: state.fitMode || SCHEDULE_FIT_MODES.default,
+    compact,
+    fitMode,
+  };
+}
+
+export function buildScheduleCssVars(metrics) {
+  const m = metrics || SCHEDULE_SCALE_DEFAULTS;
+  const slotHeight = m.slotHeight ?? m.rowH ?? SCHEDULE_SCALE_DEFAULTS.rowH;
+  const slotWidth = m.slotWidth ?? m.slotPx ?? SCHEDULE_SCALE_DEFAULTS.slotPx;
+  return {
+    "--schedule-slot-height": `${slotHeight}px`,
+    "--schedule-slot-width": `${slotWidth}px`,
+    "--schedule-staff-col-width": `${m.staffColW ?? SCHEDULE_SCALE_DEFAULTS.staffColW}px`,
+    "--schedule-time-col-width": `${m.timeColW ?? SCHEDULE_SCALE_DEFAULTS.timeColW}px`,
+  };
+}
+
+export function verticalSlotStyle(compact = false) {
+  return {
+    height: "var(--schedule-slot-height)",
+    minHeight: "var(--schedule-slot-height)",
+    maxHeight: "var(--schedule-slot-height)",
+    padding: compact ? 0 : undefined,
   };
 }
 
@@ -91,6 +180,9 @@ export function loadScheduleScaleState() {
     const parsed = JSON.parse(raw);
     return {
       fitMode: parsed.fitMode || SCHEDULE_FIT_MODES.default,
+      slotHeightPx: parsed.slotHeightPx != null ? Number(parsed.slotHeightPx) : null,
+      slotWidthPx: parsed.slotWidthPx != null ? Number(parsed.slotWidthPx) : null,
+      staffColPx: parsed.staffColPx != null ? Number(parsed.staffColPx) : null,
       slotPxRatio: Number(parsed.slotPxRatio) || 1,
       rowHRatio: Number(parsed.rowHRatio) || 1,
       staffColRatio: Number(parsed.staffColRatio) || 1,
@@ -110,11 +202,10 @@ export function saveScheduleScaleState(state) {
 }
 
 /**
- * Compute scale ratios to fit the schedule grid into the viewport.
- * Prioritizes fitting the full day (all time slots) vertically when possible.
+ * Compute absolute slot dimensions to fit the schedule grid into the viewport.
  * @param {"horizontal"|"vertical"} orientation
  */
-export function computeFitScales({
+export function computeFitMetrics({
   orientation,
   viewportWidth,
   viewportHeight,
@@ -131,28 +222,48 @@ export function computeFitScales({
   const availH = Math.max(80, viewportHeight);
   const availW = Math.max(80, viewportWidth);
 
-  let rowHRatio = 1;
-  let slotPxRatio = 1;
-  let staffColRatio = 1;
+  let slotHeightPx = d.rowH;
+  let slotWidthPx = d.slotPx;
+  let staffColPx = d.staffColW;
 
   if (orientation === "vertical") {
-    const availableForSlots = Math.max(60, availH - chrome.verticalStickyHeader);
-    const idealRowH = availableForSlots / slots;
-    rowHRatio = idealRowH / d.rowH;
-    const defaultStaffW = staff * d.staffColW;
-    staffColRatio = (availW - d.timeColW) / defaultStaffW;
+    const gridBodyHeight = Math.max(40, availH - chrome.verticalStickyHeader);
+    slotHeightPx = clampFitSlotHeight(gridBodyHeight / slots);
+    const totalStaffW = staff * d.staffColW;
+    staffColPx = clampScheduleMetric(
+      (availW - d.timeColW) / staff,
+      l.minStaffColW,
+      l.maxStaffColW,
+    );
   } else {
+    const gridBodyHeight = Math.max(40, availH - chrome.horizontalTimeHeader);
     const staffBlockH = groups * chrome.horizontalGroupHeader + staff * d.rowH;
-    const availableForStaff = Math.max(60, availH - chrome.horizontalTimeHeader);
-    rowHRatio = availableForStaff / staffBlockH;
-    const defaultGridW = slots * d.slotPx;
-    slotPxRatio = (availW - d.staffColW) / defaultGridW;
+    slotHeightPx = clampScheduleMetric(
+      (gridBodyHeight / staffBlockH) * d.rowH,
+      l.minRowH,
+      l.maxRowH,
+    );
+    const gridBodyWidth = Math.max(40, availW - d.staffColW);
+    slotWidthPx = clampFitSlotWidth(gridBodyWidth / slots);
   }
 
   return {
-    rowHRatio: clampRatio(rowHRatio, l.minRowH, l.maxRowH, d.rowH),
-    slotPxRatio: clampRatio(slotPxRatio, l.minSlotPx, l.maxSlotPx, d.slotPx),
-    staffColRatio: clampRatio(staffColRatio, l.minStaffColW, l.maxStaffColW, d.staffColW),
+    slotHeightPx,
+    slotWidthPx,
+    staffColPx,
+    rowHRatio: slotHeightPx / d.rowH,
+    slotPxRatio: slotWidthPx / d.slotPx,
+    staffColRatio: staffColPx / d.staffColW,
+  };
+}
+
+/** @deprecated Use computeFitMetrics */
+export function computeFitScales(args) {
+  const m = computeFitMetrics(args);
+  return {
+    rowHRatio: m.rowHRatio,
+    slotPxRatio: m.slotPxRatio,
+    staffColRatio: m.staffColRatio,
   };
 }
 
@@ -160,63 +271,77 @@ export function computeFitScales({
 export function resolveTimeLabelStep(interval, rowHeightPx) {
   const iv = Math.max(5, Number(interval) || 30);
   if (rowHeightPx >= 36) return iv;
-  if (rowHeightPx >= 24) return Math.max(iv, 15);
-  return Math.max(iv, 30);
+  if (rowHeightPx >= 20) return Math.max(iv, 15);
+  if (rowHeightPx >= 10) return Math.max(iv, 30);
+  return Math.max(iv, 60);
 }
 
 export function shouldShowVerticalTimeLabel(slotMin, openMin, labelStep) {
   return (slotMin - openMin) % labelStep === 0;
 }
 
-export function applyFitModeToState(mode, ratios, prev = DEFAULT_SCALE_STATE) {
+export function applyFitModeToState(mode, fitMetrics, prev = DEFAULT_SCALE_STATE) {
   const base = { ...prev, fitMode: mode };
   if (mode === SCHEDULE_FIT_MODES.default) {
     return { ...DEFAULT_SCALE_STATE };
   }
   if (mode === SCHEDULE_FIT_MODES.fitHeight) {
-    return { ...base, rowHRatio: ratios.rowHRatio };
+    return {
+      ...base,
+      slotHeightPx: fitMetrics.slotHeightPx,
+      rowHRatio: fitMetrics.rowHRatio,
+    };
   }
   if (mode === SCHEDULE_FIT_MODES.fitWidth) {
     return {
       ...base,
-      slotPxRatio: ratios.slotPxRatio,
-      staffColRatio: ratios.staffColRatio,
+      slotWidthPx: fitMetrics.slotWidthPx,
+      staffColPx: fitMetrics.staffColPx,
+      slotPxRatio: fitMetrics.slotPxRatio,
+      staffColRatio: fitMetrics.staffColRatio,
     };
   }
   if (mode === SCHEDULE_FIT_MODES.fitScreen) {
     return {
       ...base,
-      rowHRatio: ratios.rowHRatio,
-      slotPxRatio: ratios.slotPxRatio,
-      staffColRatio: ratios.staffColRatio,
+      slotHeightPx: fitMetrics.slotHeightPx,
+      slotWidthPx: fitMetrics.slotWidthPx,
+      staffColPx: fitMetrics.staffColPx,
+      rowHRatio: fitMetrics.rowHRatio,
+      slotPxRatio: fitMetrics.slotPxRatio,
+      staffColRatio: fitMetrics.staffColRatio,
     };
   }
   return base;
 }
 
-export function adjustManualScale(prev, axis, delta) {
+export function adjustManualScale(prev, axis, delta, metrics) {
+  const d = SCHEDULE_SCALE_DEFAULTS;
+  const l = SCHEDULE_SCALE_LIMITS;
+  const fitL = SCHEDULE_FIT_SLOT_LIMITS;
   const next = { ...prev, fitMode: SCHEDULE_FIT_MODES.manual };
+  const step = delta * MANUAL_STEP_PX;
+
   if (axis === "rowH") {
-    next.rowHRatio = clampRatio(
-      (prev.rowHRatio || 1) + delta * MANUAL_STEP,
-      SCHEDULE_SCALE_LIMITS.minRowH,
-      SCHEDULE_SCALE_LIMITS.maxRowH,
-      SCHEDULE_SCALE_DEFAULTS.rowH,
-    );
+    const current = prev.slotHeightPx ?? metrics?.slotHeight ?? d.rowH * (prev.rowHRatio || 1);
+    const min = fitL.minSlotHeight;
+    const max = l.maxRowH;
+    next.slotHeightPx = clampScheduleMetric(current + step, min, max);
+    next.rowHRatio = next.slotHeightPx / d.rowH;
   } else if (axis === "slotPx") {
-    next.slotPxRatio = clampRatio(
-      (prev.slotPxRatio || 1) + delta * MANUAL_STEP,
-      SCHEDULE_SCALE_LIMITS.minSlotPx,
-      SCHEDULE_SCALE_LIMITS.maxSlotPx,
-      SCHEDULE_SCALE_DEFAULTS.slotPx,
-    );
+    const current = prev.slotWidthPx ?? metrics?.slotWidth ?? d.slotPx * (prev.slotPxRatio || 1);
+    const min = fitL.minSlotWidth;
+    const max = l.maxSlotPx;
+    next.slotWidthPx = clampScheduleMetric(current + step, min, max);
+    next.slotPxRatio = next.slotWidthPx / d.slotPx;
   } else if (axis === "staffCol") {
-    next.staffColRatio = clampRatio(
-      (prev.staffColRatio || 1) + delta * MANUAL_STEP,
-      SCHEDULE_SCALE_LIMITS.minStaffColW,
-      SCHEDULE_SCALE_LIMITS.maxStaffColW,
-      SCHEDULE_SCALE_DEFAULTS.staffColW,
+    const current = prev.staffColPx ?? metrics?.staffColW ?? d.staffColW * (prev.staffColRatio || 1);
+    next.staffColPx = clampScheduleMetric(
+      current + step * 4,
+      l.minStaffColW,
+      l.maxStaffColW,
     );
+    next.staffColRatio = next.staffColPx / d.staffColW;
   }
   return next;
 }

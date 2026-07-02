@@ -75,8 +75,9 @@ import { patientDisplayName } from "@/components/bookings/schedulePatientLookup"
 import {
   adjustManualScale,
   applyFitModeToState,
+  buildScheduleCssVars,
   buildScheduleMetrics,
-  computeFitScales,
+  computeFitMetrics,
   DEFAULT_SCALE_STATE,
   loadScheduleScaleState,
   saveScheduleScaleState,
@@ -85,6 +86,7 @@ import {
   useScheduleMetrics,
   resolveTimeLabelStep,
   shouldShowVerticalTimeLabel,
+  verticalSlotStyle,
 } from "@/lib/scheduleScale";
 import { toast } from "sonner";
 import { confirmPastBookingProceed } from "@/lib/pastBookingPolicy";
@@ -155,7 +157,9 @@ function BookingBlock({
   onHighlightPatient,
   tooltipContainer = null,
 }) {
-  const { slotPx, rowH } = useScheduleMetrics();
+  const { slotPx, rowH, slotHeight, slotWidth, compact } = useScheduleMetrics();
+  const vSlot = slotHeight ?? rowH;
+  const hSlot = slotWidth ?? slotPx;
   const start = displayOverride?.startMin ?? bookingStartMin(booking.scheduled_at);
   const dur = displayOverride?.durationMin ?? (booking.duration_min || 30);
   const block = isTimeBlock(booking);
@@ -177,12 +181,14 @@ function BookingBlock({
     return lines;
   }, [booking, showOverlapBadge]);
 
+  const spanGap = compact ? 1 : 2;
+  const minSpan = compact ? 2 : (orientation === "vertical" ? vSlot - spanGap : hSlot - spanGap);
   const baseSpan = orientation === "vertical"
-    ? Math.max((dur / interval) * rowH - 2, rowH - 2)
-    : Math.max((dur / interval) * slotPx - 2, slotPx - 2);
+    ? Math.max((dur / interval) * vSlot - spanGap, minSpan)
+    : Math.max((dur / interval) * hSlot - spanGap, minSpan);
   const baseOffset = orientation === "vertical"
-    ? ((start - openMin) / interval) * rowH
-    : ((start - openMin) / interval) * slotPx;
+    ? ((start - openMin) / interval) * vSlot
+    : ((start - openMin) / interval) * hSlot;
   const colCount = Math.max(1, ol.columns || 1);
   const col = ol.column || 0;
 
@@ -198,7 +204,7 @@ function BookingBlock({
         }
       : {
           left: baseOffset + (col * baseSpan) / colCount,
-          width: Math.max(baseSpan / colCount - 2, slotPx / colCount - 2),
+          width: Math.max(baseSpan / colCount - spanGap, hSlot / colCount - spanGap),
           zIndex: ghost ? 25 : 10,
         };
 
@@ -209,7 +215,7 @@ function BookingBlock({
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardClasses = `relative w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+  const cardClasses = `relative w-full h-full min-h-0 rounded-md border text-left overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${compact ? "px-1 py-0" : "px-2 py-1"} ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
 
   const hasIndicatorIcons = !block && (visibleIcons.length > 0 || iconOverflow > 0);
   const hasBottomBadges = hasIndicatorIcons || overtime || showOverlapBadge;
@@ -220,10 +226,10 @@ function BookingBlock({
 
   const cardBody = (
     <>
-      <div className={`min-w-0 overflow-hidden ${hasBottomBadges ? "pb-3.5" : ""}`}>
-        <div className="text-xs font-semibold truncate leading-tight">{label}</div>
-        <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>
-        <div className="text-[10px] opacity-70 mt-0.5 leading-tight">{timeLabel} · {dur}m</div>
+      <div className={`min-w-0 overflow-hidden ${hasBottomBadges ? (compact ? "pb-2" : "pb-3.5") : ""}`}>
+        <div className={`${compact ? "text-[8px]" : "text-xs"} font-semibold truncate leading-tight`}>{label}</div>
+        {!compact && <div className="text-[10px] truncate opacity-85 leading-tight">{sub}</div>}
+        {!compact && <div className="text-[10px] opacity-70 mt-0.5 leading-tight">{timeLabel} · {dur}m</div>}
       </div>
       {hasBottomBadges && (
         <div
@@ -373,7 +379,8 @@ function ScheduleSlotCell({
   orientation,
   highlighted,
 }) {
-  const { rowH } = useScheduleMetrics();
+  const { compact } = useScheduleMetrics();
+  const slotStyle = orientation === "vertical" ? verticalSlotStyle(compact) : undefined;
   const edge =
     orientation === "vertical"
       ? "border-b border-[#F0EDE4] w-full"
@@ -386,7 +393,7 @@ function ScheduleSlotCell({
       <button
         type="button"
         className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[1] ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
-        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+        style={slotStyle}
         data-schedule-slot=""
         data-staff-id={staffId}
         data-slot-min={slotMin}
@@ -405,7 +412,7 @@ function ScheduleSlotCell({
       <button
         type="button"
         className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 ${orientation === "vertical" ? "" : ""}`}
-        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+        style={slotStyle}
         onClick={onOvertimeClick}
         aria-label={state.title}
         title={state.title}
@@ -419,7 +426,7 @@ function ScheduleSlotCell({
       <button
         type="button"
         className={`${edge} bg-[#EDE8DC]/70 hover:bg-[#E8E0D0]/90 cursor-pointer select-none relative z-[1] opacity-80 ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
-        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+        style={slotStyle}
         data-schedule-slot=""
         data-staff-id={staffId}
         data-slot-min={slotMin}
@@ -437,7 +444,7 @@ function ScheduleSlotCell({
     return (
       <div
         className={`${edge} bg-[#EDE8DC]/70 opacity-60 cursor-not-allowed ${orientation === "vertical" ? "" : ""}`}
-        style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+        style={slotStyle}
         title="Past time"
         aria-label="Past time"
         data-testid={`schedule-slot-past-${testSuffix}`}
@@ -448,7 +455,7 @@ function ScheduleSlotCell({
   return (
     <div
       className={`${edge} bg-[#F3F1EB]/55 cursor-default ${orientation === "vertical" ? "" : ""}`}
-      style={orientation === "vertical" ? { height: rowH, minHeight: rowH } : undefined}
+      style={slotStyle}
       title={state.title}
       data-testid={`schedule-slot-disabled-${testSuffix}`}
     />
@@ -480,7 +487,9 @@ function StaffRow({
   onHighlightPatient,
   tooltipContainer = null,
 }) {
-  const { slotPx, rowH, staffColW } = useScheduleMetrics();
+  const { slotHeight, slotWidth, staffColW } = useScheduleMetrics();
+  const vSlot = slotHeight;
+  const hSlot = slotWidth;
   const rowBookings = bookings.filter(
     (b) =>
       bookingAssignedToStaff(b, staff.id) &&
@@ -556,19 +565,19 @@ function StaffRow({
       </div>
       <div
         className="relative flex-1 overflow-hidden"
-        style={{ height: rowH, minWidth: gridWidth }}
+        style={{ height: "var(--schedule-slot-height)", minWidth: gridWidth }}
         data-schedule-track=""
         data-staff-id={staff.id}
         data-open-min={openMin}
         data-close-min={closeMin}
         data-interval={interval}
         data-orientation="horizontal"
-        data-slot-px={slotPx}
-        data-row-h={rowH}
+        data-slot-px={hSlot}
+        data-row-h={vSlot}
       >
         <div
           className="absolute inset-0 grid"
-          style={{ gridTemplateColumns: `repeat(${slotCount}, ${slotPx}px)` }}
+          style={{ gridTemplateColumns: `repeat(${slotCount}, var(--schedule-slot-width))` }}
         >
           {Array.from({ length: slotCount }, (_, i) => {
             const slotMin = openMin + i * interval;
@@ -617,8 +626,8 @@ function StaffRow({
           <div
             className="absolute top-0 bottom-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
             style={{
-              left: ((dragPreview.startMin - openMin) / interval) * slotPx,
-              width: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * slotPx,
+              left: ((dragPreview.startMin - openMin) / interval) * hSlot,
+              width: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * hSlot,
             }}
             data-testid="schedule-drag-preview-horizontal"
           >
@@ -656,7 +665,9 @@ function StaffColumn({
   onHighlightPatient,
   tooltipContainer = null,
 }) {
-  const { slotPx, rowH, staffColW } = useScheduleMetrics();
+  const { slotHeight, slotWidth, staffColW } = useScheduleMetrics();
+  const vSlot = slotHeight;
+  const hSlot = slotWidth;
   const rowBookings = bookings.filter(
     (b) =>
       bookingAssignedToStaff(b, staff.id) &&
@@ -665,7 +676,7 @@ function StaffColumn({
   );
   const overlapLayout = useMemo(() => layoutOverlappingBookings(rowBookings), [rowBookings]);
   const slotCount = (closeMin - openMin) / interval;
-  const trackHeight = slotCount * rowH;
+  const trackHeight = slotCount * vSlot;
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
@@ -733,8 +744,8 @@ function StaffColumn({
       data-close-min={closeMin}
       data-interval={interval}
       data-orientation="vertical"
-      data-slot-px={slotPx}
-      data-row-h={rowH}
+      data-slot-px={hSlot}
+      data-row-h={vSlot}
     >
       {Array.from({ length: slotCount }, (_, i) => {
         const slotMin = openMin + i * interval;
@@ -755,7 +766,7 @@ function StaffColumn({
           timeStr,
         });
         return (
-          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: i * rowH, height: rowH }}>
+          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: `calc(${i} * var(--schedule-slot-height))`, height: "var(--schedule-slot-height)" }}>
             <ScheduleSlotCell
               state={state}
               timeStr={timeStr}
@@ -783,8 +794,8 @@ function StaffColumn({
         <div
           className="absolute left-0 right-0 z-[8] pointer-events-none rounded-sm border border-[#52796F]/35 bg-[#C5DDD4]/40"
           style={{
-            top: ((dragPreview.startMin - openMin) / interval) * rowH,
-            height: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * rowH,
+            top: ((dragPreview.startMin - openMin) / interval) * vSlot,
+            height: ((dragPreview.endMinExclusive - dragPreview.startMin) / interval) * vSlot,
           }}
           data-testid="schedule-drag-preview-vertical"
         >
@@ -798,8 +809,10 @@ function StaffColumn({
 }
 
 function NowIndicator({ orientation, openMin, interval, nowMin }) {
-  const { slotPx, rowH } = useScheduleMetrics();
-  const offset = ((nowMin - openMin) / interval) * (orientation === "vertical" ? rowH : slotPx);
+  const { slotHeight, slotWidth } = useScheduleMetrics();
+  const vSlot = slotHeight;
+  const hSlot = slotWidth;
+  const offset = ((nowMin - openMin) / interval) * (orientation === "vertical" ? vSlot : hSlot);
   if (orientation === "vertical") {
     return (
       <div
@@ -1097,21 +1110,27 @@ export default function BookingsScheduleView({
     [scaleState, isAppointmentWorkspace],
   );
 
-  const gridWidth = useMemo(() => slotCount * metrics.slotPx, [slotCount, metrics.slotPx]);
+  const scheduleCssVars = useMemo(() => buildScheduleCssVars(metrics), [metrics]);
+
+  const gridWidth = useMemo(
+    () => slotCount * (metrics.slotWidth ?? metrics.slotPx),
+    [slotCount, metrics.slotWidth, metrics.slotPx],
+  );
   const verticalTimeLabelStep = useMemo(
-    () => resolveTimeLabelStep(interval, metrics.rowH),
-    [interval, metrics.rowH],
+    () => resolveTimeLabelStep(interval, metrics.slotHeight ?? metrics.rowH),
+    [interval, metrics.slotHeight, metrics.rowH],
   );
   const hourMarks = useMemo(() => {
     if (closed || !slotCount) return [];
+    const slotW = metrics.slotWidth ?? metrics.slotPx;
     const marks = [];
     for (let m = openMin; m < closeMin; m += 60) {
       if (m >= openMin && m < closeMin) {
-        marks.push({ min: m, left: ((m - openMin) / interval) * metrics.slotPx });
+        marks.push({ min: m, left: ((m - openMin) / interval) * slotW });
       }
     }
     return marks;
-  }, [openMin, closeMin, interval, metrics.slotPx, closed, slotCount]);
+  }, [openMin, closeMin, interval, metrics.slotWidth, metrics.slotPx, closed, slotCount]);
 
   const workingStaff = useMemo(
     () => staff.filter((s) => effectiveByStaff[s.id]?.is_working === true),
@@ -1134,11 +1153,11 @@ export default function BookingsScheduleView({
     saveScheduleScaleState(next);
   }, []);
 
-  const measureFitRatios = useCallback(() => {
+  const measureFitMetrics = useCallback(() => {
     const el = gridViewportRef.current;
     if (!el) return null;
     const rect = el.getBoundingClientRect();
-    return computeFitScales({
+    return computeFitMetrics({
       orientation,
       viewportWidth: rect.width,
       viewportHeight: rect.height,
@@ -1148,23 +1167,32 @@ export default function BookingsScheduleView({
     });
   }, [orientation, slotCount, flatStaff.length, staffGroups.length]);
 
+  const fitStateChanged = useCallback((prev, next) => (
+    prev.slotHeightPx === next.slotHeightPx
+    && prev.slotWidthPx === next.slotWidthPx
+    && prev.staffColPx === next.staffColPx
+    && prev.rowHRatio === next.rowHRatio
+    && prev.slotPxRatio === next.slotPxRatio
+    && prev.staffColRatio === next.staffColRatio
+  ), []);
+
   const applyFitMode = useCallback((mode) => {
     if (mode === SCHEDULE_FIT_MODES.default) {
       persistScale({ ...DEFAULT_SCALE_STATE });
       gridViewportRef.current?.scrollTo({ top: 0, left: 0 });
       return;
     }
-    const ratios = measureFitRatios();
-    if (!ratios) return;
-    persistScale(applyFitModeToState(mode, ratios, scaleState));
+    const fitMetrics = measureFitMetrics();
+    if (!fitMetrics) return;
+    persistScale(applyFitModeToState(mode, fitMetrics, scaleState));
     requestAnimationFrame(() => {
       gridViewportRef.current?.scrollTo({ top: 0, left: 0 });
     });
-  }, [measureFitRatios, persistScale, scaleState]);
+  }, [measureFitMetrics, persistScale, scaleState]);
 
   const adjustScale = useCallback((axis, delta) => {
-    persistScale(adjustManualScale(scaleState, axis, delta));
-  }, [persistScale, scaleState]);
+    persistScale(adjustManualScale(scaleState, axis, delta, metrics));
+  }, [persistScale, scaleState, metrics]);
 
   useEffect(() => {
     if (!isAppointmentWorkspace || closed || workingStaff.length === 0) return undefined;
@@ -1172,17 +1200,11 @@ export default function BookingsScheduleView({
       return undefined;
     }
     const id = requestAnimationFrame(() => {
-      const ratios = measureFitRatios();
-      if (!ratios) return;
+      const fitMetrics = measureFitMetrics();
+      if (!fitMetrics) return;
       setScaleState((prev) => {
-        const next = applyFitModeToState(prev.fitMode, ratios, prev);
-        if (
-          next.rowHRatio === prev.rowHRatio
-          && next.slotPxRatio === prev.slotPxRatio
-          && next.staffColRatio === prev.staffColRatio
-        ) {
-          return prev;
-        }
+        const next = applyFitModeToState(prev.fitMode, fitMetrics, prev);
+        if (fitStateChanged(prev, next)) return prev;
         saveScheduleScaleState(next);
         return next;
       });
@@ -1197,7 +1219,9 @@ export default function BookingsScheduleView({
     scaleState.fitMode,
     closed,
     workingStaff.length,
-    measureFitRatios,
+    activeUtility,
+    measureFitMetrics,
+    fitStateChanged,
   ]);
 
   useEffect(() => {
@@ -1206,24 +1230,27 @@ export default function BookingsScheduleView({
       return undefined;
     }
     const onResize = () => {
-      const ratios = measureFitRatios();
-      if (!ratios) return;
+      const fitMetrics = measureFitMetrics();
+      if (!fitMetrics) return;
       setScaleState((prev) => {
-        const next = applyFitModeToState(prev.fitMode, ratios, prev);
-        if (
-          next.rowHRatio === prev.rowHRatio
-          && next.slotPxRatio === prev.slotPxRatio
-          && next.staffColRatio === prev.staffColRatio
-        ) {
-          return prev;
-        }
+        const next = applyFitModeToState(prev.fitMode, fitMetrics, prev);
+        if (fitStateChanged(prev, next)) return prev;
         saveScheduleScaleState(next);
         return next;
       });
     };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [isAppointmentWorkspace, scaleState.fitMode, measureFitRatios]);
+    const el = gridViewportRef.current;
+    let observer;
+    if (el && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => onResize());
+      observer.observe(el);
+    }
+    return () => {
+      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+    };
+  }, [isAppointmentWorkspace, scaleState.fitMode, activeUtility, measureFitMetrics, fitStateChanged]);
 
   const unassigned = bookings.filter(
     (b) =>
@@ -1360,9 +1387,9 @@ export default function BookingsScheduleView({
     closeMin: Number(trackEl.getAttribute("data-close-min")),
     interval: Number(trackEl.getAttribute("data-interval")),
     orientation: trackEl.getAttribute("data-orientation") || orientation,
-    slotPx: Number(trackEl.getAttribute("data-slot-px")) || metrics.slotPx,
-    rowH: Number(trackEl.getAttribute("data-row-h")) || metrics.rowH,
-  }), [orientation, metrics.slotPx, metrics.rowH]);
+    slotPx: Number(trackEl.getAttribute("data-slot-px")) || metrics.slotWidth || metrics.slotPx,
+    rowH: Number(trackEl.getAttribute("data-row-h")) || metrics.slotHeight || metrics.rowH,
+  }), [orientation, metrics.slotWidth, metrics.slotPx, metrics.slotHeight, metrics.rowH]);
 
   const updateApptManipPreview = useCallback((clientX, clientY) => {
     const m = apptManipRef.current;
@@ -1593,8 +1620,10 @@ export default function BookingsScheduleView({
   };
 
   const hasWorkingStaff = workingStaff.length > 0;
-  const { staffColW, timeColW, rowH } = metrics;
-  const trackHeight = slotCount * rowH;
+  const { staffColW, timeColW } = metrics;
+  const slotHeight = metrics.slotHeight ?? metrics.rowH;
+  const trackHeight = slotCount * slotHeight;
+  const compactGrid = metrics.compact;
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
   const gridScrollClass = "flex-1 min-h-0 overflow-y-auto overflow-x-auto";
@@ -1619,6 +1648,7 @@ export default function BookingsScheduleView({
     <div
       ref={gridViewportRef}
       className={gridScrollClass}
+      style={scheduleCssVars}
       data-testid="schedule-horizontal"
     >
       <div style={{ minWidth: staffColW + gridWidth }}>
@@ -1689,6 +1719,7 @@ export default function BookingsScheduleView({
     <div
       ref={gridViewportRef}
       className={gridScrollClass}
+      style={scheduleCssVars}
       data-testid="schedule-vertical"
     >
       <div style={{ minWidth: timeColW + flatStaff.length * staffColW }}>
@@ -1742,8 +1773,8 @@ export default function BookingsScheduleView({
               return (
                 <div
                   key={slotMin}
-                  className="px-2 text-[10px] text-[#5C6C62] border-b border-[#F0EDE4] flex items-center"
-                  style={{ height: rowH }}
+                  className={`px-1 text-[#5C6C62] border-b border-[#F0EDE4] overflow-hidden ${compactGrid ? "text-[8px] leading-none" : "text-[10px] flex items-center px-2"}`}
+                  style={verticalSlotStyle(compactGrid)}
                 >
                   {showLabel ? minutesToTimeLabel(slotMin) : ""}
                 </div>
