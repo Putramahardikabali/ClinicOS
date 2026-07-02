@@ -12,10 +12,17 @@ export const SCHEDULE_SCALE_DEFAULTS = {
 export const SCHEDULE_SCALE_LIMITS = {
   minSlotPx: 18,
   maxSlotPx: 52,
-  minRowH: 28,
+  minRowH: 20,
   maxRowH: 80,
   minStaffColW: 84,
   maxStaffColW: 200,
+};
+
+/** Sticky chrome inside the schedule grid viewport (px). */
+export const SCHEDULE_FIT_CHROME = {
+  horizontalTimeHeader: 32,
+  horizontalGroupHeader: 28,
+  verticalStickyHeader: 82,
 };
 
 export const SCHEDULE_FIT_MODES = {
@@ -104,6 +111,7 @@ export function saveScheduleScaleState(state) {
 
 /**
  * Compute scale ratios to fit the schedule grid into the viewport.
+ * Prioritizes fitting the full day (all time slots) vertically when possible.
  * @param {"horizontal"|"vertical"} orientation
  */
 export function computeFitScales({
@@ -112,30 +120,31 @@ export function computeFitScales({
   viewportHeight,
   slotCount,
   staffCount,
-  headerChromeHeight = 88,
-  headerChromeWidth = 16,
+  staffGroupCount = 1,
 }) {
   const d = SCHEDULE_SCALE_DEFAULTS;
   const l = SCHEDULE_SCALE_LIMITS;
+  const chrome = SCHEDULE_FIT_CHROME;
   const slots = Math.max(1, slotCount || 1);
   const staff = Math.max(1, staffCount || 1);
-  const availH = Math.max(120, viewportHeight - headerChromeHeight);
-  const availW = Math.max(120, viewportWidth - headerChromeWidth);
+  const groups = Math.max(1, staffGroupCount || 1);
+  const availH = Math.max(80, viewportHeight);
+  const availW = Math.max(80, viewportWidth);
 
   let rowHRatio = 1;
   let slotPxRatio = 1;
   let staffColRatio = 1;
 
   if (orientation === "vertical") {
-    const timeHeader = 82;
-    const defaultTrackH = slots * d.rowH;
-    rowHRatio = availH / (defaultTrackH + timeHeader);
+    const availableForSlots = Math.max(60, availH - chrome.verticalStickyHeader);
+    const idealRowH = availableForSlots / slots;
+    rowHRatio = idealRowH / d.rowH;
     const defaultStaffW = staff * d.staffColW;
     staffColRatio = (availW - d.timeColW) / defaultStaffW;
   } else {
-    const timeHeader = 36;
-    const defaultRowsH = staff * d.rowH;
-    rowHRatio = availH / (defaultRowsH + timeHeader);
+    const staffBlockH = groups * chrome.horizontalGroupHeader + staff * d.rowH;
+    const availableForStaff = Math.max(60, availH - chrome.horizontalTimeHeader);
+    rowHRatio = availableForStaff / staffBlockH;
     const defaultGridW = slots * d.slotPx;
     slotPxRatio = (availW - d.staffColW) / defaultGridW;
   }
@@ -145,6 +154,18 @@ export function computeFitScales({
     slotPxRatio: clampRatio(slotPxRatio, l.minSlotPx, l.maxSlotPx, d.slotPx),
     staffColRatio: clampRatio(staffColRatio, l.minStaffColW, l.maxStaffColW, d.staffColW),
   };
+}
+
+/** Label step in minutes when rows are compact in vertical view. */
+export function resolveTimeLabelStep(interval, rowHeightPx) {
+  const iv = Math.max(5, Number(interval) || 30);
+  if (rowHeightPx >= 36) return iv;
+  if (rowHeightPx >= 24) return Math.max(iv, 15);
+  return Math.max(iv, 30);
+}
+
+export function shouldShowVerticalTimeLabel(slotMin, openMin, labelStep) {
+  return (slotMin - openMin) % labelStep === 0;
 }
 
 export function applyFitModeToState(mode, ratios, prev = DEFAULT_SCALE_STATE) {

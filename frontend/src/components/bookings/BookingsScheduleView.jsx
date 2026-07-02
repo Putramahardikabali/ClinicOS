@@ -88,6 +88,8 @@ import {
   SCHEDULE_FIT_MODES,
   ScheduleMetricsProvider,
   useScheduleMetrics,
+  resolveTimeLabelStep,
+  shouldShowVerticalTimeLabel,
 } from "@/lib/scheduleScale";
 import { toast } from "sonner";
 
@@ -1105,6 +1107,10 @@ export default function BookingsScheduleView({
   );
 
   const gridWidth = useMemo(() => slotCount * metrics.slotPx, [slotCount, metrics.slotPx]);
+  const verticalTimeLabelStep = useMemo(
+    () => resolveTimeLabelStep(interval, metrics.rowH),
+    [interval, metrics.rowH],
+  );
   const hourMarks = useMemo(() => {
     if (closed || !slotCount) return [];
     const marks = [];
@@ -1147,17 +1153,22 @@ export default function BookingsScheduleView({
       viewportHeight: rect.height,
       slotCount,
       staffCount: flatStaff.length,
+      staffGroupCount: staffGroups.length,
     });
-  }, [orientation, slotCount, flatStaff.length]);
+  }, [orientation, slotCount, flatStaff.length, staffGroups.length]);
 
   const applyFitMode = useCallback((mode) => {
     if (mode === SCHEDULE_FIT_MODES.default) {
       persistScale({ ...DEFAULT_SCALE_STATE });
+      gridViewportRef.current?.scrollTo({ top: 0, left: 0 });
       return;
     }
     const ratios = measureFitRatios();
     if (!ratios) return;
     persistScale(applyFitModeToState(mode, ratios, scaleState));
+    requestAnimationFrame(() => {
+      gridViewportRef.current?.scrollTo({ top: 0, left: 0 });
+    });
   }, [measureFitRatios, persistScale, scaleState]);
 
   const adjustScale = useCallback((axis, delta) => {
@@ -1596,11 +1607,13 @@ export default function BookingsScheduleView({
   const trackHeight = slotCount * rowH;
   const showNow = isToday && clinicNow.minutes >= openMin && clinicNow.minutes < closeMin;
 
-  const gridScrollClass = isScheduleFocusMode ? "h-full" : "max-h-[min(72vh,900px)]";
+  const gridScrollClass = isScheduleFocusMode
+    ? "flex-1 min-h-0 overflow-y-auto overflow-x-auto"
+    : "max-h-[min(72vh,900px)] overflow-auto";
   const tooltipContainer = isBrowserFullscreen ? shellRef.current : undefined;
   const overlayPortalContainer = isBrowserFullscreen
     ? (document.fullscreenElement || shellRef.current)
-    : undefined;
+    : (isScheduleFocusMode ? shellRef.current : undefined);
 
   const handleSearchBookPatient = useCallback((patient) => {
     onBookPatient?.(patient, date);
@@ -1617,7 +1630,7 @@ export default function BookingsScheduleView({
   const renderHorizontal = () => (
     <div
       ref={isScheduleFocusMode ? gridViewportRef : null}
-      className={`overflow-auto ${gridScrollClass}`}
+      className={gridScrollClass}
       data-testid="schedule-horizontal"
     >
       <div style={{ minWidth: staffColW + gridWidth }}>
@@ -1686,7 +1699,7 @@ export default function BookingsScheduleView({
   const renderVertical = () => (
     <div
       ref={isScheduleFocusMode ? gridViewportRef : null}
-      className={`overflow-auto ${gridScrollClass}`}
+      className={gridScrollClass}
       data-testid="schedule-vertical"
     >
       <div style={{ minWidth: timeColW + flatStaff.length * staffColW }}>
@@ -1736,13 +1749,14 @@ export default function BookingsScheduleView({
           >
             {Array.from({ length: slotCount }, (_, i) => {
               const slotMin = openMin + i * interval;
+              const showLabel = shouldShowVerticalTimeLabel(slotMin, openMin, verticalTimeLabelStep);
               return (
                 <div
                   key={slotMin}
                   className="px-2 text-[10px] text-[#5C6C62] border-b border-[#F0EDE4] flex items-center"
                   style={{ height: rowH }}
                 >
-                  {minutesToTimeLabel(slotMin)}
+                  {showLabel ? minutesToTimeLabel(slotMin) : ""}
                 </div>
               );
             })}
@@ -1790,7 +1804,7 @@ export default function BookingsScheduleView({
   );
 
   const shellClass = isScheduleFocusMode
-    ? "flex flex-col flex-1 min-h-0 h-full bg-[#FDFBF7] overflow-hidden relative p-3 sm:p-4"
+    ? "flex flex-col flex-1 min-h-0 h-full bg-[#FDFBF7] relative p-3 sm:p-4"
     : "";
 
   return (
@@ -1967,9 +1981,11 @@ export default function BookingsScheduleView({
         </div>
       )}
 
-      <p className={`text-xs text-[#A89F8B] mb-3 ${isScheduleFocusMode ? "shrink-0" : ""}`}>
+      {!isScheduleFocusMode && (
+      <p className="text-xs text-[#A89F8B] mb-3">
         Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
+      )}
 
       <div className={`${isScheduleFocusMode ? "flex flex-1 min-h-0 relative" : ""}`}>
         <div className={`${isScheduleFocusMode ? "flex-1 min-h-0 min-w-0 flex flex-col" : ""}`}>
@@ -1989,9 +2005,7 @@ export default function BookingsScheduleView({
           </div>
         ) : (
           <div className={`bl-card overflow-hidden ${isScheduleFocusMode ? "h-full flex flex-col flex-1 min-h-0" : ""}`}>
-            <div className={isScheduleFocusMode ? "flex-1 min-h-0 overflow-auto" : ""}>
               {orientation === "vertical" ? renderVertical() : renderHorizontal()}
-            </div>
 
             {unassigned.length > 0 && (
               <div className="border-t border-[#EAE6D7] px-4 py-3">

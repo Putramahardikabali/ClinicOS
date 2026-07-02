@@ -29,6 +29,37 @@ import {
   serviceCountLabel,
 } from "@/components/bookings/schedulePatientLookup";
 
+const DROPDOWN_MIN_WIDTH = 560;
+const DROPDOWN_MAX_WIDTH = 720;
+const DROPDOWN_VIEWPORT_PAD = 16;
+
+function resolveDropdownLayout(inputRect) {
+  const viewportWidth = window.innerWidth;
+  const maxAllowed = Math.max(280, viewportWidth - 32);
+  const isCompact = viewportWidth < 640;
+  let width = isCompact
+    ? maxAllowed
+    : Math.min(DROPDOWN_MAX_WIDTH, Math.max(DROPDOWN_MIN_WIDTH, inputRect.width));
+  width = Math.min(width, maxAllowed);
+
+  let left = inputRect.left;
+  if (left + width > viewportWidth - DROPDOWN_VIEWPORT_PAD) {
+    left = Math.max(DROPDOWN_VIEWPORT_PAD, viewportWidth - DROPDOWN_VIEWPORT_PAD - width);
+  }
+
+  const gap = 4;
+  const bottomPad = 16;
+  const availableBelow = window.innerHeight - inputRect.bottom - gap - bottomPad;
+  const maxHeight = Math.min(420, Math.max(180, availableBelow));
+
+  return {
+    top: inputRect.bottom + gap,
+    left,
+    width,
+    maxHeight,
+  };
+}
+
 function useDebouncedValue(value, delayMs) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -79,7 +110,7 @@ function PatientSearchResultRow({
 
   return (
     <div
-      className="flex items-start gap-3 px-3 py-2.5 hover:bg-[#F8F5EC] border-b border-[#EAE6D7] last:border-0 cursor-pointer"
+      className="flex items-start gap-3 px-4 py-3 hover:bg-[#F8F5EC] border-b border-[#EAE6D7] last:border-0 cursor-pointer"
       onClick={() => onRowClick(patient)}
       data-testid={`schedule-patient-result-${patient.id}`}
     >
@@ -90,14 +121,14 @@ function PatientSearchResultRow({
         {patientInitials(patient)}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-medium text-sm text-[#2D3A33] truncate">{name}</span>
+        <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+          <span className="font-medium text-sm text-[#2D3A33] leading-snug line-clamp-2">{name}</span>
           {blacklisted && <BlacklistBadge />}
           {nonBlacklistLabels.length > 0 && (
             <PatientLabelsRow labels={nonBlacklistLabels} size="sm" />
           )}
         </div>
-        <div className="text-xs text-[#5C6C62] mt-0.5 truncate">
+        <div className="text-xs text-[#5C6C62] mt-0.5 leading-relaxed break-words">
           {[phone, email, patient.user_code].filter(Boolean).join(" · ")}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -109,11 +140,11 @@ function PatientSearchResultRow({
           )}
         </div>
       </div>
-      <div className="shrink-0 flex items-center gap-1">
+      <div className="shrink-0 flex items-start gap-1.5 pl-1">
         {canManage && (
           <button
             type="button"
-            className="bl-btn-secondary text-[11px] px-2 py-1 whitespace-nowrap"
+            className="bl-btn-secondary text-[11px] px-2.5 py-1.5 whitespace-nowrap min-w-[8.5rem] text-center"
             onClick={handlePrimary}
             data-testid={`schedule-patient-action-${patient.id}`}
           >
@@ -214,16 +245,7 @@ export default function SchedulePatientSearch({
     const el = inputWrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const gap = 4;
-    const bottomPad = 16;
-    const availableBelow = window.innerHeight - rect.bottom - gap - bottomPad;
-    const maxHeight = Math.min(360, Math.max(160, availableBelow));
-    setPos({
-      top: rect.bottom + gap,
-      left: rect.left,
-      width: Math.max(rect.width, 320),
-      maxHeight,
-    });
+    setPos(resolveDropdownLayout(rect));
   }, []);
 
   useEffect(() => {
@@ -360,6 +382,8 @@ export default function SchedulePatientSearch({
             top: pos.top,
             left: pos.left,
             width: pos.width,
+            minWidth: pos.width,
+            maxWidth: "calc(100vw - 32px)",
             maxHeight: pos.maxHeight,
           }}
           data-testid="schedule-patient-search-panel"
@@ -410,7 +434,7 @@ export default function SchedulePatientSearch({
     : null;
 
   return (
-    <div ref={inputWrapRef} className={cn("relative flex-1 min-w-[12rem] max-w-md", className)}>
+    <div ref={inputWrapRef} className={cn("relative flex-1 min-w-[12rem] max-w-md overflow-visible", className)}>
       <SearchInput
         className="w-full"
         inputClassName={cn("text-sm py-2", inputClassName)}
