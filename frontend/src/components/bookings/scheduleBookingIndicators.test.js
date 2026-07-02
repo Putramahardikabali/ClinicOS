@@ -58,6 +58,46 @@ describe("scheduleBookingIndicators", () => {
     expect(overflow).toBe(2);
   });
 
+  it("shows booking note icon when notes exist", () => {
+    const booking = {
+      ...baseBooking,
+      notes: "Patient prefers morning slots",
+      schedule_meta: {
+        note_preview: "Patient prefers morning slots",
+        profile_alert: { active: false },
+        specific_staff_request: { active: false },
+        package_use: { active: false },
+        loyalty: { active: false },
+        new_patient: false,
+        recurring_patient: false,
+      },
+    };
+    expect(collectActiveIndicators(booking)).toContain("booking_note");
+    expect(selectCardIcons(booking).visible).toContain("booking_note");
+  });
+
+  it("prioritizes booking note after profile alert", () => {
+    const booking = {
+      ...baseBooking,
+      notes: "VIP arrival",
+      specific_staff_requested: true,
+      schedule_meta: {
+        profile_alert: { active: true, label: "Alert" },
+        note_preview: "VIP arrival",
+        specific_staff_request: { active: true, label: "Dr A" },
+        package_use: { active: false },
+        loyalty: { active: false },
+        new_patient: false,
+        recurring_patient: false,
+      },
+    };
+    expect(selectCardIcons(booking).visible).toEqual([
+      "profile_alert",
+      "booking_note",
+      "specific_staff_request",
+    ]);
+  });
+
   it("shows recurring only when not new", () => {
     const booking = {
       ...baseBooking,

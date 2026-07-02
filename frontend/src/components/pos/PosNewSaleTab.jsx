@@ -19,7 +19,7 @@ import { resolveGiftCardRedemption } from "@/lib/giftCardRedemption";
 import { computeInvoiceDiscount, lineTotal, parseIdr, receiptPhone } from "@/lib/posUtils";
 import { isCashPayment } from "@/lib/paymentAmountQuickFill";
 
-export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }) {
+export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0, compact = false }) {
   const { user } = useAuth();
   const { branding } = useSettings();
   const canCreate = hasPermission(user, "pos.create");
@@ -350,11 +350,11 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
   return (
     <>
     <div
-      className="pos-screen no-print p-3 sm:p-6 md:p-8 max-w-[1400px] mx-auto"
-      style={{ "--pos-safe-bottom": "5rem" }}
-      data-testid="pos-page"
+      className={compact ? "space-y-3" : "pos-screen no-print p-3 sm:p-6 md:p-8 max-w-[1400px] mx-auto"}
+      style={compact ? undefined : { "--pos-safe-bottom": "5rem" }}
+      data-testid={compact ? "pos-quick-sale" : "pos-page"}
     >
-      {lastSale?.status === "paid" && (
+      {!compact && lastSale?.status === "paid" && (
         <div className="mb-4">
           <PosReceiptBar
             sale={lastSale}
@@ -367,8 +367,8 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-8 space-y-4">
+      <div className={compact ? "space-y-3" : "grid grid-cols-1 xl:grid-cols-12 gap-4"}>
+        <div className={compact ? "space-y-3" : "xl:col-span-8 space-y-4"}>
           <PosCustomerBar
             user={user}
             walkIn={walkIn}
@@ -410,7 +410,7 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
             packageRequiresPatient={cartHasPackage && !selectedPatient}
           />
 
-          <div className="bl-card p-4 sm:p-5">
+          <div className={compact ? "bl-card p-3" : "bl-card p-4 sm:p-5"}>
             <div className="flex items-center justify-between mb-3">
               <div className="label-eyebrow">Cart ({cart.length})</div>
             </div>
@@ -418,7 +418,7 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
           </div>
         </div>
 
-        <div className="xl:col-span-4 space-y-4">
+        <div className={compact ? "space-y-3" : "xl:col-span-4 space-y-4"}>
           <PosPaymentPanel
             canCreate={canCreate}
             canRedeemGiftCard={canRedeemGiftCard}
@@ -459,12 +459,12 @@ export default function PosNewSaleTab({ onSaleCompleted, closingRefreshKey = 0 }
             overpaymentToWallet={overpaymentToWallet}
             onOverpaymentToWalletChange={setOverpaymentToWallet}
           />
-          <PosDayClosingSnippet key={closingRefreshKey} />
+          {!compact && <PosDayClosingSnippet key={closingRefreshKey} />}
         </div>
       </div>
     </div>
 
-    {lastSale?.status === "paid" && (
+    {!compact && lastSale?.status === "paid" && (
       <>
         <div className="pos-receipt-print-area" aria-hidden="true" data-testid="pos-receipt-print-area">
           <PosReceiptDocument sale={lastSale} clinicName={clinicName} />

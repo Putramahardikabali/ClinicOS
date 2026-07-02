@@ -1047,7 +1047,9 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
 
     @api.get("/bookings/appointment-log")
     async def appointment_activity_log(
-        date: str = Query(..., description="YYYY-MM-DD"),
+        date: Optional[str] = Query(None, description="YYYY-MM-DD (single day, legacy)"),
+        date_from: Optional[str] = Query(None, description="YYYY-MM-DD range start"),
+        date_to: Optional[str] = Query(None, description="YYYY-MM-DD range end"),
         action: Optional[str] = None,
         user_id: Optional[str] = None,
         q: Optional[str] = None,
@@ -1065,12 +1067,19 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
         )
         if not allowed:
             raise HTTPException(status_code=403, detail="Not allowed to view appointment log")
-        day = (date or "").strip()[:10]
-        if len(day) != 10:
-            raise HTTPException(status_code=400, detail="Invalid date")
+        if date and not date_from and not date_to:
+            range_from = (date or "").strip()[:10]
+            range_to = range_from
+        else:
+            range_from = (date_from or date or "").strip()[:10]
+            range_to = (date_to or date_from or date or "").strip()[:10]
+        if len(range_from) != 10 or len(range_to) != 10:
+            raise HTTPException(status_code=400, detail="Invalid date range")
+        if range_from > range_to:
+            raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
         cid = user.get("clinic_id")
-        day_start = f"{day}T00:00:00"
-        day_end = f"{day}T23:59:59"
+        day_start = f"{range_from}T00:00:00"
+        day_end = f"{range_to}T23:59:59"
         flt: Dict[str, Any] = {
             "clinic_id": cid,
             "created_at": {"$gte": day_start, "$lte": day_end},
@@ -1112,7 +1121,7 @@ def register_bookings(api: APIRouter, db, get_current_user, assert_writeable, as
                 if q_lower not in hay:
                     continue
             out.append(row)
-        return {"date": day, "items": out[:limit]}
+        return {"date_from": range_from, "date_to": range_to, "items": out[:limit]}
 
     async def _get_treatment_doc(
         cid: str,

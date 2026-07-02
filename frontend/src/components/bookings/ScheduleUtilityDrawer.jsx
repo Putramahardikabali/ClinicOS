@@ -1,6 +1,5 @@
 import { X } from "lucide-react";
 import { ScheduleUtilityPanel } from "@/components/bookings/scheduleUtilityPanels";
-import { UTILITY_RAIL_WIDTH_PX } from "@/components/bookings/ScheduleFullscreenUtilityRail";
 import { UTILITY_ITEMS } from "@/components/bookings/scheduleUtilityPermissions";
 
 export default function ScheduleUtilityDrawer({ open, utilityId, onClose, scheduleDate }) {
@@ -21,11 +20,8 @@ export default function ScheduleUtilityDrawer({ open, utilityId, onClose, schedu
         data-testid="schedule-utility-drawer-backdrop"
       />
       <div
-        className="absolute top-0 bottom-0 flex flex-col bg-[#FDFBF7] shadow-2xl border-l border-[#EAE6D7] pointer-events-auto"
-        style={{
-          right: UTILITY_RAIL_WIDTH_PX,
-          width: "min(560px, calc(100% - 48px))",
-        }}
+        className="absolute top-0 bottom-0 right-0 flex flex-col bg-[#FDFBF7] shadow-2xl border-l border-[#EAE6D7] pointer-events-auto"
+        style={{ width: "min(560px, calc(100% - 24px))" }}
         data-testid="schedule-utility-drawer"
         role="dialog"
         aria-label={label}

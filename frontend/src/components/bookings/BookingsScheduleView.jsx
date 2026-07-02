@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
-import { ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import { ChevronLeft, ChevronRight, Layers, Menu } from "lucide-react";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import {
   buildSchedulePreviewLines,
@@ -1901,7 +1901,7 @@ export default function BookingsScheduleView({
       )}
 
       <div className="flex flex-1 min-h-0 relative">
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col relative">
         {initialLoading && bookings.length === 0 && staff.length === 0 ? (
           <div className="bl-card p-10 text-center text-[#5C6C62]">Loading schedule…</div>
         ) : closed ? (
@@ -1950,18 +1950,18 @@ export default function BookingsScheduleView({
             )}
           </div>
         )}
-        </div>
-
         <ScheduleUtilityDrawer
           open={!!activeUtility}
           utilityId={activeUtility}
           onClose={() => setActiveUtility(null)}
           scheduleDate={date}
         />
+        </div>
+
         <ScheduleFullscreenUtilityRail
           access={utilityAccess}
           activeId={activeUtility}
-          onSelect={setActiveUtility}
+          onSelect={(id) => setActiveUtility((prev) => (prev === id ? null : id))}
         />
       </div>
 

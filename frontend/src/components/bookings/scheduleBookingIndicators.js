@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Award,
   Heart,
+  MessageSquare,
   Package,
   Repeat,
   Sparkles,
@@ -23,6 +24,7 @@ export const SCHEDULE_STATUS_COLORS = {
 
 export const INDICATOR_PRIORITY = [
   "profile_alert",
+  "booking_note",
   "specific_staff_request",
   "package_use",
   "loyalty",
@@ -32,6 +34,7 @@ export const INDICATOR_PRIORITY = [
 
 export const INDICATOR_DEFS = {
   profile_alert: { key: "profile_alert", Icon: AlertTriangle, title: "Profile alert" },
+  booking_note: { key: "booking_note", Icon: MessageSquare, title: "Booking note" },
   specific_staff_request: { key: "specific_staff_request", Icon: Heart, title: "Patient requested this staff" },
   package_use: { key: "package_use", Icon: Package, title: "Package" },
   loyalty: { key: "loyalty", Icon: Award, title: "Loyalty" },
@@ -64,11 +67,17 @@ export function resolveScheduleCardColors(booking) {
   return SCHEDULE_STATUS_COLORS[key] || SCHEDULE_STATUS_COLORS.booked;
 }
 
+function hasBookingNote(booking, meta) {
+  return Boolean((meta?.note_preview || booking?.notes || "").trim());
+}
+
 function indicatorActive(booking, meta, key) {
-  if (!meta) return false;
+  if (!meta && key !== "booking_note") return false;
   switch (key) {
     case "profile_alert":
       return !!meta.profile_alert?.active;
+    case "booking_note":
+      return hasBookingNote(booking, meta);
     case "specific_staff_request":
       return !!booking?.specific_staff_requested;
     case "package_use":
@@ -86,8 +95,9 @@ function indicatorActive(booking, meta, key) {
 
 export function collectActiveIndicators(booking) {
   const meta = booking?.schedule_meta;
-  if (!meta || isTimeBlockBooking(booking)) return [];
-  return INDICATOR_PRIORITY.filter((key) => indicatorActive(booking, meta, key));
+  if (isTimeBlockBooking(booking)) return [];
+  if (!meta && !hasBookingNote(booking, null)) return [];
+  return INDICATOR_PRIORITY.filter((key) => indicatorActive(booking, meta || {}, key));
 }
 
 export function selectCardIcons(booking) {

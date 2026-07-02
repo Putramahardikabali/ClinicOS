@@ -26,7 +26,7 @@ export default function ScheduleFullscreenUtilityRail({ access, activeId, onSele
 
   return (
     <aside
-      className="shrink-0 flex flex-col border-l border-[#EAE6D7] bg-[#F8F5EC]/90 backdrop-blur-sm overflow-y-auto"
+      className="relative z-[120] shrink-0 flex flex-col border-l border-[#EAE6D7] bg-[#F8F5EC] overflow-y-auto"
       style={{ width: UTILITY_RAIL_WIDTH_PX }}
       data-testid="schedule-utility-rail"
     >
@@ -41,8 +41,8 @@ export default function ScheduleFullscreenUtilityRail({ access, activeId, onSele
               onClick={() => onSelect(active ? null : item.id)}
               className={`flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 px-1 text-center transition ${
                 active
-                  ? "bg-white text-[#2D3A33] shadow-sm ring-1 ring-[#EAE6D7]"
-                  : "text-[#5C6C62] hover:bg-white/70 hover:text-[#2D3A33]"
+                  ? "bg-white text-[#2D3A33] shadow-sm ring-2 ring-[#52796F]/40"
+                  : "text-[#5C6C62] hover:bg-white hover:text-[#2D3A33]"
               }`}
               data-testid={`schedule-utility-${item.id}`}
               title={item.label}
