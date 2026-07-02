@@ -201,7 +201,7 @@ export function resolveEmptySlotState({
     };
   }
 
-  if (canManage && available) {
+  if (canBook && available) {
     return {
       kind: "available",
       clickable: true,
@@ -210,7 +210,7 @@ export function resolveEmptySlotState({
     };
   }
 
-  if (canCreateOvertime && effective?.is_working && isOutsideHours) {
+  if (canBook && canCreateOvertime && effective?.is_working && isOutsideHours) {
     return {
       kind: "overtime",
       clickable: true,
@@ -225,4 +225,10 @@ export function resolveEmptySlotState({
     title: reason || "Unavailable",
     past: false,
   };
+}
+
+/** Whether an empty schedule cell can be clicked or drag-selected internally. */
+export function isEmptySlotInteractive(state) {
+  if (!state?.clickable) return false;
+  return state.kind === "available" || state.kind === "past" || state.kind === "overtime";
 }

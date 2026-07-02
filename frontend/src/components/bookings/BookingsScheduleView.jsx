@@ -375,24 +375,28 @@ function ScheduleSlotCell({
   slotEnd,
   onSlotPointerDown,
   onSlotPointerEnter,
-  onOvertimeClick,
+  onSlotClick,
   orientation,
   highlighted,
 }) {
   const { compact } = useScheduleMetrics();
-  const slotStyle = orientation === "vertical" ? verticalSlotStyle(compact) : undefined;
+  const slotStyle = orientation === "vertical" ? verticalSlotStyle(compact) : { height: "100%", minHeight: 0 };
   const edge =
     orientation === "vertical"
-      ? "border-b border-[#F0EDE4] w-full"
-      : "border-r border-[#F0EDE4] h-full";
+      ? "border-b border-[#F0EDE4] w-full h-full"
+      : "border-r border-[#F0EDE4] h-full w-full min-h-0";
   const testSuffix = `${staffId}-${timeStr}`;
   const highlightCls = highlighted ? "bg-[#D4E8E0]/60 ring-1 ring-inset ring-[#52796F]/35" : "";
+  const activate = (e) => {
+    e.stopPropagation();
+    onSlotClick?.({ staffId, slotMin, slotEnd, timeStr, state });
+  };
 
   if (state.kind === "available") {
     return (
       <button
         type="button"
-        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[1] ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
+        className={`${edge} hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[2] ${highlightCls}`}
         style={slotStyle}
         data-schedule-slot=""
         data-staff-id={staffId}
@@ -400,6 +404,7 @@ function ScheduleSlotCell({
         data-slot-end={slotEnd}
         onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
         onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
+        onClick={activate}
         aria-label={state.title}
         title={state.title}
         data-testid={`schedule-slot-available-${testSuffix}`}
@@ -411,9 +416,15 @@ function ScheduleSlotCell({
     return (
       <button
         type="button"
-        className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 ${orientation === "vertical" ? "" : ""}`}
+        className={`${edge} bg-[#F3F1EB]/55 cursor-pointer hover:bg-[#EDE8DC]/90 relative z-[2]`}
         style={slotStyle}
-        onClick={onOvertimeClick}
+        data-schedule-slot=""
+        data-staff-id={staffId}
+        data-slot-min={slotMin}
+        data-slot-end={slotEnd}
+        onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
+        onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
+        onClick={activate}
         aria-label={state.title}
         title={state.title}
         data-testid={`schedule-slot-overtime-${testSuffix}`}
@@ -425,7 +436,7 @@ function ScheduleSlotCell({
     return (
       <button
         type="button"
-        className={`${edge} bg-[#EDE8DC]/70 hover:bg-[#E8E0D0]/90 cursor-pointer select-none relative z-[1] opacity-80 ${highlightCls} ${orientation === "vertical" ? "w-full" : ""}`}
+        className={`${edge} bg-[#F3F1EB]/45 hover:bg-[#F8F5EC]/80 cursor-pointer select-none relative z-[2] ${highlightCls}`}
         style={slotStyle}
         data-schedule-slot=""
         data-staff-id={staffId}
@@ -433,6 +444,7 @@ function ScheduleSlotCell({
         data-slot-end={slotEnd}
         onPointerDown={(e) => onSlotPointerDown?.(e, { staffId, slotMin, slotEnd })}
         onPointerEnter={(e) => onSlotPointerEnter?.(e, { staffId, slotMin, slotEnd })}
+        onClick={activate}
         aria-label={state.title}
         title={state.title}
         data-testid={`schedule-slot-past-clickable-${testSuffix}`}
@@ -443,7 +455,7 @@ function ScheduleSlotCell({
   if (state.kind === "past") {
     return (
       <div
-        className={`${edge} bg-[#EDE8DC]/70 opacity-60 cursor-not-allowed ${orientation === "vertical" ? "" : ""}`}
+        className={`${edge} bg-[#F3F1EB]/35 cursor-default`}
         style={slotStyle}
         title="Past time"
         aria-label="Past time"
@@ -454,7 +466,7 @@ function ScheduleSlotCell({
 
   return (
     <div
-      className={`${edge} bg-[#F3F1EB]/55 cursor-default ${orientation === "vertical" ? "" : ""}`}
+      className={`${edge} bg-[#F3F1EB]/35 cursor-default`}
       style={slotStyle}
       title={state.title}
       data-testid={`schedule-slot-disabled-${testSuffix}`}
@@ -483,6 +495,7 @@ function StaffRow({
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
+  onSlotClick,
   patientHighlight,
   onHighlightPatient,
   tooltipContainer = null,
@@ -609,14 +622,7 @@ function StaffRow({
                 highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
                 onSlotPointerDown={onSlotPointerDown}
                 onSlotPointerEnter={onSlotPointerEnter}
-                onOvertimeClick={() =>
-                  onOvertimeSlot({
-                    scheduled_time: timeStr,
-                    performer_id: staff.id,
-                    staff,
-                    effective,
-                  })
-                }
+                onSlotClick={onSlotClick}
               />
             );
           })}
@@ -661,6 +667,7 @@ function StaffColumn({
   dragPreview,
   onSlotPointerDown,
   onSlotPointerEnter,
+  onSlotClick,
   patientHighlight,
   onHighlightPatient,
   tooltipContainer = null,
@@ -766,7 +773,7 @@ function StaffColumn({
           timeStr,
         });
         return (
-          <div key={i} className="absolute left-0 right-0 z-[1]" style={{ top: `calc(${i} * var(--schedule-slot-height))`, height: "var(--schedule-slot-height)" }}>
+          <div key={i} className="absolute left-0 right-0 z-[2]" style={{ top: `calc(${i} * var(--schedule-slot-height))`, height: "var(--schedule-slot-height)" }}>
             <ScheduleSlotCell
               state={state}
               timeStr={timeStr}
@@ -777,14 +784,7 @@ function StaffColumn({
               highlighted={slotInDragPreview(slotMin, dragPreview, interval) && dragPreview?.staffId === staff.id}
               onSlotPointerDown={onSlotPointerDown}
               onSlotPointerEnter={onSlotPointerEnter}
-              onOvertimeClick={() =>
-                onOvertimeSlot({
-                  scheduled_time: timeStr,
-                  performer_id: staff.id,
-                  staff,
-                  effective,
-                })
-              }
+              onSlotClick={onSlotClick}
             />
           </div>
         );
@@ -886,6 +886,7 @@ export default function BookingsScheduleView({
   const shellRef = useRef(null);
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
+  const lastDragMovedRef = useRef(false);
   const [dragPreview, setDragPreview] = useState(null);
   const apptManipRef = useRef(null);
   const [apptManip, setApptManip] = useState(null);
@@ -1278,7 +1279,7 @@ export default function BookingsScheduleView({
     onEmptySlot({ scheduled_date: date, scheduled_time: partial.scheduled_time, performer_id: partial.performer_id });
   }, [canScheduleBook, date, onEmptySlot]);
 
-  const handleOvertimeClick = (partial) => {
+  const handleOvertimeClick = useCallback((partial) => {
     const slotMin = hhmmToMin(partial.scheduled_time);
     if (slotMin == null) return;
     onOvertimeSlot({
@@ -1288,11 +1289,33 @@ export default function BookingsScheduleView({
       staff: partial.staff,
       effective: partial.effective,
     });
-  };
+  }, [date, onOvertimeSlot]);
+
+  const handleSlotClick = useCallback(({ staffId, timeStr, state }) => {
+    if (!canScheduleBook || !state?.clickable) return;
+    if (lastDragMovedRef.current) {
+      lastDragMovedRef.current = false;
+      return;
+    }
+    if (state.kind === "overtime") {
+      const staffMember = staffById[staffId];
+      handleOvertimeClick({
+        scheduled_time: timeStr,
+        performer_id: staffId,
+        staff: staffMember,
+        effective: effectiveByStaff[staffId],
+      });
+      return;
+    }
+    if (state.kind === "available" || state.kind === "past") {
+      handleEmptyClick({ scheduled_time: timeStr, performer_id: staffId });
+    }
+  }, [canScheduleBook, staffById, effectiveByStaff, handleEmptyClick, handleOvertimeClick]);
 
   const isSlotValidForDrag = useCallback(
     (staffId, slotMin, slotEnd) => {
       const occupied = slotOverlapsBooking(bookings, staffId, slotMin, slotEnd);
+      const staffMember = staffById[staffId];
       return isSlotSelectableForDrag({
         scheduleDate: date,
         slotMin,
@@ -1302,22 +1325,27 @@ export default function BookingsScheduleView({
         occupied,
         canManage,
         canBookSlots: canScheduleBook,
+        canCreateOvertime,
+        staffName: staffMember?.name || "",
+        timeStr: minToHhmm(slotMin),
       });
     },
-    [bookings, date, timezone, effectiveByStaff, canManage, canScheduleBook],
+    [bookings, date, timezone, effectiveByStaff, canManage, canScheduleBook, canCreateOvertime, staffById],
   );
 
   const finishDrag = useCallback(() => {
     if (apptManipRef.current) return;
     const d = dragRef.current;
     const preview = dragPreviewRef.current;
+    const moved = Boolean(d?.moved);
+    lastDragMovedRef.current = moved;
     dragRef.current = null;
     dragPreviewRef.current = null;
     setDragPreview(null);
     if (!d || !preview || preview.staffId !== d.staffId) return;
 
     const { startMin, endMinExclusive } = preview;
-    if (isDragRangeSelection(d.moved, startMin, endMinExclusive, interval)) {
+    if (isDragRangeSelection(moved, startMin, endMinExclusive, interval)) {
       const startTime = minToHhmm(startMin);
       const endTime = minToHhmm(endMinExclusive);
       onRangeSelect?.({
@@ -1331,12 +1359,8 @@ export default function BookingsScheduleView({
         duration_min: endMinExclusive - startMin,
         fromDragRange: true,
       });
-      return;
     }
-    if (!d.moved) {
-      handleEmptyClick({ scheduled_time: minToHhmm(d.anchorMin), performer_id: d.staffId });
-    }
-  }, [date, interval, onRangeSelect, handleEmptyClick]);
+  }, [date, interval, onRangeSelect]);
 
   const expandDragToSlot = useCallback(
     (staffId, slotMin, slotEnd, clientX, clientY) => {
@@ -1603,7 +1627,7 @@ export default function BookingsScheduleView({
         /* ignore */
       }
     },
-    [canManage, isSlotValidForDrag, updateDragPreview],
+    [canScheduleBook, isSlotValidForDrag, updateDragPreview],
   );
 
   const onSlotPointerEnter = useCallback(
@@ -1703,6 +1727,7 @@ export default function BookingsScheduleView({
                   dragPreview={dragPreview}
                   onSlotPointerDown={onSlotPointerDown}
                   onSlotPointerEnter={onSlotPointerEnter}
+                  onSlotClick={handleSlotClick}
                   patientHighlight={patientHighlight}
                   onHighlightPatient={onHighlightPatient}
                   tooltipContainer={tooltipContainer}
@@ -1813,6 +1838,7 @@ export default function BookingsScheduleView({
                 dragPreview={dragPreview}
                 onSlotPointerDown={onSlotPointerDown}
                 onSlotPointerEnter={onSlotPointerEnter}
+                onSlotClick={handleSlotClick}
                 patientHighlight={patientHighlight}
                 onHighlightPatient={onHighlightPatient}
                 tooltipContainer={tooltipContainer}

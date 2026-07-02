@@ -80,6 +80,24 @@ describe("schedule past slots", () => {
     expect(state.kind).toBe("past");
     expect(state.clickable).toBe(false);
   });
+
+  test("resolveEmptySlotState allows future slots for appointment create permission", () => {
+    const state = resolveEmptySlotState({
+      scheduleDate: "2099-01-01",
+      slotMin: 600,
+      slotEnd: 630,
+      timezone: tz,
+      effective: { is_working: true, work_windows: [{ start: 540, end: 1200 }], block_ranges: [] },
+      occupied: false,
+      canManage: false,
+      canBookSlots: true,
+      canCreateOvertime: false,
+      staffName: "Dr. A",
+      timeStr: "10:00",
+    });
+    expect(state.kind).toBe("available");
+    expect(state.clickable).toBe(true);
+  });
 });
 
 describe("schedule orientation persistence", () => {

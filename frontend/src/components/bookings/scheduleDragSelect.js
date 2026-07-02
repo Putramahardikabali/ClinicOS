@@ -1,6 +1,6 @@
 /** Drag-to-select time range helpers for the appointment schedule grid. */
 
-import { resolveEmptySlotState } from "./scheduleUtils";
+import { isEmptySlotInteractive, resolveEmptySlotState } from "./scheduleUtils";
 
 export const SCHEDULE_DRAG_THRESHOLD_PX = 8;
 
@@ -35,8 +35,12 @@ export function isSlotSelectableForDrag({
   occupied,
   canManage,
   canBookSlots,
+  canCreateOvertime = false,
+  staffName = "",
+  timeStr = "",
 }) {
-  if (!(canBookSlots ?? canManage) || occupied) return false;
+  if (occupied) return false;
+  if (!(canBookSlots ?? canManage)) return false;
   const state = resolveEmptySlotState({
     scheduleDate,
     slotMin,
@@ -46,11 +50,11 @@ export function isSlotSelectableForDrag({
     occupied,
     canManage,
     canBookSlots,
-    canCreateOvertime: false,
-    staffName: "",
-    timeStr: "",
+    canCreateOvertime,
+    staffName,
+    timeStr,
   });
-  return state.kind === "available" || (state.kind === "past" && state.clickable);
+  return isEmptySlotInteractive(state);
 }
 
 export function clipDragRangeToValid({ startMin, endMinExclusive, interval, isSlotValid }) {
