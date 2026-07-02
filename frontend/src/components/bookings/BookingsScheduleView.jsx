@@ -67,11 +67,9 @@ import {
   resolveApiStatusFilter,
   SCHEDULE_STATUS_FILTER_OPTIONS,
 } from "@/components/bookings/scheduleStatusFilter";
-import {
-  bookingMatchesScheduleSearch,
-  countSearchMatches,
-} from "@/components/bookings/scheduleSearch";
 import ScheduleFitControls from "@/components/bookings/ScheduleFitControls";
+import SchedulePatientSearch from "@/components/bookings/SchedulePatientSearch";
+import { patientDisplayName } from "@/components/bookings/schedulePatientLookup";
 import {
   adjustManualScale,
   applyFitModeToState,
@@ -84,7 +82,6 @@ import {
   ScheduleMetricsProvider,
   useScheduleMetrics,
 } from "@/lib/scheduleScale";
-import SearchInput from "@/components/ui/SearchInput";
 import { toast } from "sonner";
 
 const DEFAULT_HOURS = { open: "09:00", close: "20:00" };
@@ -129,17 +126,12 @@ function slotOverlapsBooking(bookings, staffId, slotStart, slotEnd) {
   });
 }
 
-function resolveBookingCardHighlight(booking, { patientHighlight, scheduleDate, searchQuery }) {
+function resolveBookingCardHighlight(booking, { patientHighlight, scheduleDate }) {
   const patientMatch = patientHighlight && bookingMatchesPatientHighlight(booking, patientHighlight, scheduleDate);
-  const searchActive = Boolean((searchQuery || "").trim());
-  const searchMatch = searchActive && bookingMatchesScheduleSearch(booking, searchQuery);
-  const dimmed =
-    (patientHighlight && !patientMatch && !isTimeBlock(booking))
-    || (searchActive && !searchMatch && !isTimeBlock(booking));
+  const dimmed = patientHighlight && !patientMatch && !isTimeBlock(booking);
   return {
-    patientHighlightMatch: patientMatch || searchMatch,
+    patientHighlightMatch: patientMatch,
     patientHighlightDimmed: dimmed,
-    searchHighlightMatch: searchMatch && !patientMatch,
   };
 }
 
@@ -155,7 +147,6 @@ function BookingBlock({
   onManipulateStart,
   patientHighlightMatch = false,
   patientHighlightDimmed = false,
-  searchHighlightMatch = false,
   onHighlightPatient,
   tooltipContainer = null,
 }) {
@@ -213,7 +204,7 @@ function BookingBlock({
     borderLeftWidth: block ? undefined : 3,
   };
 
-  const cardClasses = `relative w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${searchHighlightMatch ? "ring-1 ring-[#52796F]/70 z-[12]" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
+  const cardClasses = `relative w-full h-full min-h-0 rounded-md border text-left px-2 py-1 overflow-hidden transition hover:shadow-sm hover:ring-1 hover:ring-[#2D3A33]/10 hover:brightness-[0.98] ${block ? "border-dashed" : "border-solid"} ${ghost ? "opacity-75 ring-2 ring-[#52796F]/45 shadow-md" : ""} ${patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)] z-20" : ""} ${patientHighlightDimmed ? "opacity-40 saturate-50" : ""} ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer active:scale-[0.99]"}`;
 
   const hasIndicatorIcons = !block && (visibleIcons.length > 0 || iconOverflow > 0);
   const hasBottomBadges = hasIndicatorIcons || overtime || showOverlapBadge;
@@ -462,7 +453,6 @@ function StaffRow({
   onSlotPointerEnter,
   patientHighlight,
   onHighlightPatient,
-  searchQuery = "",
   tooltipContainer = null,
 }) {
   const { slotPx, rowH, staffColW } = useScheduleMetrics();
@@ -477,7 +467,7 @@ function StaffRow({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
-    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate, searchQuery });
+    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate });
     const blockProps = {
       ...highlight,
       onHighlightPatient,
@@ -637,7 +627,6 @@ function StaffColumn({
   onSlotPointerEnter,
   patientHighlight,
   onHighlightPatient,
-  searchQuery = "",
   tooltipContainer = null,
 }) {
   const { slotPx, rowH, staffColW } = useScheduleMetrics();
@@ -653,7 +642,7 @@ function StaffColumn({
 
   const renderBooking = (b) => {
     const manipulable = canDragResize && canManipulateAppointment(b, canManage);
-    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate, searchQuery });
+    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate });
     const blockProps = {
       ...highlight,
       onHighlightPatient,
@@ -850,11 +839,17 @@ export default function BookingsScheduleView({
   onRangeSelect,
   canManage,
   canCreateOvertime = false,
+  canWhatsgo = false,
+  canCreatePatient = false,
   reloadAt = 0,
   modalPortalRef,
   onFullscreenChange,
   highlightApiRef,
   onHighlightActivated,
+  onBookPatient,
+  onModifyBooking,
+  onOpenPatientProfile,
+  onCreatePatient,
 }) {
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -871,7 +866,6 @@ export default function BookingsScheduleView({
   const gridViewportRef = useRef(null);
   const [activeUtility, setActiveUtility] = useState(null);
   const [patientHighlight, setPatientHighlight] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const shellRef = useRef(null);
   const dragRef = useRef(null);
   const dragPreviewRef = useRef(null);
@@ -977,13 +971,8 @@ export default function BookingsScheduleView({
     setPatientHighlight(null);
   }, []);
 
-  const activatePatientHighlight = useCallback(async (booking) => {
-    if (!isHighlightableBooking(booking)) {
-      toast.error("This appointment has no linked patient to highlight.");
-      return;
-    }
-    const patientId = booking.patient_id;
-    const patientName = booking.patient_name || "Patient";
+  const activatePatientHighlightById = useCallback(async (patientId, patientName) => {
+    if (!patientId) return;
     let totalCount = 0;
     let hiddenCount = 0;
     try {
@@ -1011,6 +1000,19 @@ export default function BookingsScheduleView({
     onHighlightActivated?.();
   }, [bookings, date, onHighlightActivated]);
 
+  const activatePatientHighlight = useCallback(async (booking) => {
+    if (!isHighlightableBooking(booking)) {
+      toast.error("This appointment has no linked patient to highlight.");
+      return;
+    }
+    await activatePatientHighlightById(booking.patient_id, booking.patient_name || "Patient");
+  }, [activatePatientHighlightById]);
+
+  const activatePatientHighlightFromPatient = useCallback(async (patient) => {
+    if (!patient?.id) return;
+    await activatePatientHighlightById(patient.id, patientDisplayName(patient));
+  }, [activatePatientHighlightById]);
+
   useEffect(() => {
     if (!highlightApiRef) return undefined;
     highlightApiRef.current = {
@@ -1024,7 +1026,6 @@ export default function BookingsScheduleView({
 
   useEffect(() => {
     clearPatientHighlight();
-    setSearchQuery("");
   }, [date, statusFilter, clearPatientHighlight]);
 
   useEffect(() => {
@@ -1613,10 +1614,19 @@ export default function BookingsScheduleView({
 
   const gridScrollClass = isFullscreen ? "h-full" : "max-h-[min(72vh,900px)]";
   const tooltipContainer = isFullscreen ? shellRef.current : undefined;
-  const searchMatchCount = useMemo(
-    () => countSearchMatches(bookings, searchQuery),
-    [bookings, searchQuery],
-  );
+  const searchPortalContainer = isFullscreen ? (document.fullscreenElement || shellRef.current) : undefined;
+
+  const handleSearchBookPatient = useCallback((patient) => {
+    onBookPatient?.(patient, date);
+  }, [onBookPatient, date]);
+
+  const handleSearchModifyBooking = useCallback((booking) => {
+    if (booking) onModifyBooking?.(booking);
+  }, [onModifyBooking]);
+
+  const handleSearchHighlightPatient = useCallback((patient) => {
+    activatePatientHighlightFromPatient(patient);
+  }, [activatePatientHighlightFromPatient]);
 
   const renderHorizontal = () => (
     <div
@@ -1677,7 +1687,6 @@ export default function BookingsScheduleView({
                   onSlotPointerEnter={onSlotPointerEnter}
                   patientHighlight={patientHighlight}
                   onHighlightPatient={onHighlightPatient}
-                  searchQuery={searchQuery}
                   tooltipContainer={tooltipContainer}
                 />
               ))}
@@ -1785,7 +1794,6 @@ export default function BookingsScheduleView({
                 onSlotPointerEnter={onSlotPointerEnter}
                 patientHighlight={patientHighlight}
                 onHighlightPatient={onHighlightPatient}
-                searchQuery={searchQuery}
                 tooltipContainer={tooltipContainer}
               />
             ))}
@@ -1833,13 +1841,17 @@ export default function BookingsScheduleView({
 
         {isFullscreen && (
           <div className="flex items-center gap-2 flex-1 min-w-[12rem] flex-wrap w-full sm:w-auto sm:flex-initial">
-            <SearchInput
-              className="flex-1 min-w-[12rem] max-w-md"
-              inputClassName="text-sm py-2"
-              placeholder="Search patient, phone, treatment..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              data-testid="schedule-patient-search"
+            <SchedulePatientSearch
+              date={date}
+              canManage={canManage}
+              canWhatsgo={canWhatsgo}
+              canCreatePatient={canCreatePatient}
+              portalContainer={searchPortalContainer}
+              onHighlightPatient={handleSearchHighlightPatient}
+              onBookPatient={handleSearchBookPatient}
+              onModifyBooking={handleSearchModifyBooking}
+              onOpenPatientProfile={onOpenPatientProfile}
+              onCreatePatient={onCreatePatient}
             />
             {onStatusFilterChange && (
               <select
@@ -1928,12 +1940,6 @@ export default function BookingsScheduleView({
         </div>
       )}
 
-      {isFullscreen && searchQuery.trim() && (
-        <p className="text-xs text-[#5C6C62] mb-2 shrink-0" data-testid="schedule-search-hint">
-          {searchMatchCount} appointment{searchMatchCount === 1 ? "" : "s"} match your search
-        </p>
-      )}
-
       <p className={`text-xs text-[#A89F8B] mb-3 ${isFullscreen ? "shrink-0" : ""}`}>
         Click an open slot to book · drag across slots to block a range · click a block for details
       </p>
@@ -1967,13 +1973,13 @@ export default function BookingsScheduleView({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {unassigned.map((b) => {
-                    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate: date, searchQuery });
+                    const highlight = resolveBookingCardHighlight(b, { patientHighlight, scheduleDate: date });
                     return (
                     <button
                       key={b.id}
                       type="button"
                       onClick={() => onSelectBooking(b)}
-                      className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${highlight.patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${highlight.searchHighlightMatch ? "ring-1 ring-[#52796F]/70" : ""} ${highlight.patientHighlightDimmed ? "opacity-40 saturate-50" : ""}`}
+                      className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${highlight.patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${highlight.patientHighlightDimmed ? "opacity-40 saturate-50" : ""}`}
                       style={{ borderColor: "#EAE6D7", background: highlight.patientHighlightMatch ? "#EFF6FF" : "#FFF8F5" }}
                       data-testid={`schedule-unassigned-${b.id}`}
                       data-patient-highlight-match={highlight.patientHighlightMatch ? "true" : undefined}

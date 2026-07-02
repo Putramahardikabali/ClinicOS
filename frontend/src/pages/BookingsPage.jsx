@@ -64,7 +64,7 @@ import { hhmmToMin } from "@/components/bookings/scheduleUtils";
 import OutsideWorkingHoursModal from "@/components/bookings/OutsideWorkingHoursModal";
 import OvertimeBadge from "@/components/bookings/OvertimeBadge";
 import { formatBookingListDate } from "@/components/bookings/scheduleUtils";
-import { useAuth, hasPermission } from "@/lib/auth";
+import { useAuth, hasPermission, can } from "@/lib/auth";
 import { evaluateNewBookingSubmit } from "@/lib/bookingSubmitValidation";
 import BookingGiftCardSection from "@/components/bookings/BookingGiftCardSection";
 import {
@@ -777,6 +777,28 @@ function NewBookingModal({ onClose, onCreated, initial = null, overtimeMeta = nu
         performer_id: initial.performer_id || f.performer_id,
       }));
       if (initial.scheduled_time) setCustomTime(true);
+    }
+    if (initial?.patient_id) {
+      const record = initial._patientRecord || {
+        id: initial.patient_id,
+        full_name: initial.patient_name,
+        phone: initial.patient_phone,
+        email: initial.patient_email,
+        patient_labels: initial.patient_labels,
+      };
+      setSelectedPatientRecord(record);
+      setForm((f) => ({
+        ...f,
+        patient_id: initial.patient_id,
+        patient_name: initial.patient_name || patientDisplayName(record),
+        patient_phone: initial.patient_phone || record.phone || "",
+        patient_email: initial.patient_email || record.email || "",
+        scheduled_date: initial.scheduled_date || f.scheduled_date,
+        scheduled_time: initial.scheduled_time || f.scheduled_time,
+        performer_id: initial.performer_id || f.performer_id,
+      }));
+      if (initial.scheduled_time) setCustomTime(true);
+      setStep("details");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2564,6 +2586,26 @@ export default function BookingsPage() {
   const canSendViaProvider = hasPermission(user, "messaging.send") || hasPermission(user, "messaging.manage");
   const canWhatsgoSend = canSendViaProvider;
 
+  const handleBookPatientFromSearch = useCallback((patient, scheduleDate) => {
+    setNewInitial({
+      scheduled_date: scheduleDate,
+      patient_id: patient.id,
+      patient_name: patientDisplayName(patient),
+      patient_phone: patient.phone || "",
+      patient_email: patient.email || "",
+      _patientRecord: patient,
+    });
+    setNewOpen(true);
+  }, []);
+
+  const handleOpenPatientProfile = useCallback((patient) => {
+    if (patient?.id) navigate(`/patients/${patient.id}`);
+  }, [navigate]);
+
+  const handleCreatePatientFromSearch = useCallback(() => {
+    navigate("/patients");
+  }, [navigate]);
+
   useEffect(() => {
     if (viewMode !== "schedule") {
       scheduleHighlightApiRef.current?.clearHighlight?.();
@@ -2794,6 +2836,8 @@ export default function BookingsPage() {
             reloadAt={reloadAt}
             canManage={canManage}
             canCreateOvertime={canCreateOvertime}
+            canWhatsgo={canWhatsgoSend && automationActive}
+            canCreatePatient={can(user, "create_patient")}
             modalPortalRef={scheduleModalPortalRef}
             onFullscreenChange={onScheduleFullscreenChange}
             highlightApiRef={scheduleHighlightApiRef}
@@ -2802,6 +2846,10 @@ export default function BookingsPage() {
               setDetailStartEdit(false);
             }}
             onSelectBooking={setDetailBooking}
+            onBookPatient={handleBookPatientFromSearch}
+            onModifyBooking={setDetailBooking}
+            onOpenPatientProfile={handleOpenPatientProfile}
+            onCreatePatient={handleCreatePatientFromSearch}
             onEmptySlot={(initial) => setSlotAction(initial)}
             onOvertimeSlot={(payload) => setOvertimeSlot(payload)}
             onRangeSelect={(payload) => setSlotAction(payload)}

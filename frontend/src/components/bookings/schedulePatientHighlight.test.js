@@ -31,7 +31,7 @@ describe("schedulePatientHighlight", () => {
   it("formats banner text", () => {
     expect(patientHighlightBannerText({ patientName: "Veronica Ng", visibleCount: 1 })).toBe("Highlighting: Veronica Ng");
     expect(patientHighlightBannerText({ patientName: "Veronica Ng", visibleCount: 3 })).toBe(
-      "3 bookings highlighted for Veronica Ng",
+      "Highlighting: Veronica Ng · 3 bookings",
     );
   });
 });

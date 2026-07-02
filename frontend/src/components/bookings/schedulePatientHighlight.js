@@ -24,6 +24,6 @@ export function patientHighlightBannerText(highlight) {
   if (!highlight) return "";
   const n = highlight.visibleCount ?? highlight.totalCount ?? 0;
   const name = highlight.patientName || "Patient";
-  if (n === 1) return `Highlighting: ${name}`;
-  return `${n} bookings highlighted for ${name}`;
+  if (n <= 1) return `Highlighting: ${name}`;
+  return `Highlighting: ${name} · ${n} bookings`;
 }
