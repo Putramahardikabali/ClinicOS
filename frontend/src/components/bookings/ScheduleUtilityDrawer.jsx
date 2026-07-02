@@ -18,7 +18,6 @@ export default function ScheduleUtilityDrawer({
   const label = UTILITY_ITEMS.find((u) => u.id === utilityId)?.label || "Utility";
 
   const handleClose = () => {
-    if (closeGuardRef?.current && closeGuardRef.current() === false) return;
     onClose?.();
   };
 

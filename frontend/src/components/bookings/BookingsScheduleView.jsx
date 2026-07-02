@@ -13,7 +13,7 @@ import {
 } from "@/components/bookings/scheduleBookingIndicators";
 import ScheduleFullscreenUtilityRail from "@/components/bookings/ScheduleFullscreenUtilityRail";
 import ScheduleUtilityDrawer from "@/components/bookings/ScheduleUtilityDrawer";
-import { resolveScheduleUtilityAccess } from "@/components/bookings/scheduleUtilityPermissions";
+import { canCloseUtilityDrawer } from "@/lib/scheduleMainModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppointmentWorkspace } from "@/lib/appointmentWorkspaceContext";
 import WorkspaceMoreMenu from "@/components/bookings/WorkspaceMoreMenu";
@@ -1036,11 +1036,22 @@ export default function BookingsScheduleView({
   }, [appointmentContext]);
 
   const closeUtilityDrawer = useCallback(() => {
-    if (utilityCloseGuardRef.current && utilityCloseGuardRef.current() === false) return;
+    if (!canCloseUtilityDrawer(utilityCloseGuardRef)) return false;
     setActiveUtility(null);
     setInvoiceDrawerInit(null);
     setSessionsDrawerInit(null);
+    return true;
   }, []);
+
+  const closeDrawerBeforeMainModal = useCallback(() => {
+    if (!activeUtility) return true;
+    return closeUtilityDrawer();
+  }, [activeUtility, closeUtilityDrawer]);
+
+  const handleCreateAppointmentFromWaitlist = useCallback((entry) => {
+    if (!closeDrawerBeforeMainModal()) return;
+    onCreateAppointmentFromWaitlist?.(entry);
+  }, [closeDrawerBeforeMainModal, onCreateAppointmentFromWaitlist]);
 
   const handleInvoicePaymentSuccess = useCallback(() => {
     onInvoicePaymentSuccess?.();
@@ -1058,11 +1069,11 @@ export default function BookingsScheduleView({
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      setActiveUtility(null);
+      closeUtilityDrawer();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [isAppointmentWorkspace, activeUtility]);
+  }, [isAppointmentWorkspace, activeUtility, closeUtilityDrawer]);
 
   const { openMin, closeMin, interval, closed, closedReason, slotCount } = useMemo(() => {
     const dk = dayKey(date);
@@ -1259,10 +1270,12 @@ export default function BookingsScheduleView({
 
   const handleEmptyClick = useCallback((partial) => {
     if (!canScheduleBook) return;
+    if (!closeDrawerBeforeMainModal()) return;
     onEmptySlot({ scheduled_date: date, scheduled_time: partial.scheduled_time, performer_id: partial.performer_id });
-  }, [canScheduleBook, date, onEmptySlot]);
+  }, [canScheduleBook, closeDrawerBeforeMainModal, date, onEmptySlot]);
 
   const handleOvertimeClick = useCallback((partial) => {
+    if (!closeDrawerBeforeMainModal()) return;
     const slotMin = hhmmToMin(partial.scheduled_time);
     if (slotMin == null) return;
     onOvertimeSlot({
@@ -1272,7 +1285,7 @@ export default function BookingsScheduleView({
       staff: partial.staff,
       effective: partial.effective,
     });
-  }, [date, onOvertimeSlot]);
+  }, [closeDrawerBeforeMainModal, date, onOvertimeSlot]);
 
   const handleSlotClick = useCallback(({ staffId, timeStr, state }) => {
     if (!canScheduleBook || !state?.clickable) return;
@@ -1354,6 +1367,7 @@ export default function BookingsScheduleView({
       if (moved && preview && preview.staffId === d.staffId) {
         const { startMin, endMinExclusive } = preview;
         if (isDragRangeSelection(moved, startMin, endMinExclusive, interval)) {
+          if (!closeDrawerBeforeMainModal()) return;
           const startTime = minToHhmm(startMin);
           const endTime = minToHhmm(endMinExclusive);
           onRangeSelect?.({
@@ -1396,7 +1410,7 @@ export default function BookingsScheduleView({
         handleSlotClick({ staffId: hit.staffId, timeStr: hit.timeStr, state });
       }
     },
-    [date, interval, onRangeSelect, openMin, resolveHitSlotState, handleSlotClick],
+    [date, interval, onRangeSelect, openMin, resolveHitSlotState, handleSlotClick, closeDrawerBeforeMainModal],
   );
 
   const expandDragToSlot = useCallback(
@@ -1513,6 +1527,7 @@ export default function BookingsScheduleView({
     setApptManip(null);
     if (!m) return;
     if (!m.moved) {
+      if (!closeDrawerBeforeMainModal()) return;
       onSelectBooking(m.booking);
       return;
     }
@@ -1547,7 +1562,7 @@ export default function BookingsScheduleView({
       conflicts,
       isPastTime,
     });
-  }, [bookings, date, onSelectBooking, staffById, timezone, effectiveByStaff]);
+  }, [bookings, date, onSelectBooking, staffById, timezone, effectiveByStaff, closeDrawerBeforeMainModal]);
 
   const onManipulateStart = useCallback((e, booking, mode) => {
     if (!canDragResize || !canManipulateAppointment(booking, canManage)) return;
@@ -1675,13 +1690,31 @@ export default function BookingsScheduleView({
     ? (document.fullscreenElement || shellRef.current)
     : shellRef.current;
 
+  const handleSelectBooking = useCallback((booking) => {
+    if (!closeDrawerBeforeMainModal()) return;
+    onSelectBooking?.(booking);
+  }, [closeDrawerBeforeMainModal, onSelectBooking]);
+
   const handleSearchBookPatient = useCallback((patient) => {
+    if (!closeDrawerBeforeMainModal()) return;
     onBookPatient?.(patient, date);
-  }, [onBookPatient, date]);
+  }, [closeDrawerBeforeMainModal, onBookPatient, date]);
 
   const handleSearchModifyBooking = useCallback((booking) => {
-    if (booking) onModifyBooking?.(booking);
-  }, [onModifyBooking]);
+    if (!booking) return;
+    if (!closeDrawerBeforeMainModal()) return;
+    onModifyBooking?.(booking);
+  }, [closeDrawerBeforeMainModal, onModifyBooking]);
+
+  const handleToolbarNewAppointment = useCallback(() => {
+    if (!closeDrawerBeforeMainModal()) return;
+    onNewAppointment?.();
+  }, [closeDrawerBeforeMainModal, onNewAppointment]);
+
+  const handleToolbarBlockTime = useCallback(() => {
+    if (!closeDrawerBeforeMainModal()) return;
+    onBlockTime?.();
+  }, [closeDrawerBeforeMainModal, onBlockTime]);
 
   const handleSearchHighlightPatient = useCallback((patient) => {
     activatePatientHighlightFromPatient(patient);
@@ -1734,7 +1767,7 @@ export default function BookingsScheduleView({
                   closeMin={closeMin}
                   interval={interval}
                   gridWidth={gridWidth}
-                  onSelectBooking={onSelectBooking}
+                  onSelectBooking={handleSelectBooking}
                   onOvertimeSlot={handleOvertimeClick}
                   effective={effectiveByStaff[s.id]}
                   canManage={canManage}
@@ -1846,7 +1879,7 @@ export default function BookingsScheduleView({
                 openMin={openMin}
                 closeMin={closeMin}
                 interval={interval}
-                onSelectBooking={onSelectBooking}
+                onSelectBooking={handleSelectBooking}
                 onOvertimeSlot={handleOvertimeClick}
                 effective={effectiveByStaff[s.id]}
                 canManage={canManage}
@@ -1978,8 +2011,8 @@ export default function BookingsScheduleView({
             canManage={canManage}
             clinicSlug={clinicSlug}
             viewMode="schedule"
-            onNewAppointment={onNewAppointment}
-            onBlockTime={onBlockTime}
+            onNewAppointment={onNewAppointment ? handleToolbarNewAppointment : undefined}
+            onBlockTime={onBlockTime ? handleToolbarBlockTime : undefined}
             onShowListView={onShowListView}
             onCopyPublicLink={onCopyPublicLink}
             onBrowserFullscreen={() => toggleBrowserFullscreen(shellRef.current)}
@@ -2045,7 +2078,7 @@ export default function BookingsScheduleView({
                     <button
                       key={b.id}
                       type="button"
-                      onClick={() => onSelectBooking(b)}
+                      onClick={() => handleSelectBooking(b)}
                       className={`text-left px-3 py-2 rounded-lg border text-sm cursor-pointer hover:bg-[#F8F5EC] ${highlight.patientHighlightMatch ? "ring-2 ring-[#1D4ED8] ring-offset-1 shadow-[0_0_0_3px_rgba(29,78,216,0.22)]" : ""} ${highlight.patientHighlightDimmed ? "opacity-40 saturate-50" : ""}`}
                       style={{ borderColor: "#EAE6D7", background: highlight.patientHighlightMatch ? "#EFF6FF" : "#FFF8F5" }}
                       data-testid={`schedule-unassigned-${b.id}`}
@@ -2071,7 +2104,7 @@ export default function BookingsScheduleView({
           invoiceInit={activeUtility === "invoices" ? invoiceDrawerInit : null}
           sessionsInit={activeUtility === "sessions" ? sessionsDrawerInit : null}
           onPaymentSuccess={handleInvoicePaymentSuccess}
-          onCreateAppointmentFromWaitlist={onCreateAppointmentFromWaitlist}
+          onCreateAppointmentFromWaitlist={handleCreateAppointmentFromWaitlist}
           closeGuardRef={utilityCloseGuardRef}
         />
         </div>

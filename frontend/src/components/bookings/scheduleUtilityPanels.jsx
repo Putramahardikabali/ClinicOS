@@ -266,7 +266,7 @@ export function InvoicesPanel({
   };
 
   const backToList = () => {
-    if (detailDirty && !window.confirm("Discard unsaved invoice item changes?")) return;
+    if (detailDirty && !window.confirm("Discard unsaved changes?")) return;
     setDetailDirty(false);
     setMode("list");
     setSelectedId(null);
@@ -984,7 +984,7 @@ export function ScheduleUtilityPanel({
     if (!closeGuardRef) return undefined;
     closeGuardRef.current = () => {
       if (utilityId === "invoices" && invoiceDirtyRef.current) {
-        return window.confirm("Discard unsaved invoice item changes?");
+        return window.confirm("Discard unsaved changes?");
       }
       return true;
     };

@@ -235,7 +235,7 @@ export function ScheduleInvoiceDrawerDetail({
 
   const confirmDiscard = () => {
     if (!itemsDirty) return true;
-    return window.confirm("Discard unsaved invoice item changes?");
+    return window.confirm("Discard unsaved changes?");
   };
 
   const handleBack = () => {
