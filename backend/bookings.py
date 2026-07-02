@@ -183,6 +183,9 @@ class BookingIn(BaseModel):
     overlap_override: Optional[bool] = False
     overlap_override_reason: Optional[str] = None
     past_booking_acknowledged: Optional[bool] = False
+
+
+OVERTIME_REASONS = (
     "Patient request",
     "Emergency",
     "Schedule exception",
@@ -314,7 +317,7 @@ class BookingUpdateIn(BaseModel):
     past_booking_acknowledged: Optional[bool] = False
 
 
-OVERTIME_REASONS = (
+class CouponIn(BaseModel):
     code: str
     name: Optional[str] = ""
     discount_type: str = "percent"  # percent | fixed
