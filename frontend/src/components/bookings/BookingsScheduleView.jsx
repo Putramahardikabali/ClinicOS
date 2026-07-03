@@ -13,6 +13,7 @@ import {
 } from "@/components/bookings/scheduleBookingIndicators";
 import ScheduleFullscreenUtilityRail from "@/components/bookings/ScheduleFullscreenUtilityRail";
 import ScheduleUtilityDrawer from "@/components/bookings/ScheduleUtilityDrawer";
+import { resolveScheduleUtilityAccess } from "@/components/bookings/scheduleUtilityPermissions";
 import { canCloseUtilityDrawer } from "@/lib/scheduleMainModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppointmentWorkspace } from "@/lib/appointmentWorkspaceContext";
